@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from "chart.js";
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, BarController, Tooltip, Legend } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtInt } from "@/lib/calculations";
 import type { Theme } from "@/hooks/useTheme";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, Tooltip, Legend);
 
 const FALLBACK = { ink: "#47566A", blue: "#175596", border: "#DCE2E9" };
 
