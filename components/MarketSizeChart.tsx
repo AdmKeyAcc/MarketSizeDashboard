@@ -6,7 +6,9 @@ import {
   CategoryScale,
   LinearScale,
   BarElement,
+  BarController,
   LineElement,
+  LineController,
   PointElement,
   Tooltip,
   Legend
@@ -16,7 +18,7 @@ import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtIDR, fmtIDRFull } from "@/lib/calculations";
 import type { Theme } from "@/hooks/useTheme";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, LineElement, LineController, PointElement, Tooltip, Legend);
 
 const FALLBACK = { ink: "#47566A", blue: "#175596", red: "#AC1F2C", border: "#DCE2E9" };
 
