@@ -1,7 +1,7 @@
 # Market Size Dashboard
 
 Dashboard + kalkulator market size spare part, dengan data tersimpan di
-Supabase dan di-hosting di Vercel. Dibangun dengan Next.js (App Router).
+Supabase dan di-hosting di Vercel. Dibangun dengan Next.js (App Router)
 
 Fitur utama:
 - Dashboard: KPI, grafik comparison market size vs actual sales, tabel detail part.
