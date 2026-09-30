@@ -1,0 +1,47 @@
+[
+  {
+    "product": "TOYOTA",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "BT",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "RAYMOND",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "CANYCOM",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "GD",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "HSC",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "MF",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "KUBOTA",
+    "workdays_month": 22,
+    "discount": 0.5
+  },
+  {
+    "product": "PERKINS",
+    "workdays_month": 22,
+    "discount": 0.5
+  }
+]

@@ -1,0 +1,74 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from "chart.js";
+import { Chart } from "react-chartjs-2";
+import type { UseDashboardState } from "@/hooks/useDashboardState";
+import { fmtInt } from "@/lib/calculations";
+import type { Theme } from "@/hooks/useTheme";
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+
+const FALLBACK = { ink: "#47566A", blue: "#175596", border: "#DCE2E9" };
+
+export default function UioChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
+  const { uioByProductRows, uioYears } = state;
+  const [colors, setColors] = useState(FALLBACK);
+
+  useEffect(() => {
+    const cs = getComputedStyle(document.documentElement);
+    setColors({
+      ink: cs.getPropertyValue("--ink-soft").trim() || FALLBACK.ink,
+      blue: cs.getPropertyValue("--blue-600").trim() || FALLBACK.blue,
+      border: cs.getPropertyValue("--border").trim() || FALLBACK.border
+    });
+  }, [theme]);
+
+  const labels = uioByProductRows.map((r) => r.product);
+  const values = uioByProductRows.map((r) => r.uio);
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>UIO per Product</h2>
+        <span className="note">{uioYears.length > 0 ? `Tahun ${uioYears.join(", ")}` : "Belum ada data UIO"}</span>
+      </div>
+      {labels.length === 0 ? (
+        <div className="empty-hint" style={{ margin: 0 }}>
+          Belum ada Data UIO yang diupload. Klik ⭱ di atas untuk upload Data UIO.
+        </div>
+      ) : (
+        <div className="chart-wrap">
+          <Chart
+            type="bar"
+            data={{
+              labels,
+              datasets: [
+                {
+                  type: "bar" as const,
+                  label: "UIO (unit)",
+                  data: values,
+                  backgroundColor: colors.blue,
+                  borderRadius: 4,
+                  maxBarThickness: 46
+                }
+              ]
+            }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: (c) => `UIO: ${fmtInt(c.parsed.y as number)} unit` } }
+              },
+              scales: {
+                x: { ticks: { color: colors.ink }, grid: { display: false } },
+                y: { ticks: { color: colors.ink, callback: (v) => fmtInt(v as number) }, grid: { display: false } }
+              }
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
