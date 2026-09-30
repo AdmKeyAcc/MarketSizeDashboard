@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Chart as ChartJS, CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend } from "chart.js";
+import { Chart as ChartJS, CategoryScale, LinearScale, LineElement, LineController, PointElement, Tooltip, Legend } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtPct } from "@/lib/calculations";
 import type { Theme } from "@/hooks/useTheme";
 
-ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, LineElement, LineController, PointElement, Tooltip, Legend);
 
 const FALLBACK = { ink: "#47566A", green: "#227A46", border: "#DCE2E9" };
 
