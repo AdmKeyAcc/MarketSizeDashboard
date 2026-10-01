@@ -111,8 +111,8 @@ table { border-collapse: collapse; width: 100%; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
 .panel > h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-.panel-head h2 { font-size: 15px; margin: 0; font-weight: 600; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.panel-head h2 { font-size: 15px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .seg { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; }
 .seg-btn { border: none; background: none; padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12.5px; cursor: pointer; color: var(--ink-soft); }
 .seg-btn.active { background: var(--blue-600); color: #fff; }
