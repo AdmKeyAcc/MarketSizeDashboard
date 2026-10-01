@@ -14,6 +14,12 @@ const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
 
 const MULTI_KEYS = Object.keys(CHIP_LABELS) as (keyof FilterState)[];
 
+// Beberapa filter (mis. Part Number) bisa punya ribuan nilai unik — merender
+// semuanya sekaligus sebagai elemen <label>/<input> bikin DOM meledak dan
+// tab jadi tidak responsif. Batasi yang dirender; minta orang mengetik di
+// kotak pencarian untuk mempersempit kalau hasilnya lebih banyak dari ini.
+const MAX_RENDERED_OPTIONS = 300;
+
 /** Compact checklist dropdown: the closed box stays the same size as a
  * normal <select>, and only the option panel (small, scrollable, with a
  * search box for long lists) opens below it — never a big list taking up
@@ -35,6 +41,8 @@ function MultiSelectField({
   const filtered = search.trim()
     ? options.filter((o) => o.toLowerCase().includes(search.trim().toLowerCase()))
     : options;
+  const visible = filtered.slice(0, MAX_RENDERED_OPTIONS);
+  const hiddenCount = filtered.length - visible.length;
 
   function toggle(o: string) {
     onChange(values.includes(o) ? values.filter((v) => v !== o) : [...values, o]);
@@ -61,12 +69,17 @@ function MultiSelectField({
           )}
           <div className="msf-list">
             {filtered.length === 0 && <div className="msf-empty">Tidak ada hasil</div>}
-            {filtered.map((o) => (
+            {visible.map((o) => (
               <label className="msf-opt" key={o}>
                 <input type="checkbox" checked={values.includes(o)} onChange={() => toggle(o)} />
                 <span>{o}</span>
               </label>
             ))}
+            {hiddenCount > 0 && (
+              <div className="msf-empty">
+                +{hiddenCount.toLocaleString("id-ID")} hasil lain — ketik di kotak pencarian untuk mempersempit
+              </div>
+            )}
           </div>
           {values.length > 0 && (
             <button type="button" className="msf-clear" onClick={() => onChange([])}>
