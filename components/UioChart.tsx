@@ -80,7 +80,12 @@ export default function UioChart({ state, theme }: { state: UseDashboardState; t
               },
               scales: {
                 x: { ticks: { color: colors.ink }, grid: { display: false } },
-                y: { ticks: { color: colors.ink, callback: (v) => fmtInt(v as number) }, grid: { display: false } }
+                y: {
+                  beginAtZero: true,
+                  ticks: { color: colors.ink, maxTicksLimit: 6, callback: (v) => fmtInt(v as number) },
+                  grid: { color: colors.border, drawTicks: false },
+                  border: { display: false }
+                }
               }
             }}
           />
