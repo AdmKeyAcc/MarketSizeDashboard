@@ -200,7 +200,7 @@ export function buildModelLookup(uio: UioMaster[]): Record<string, UioMaster> {
  * bersama). */
 export function defaultDiscount(assumptions: Assumption[], product: string): number {
   const base = assumptions.find((a) => a.product === product);
-  return base ? base.discount : 0.5;
+  return base ? base.discount : 0;
 }
 
 /** Default HM/Day untuk sebuah model, diambil dari uio_master kalau ada
@@ -277,7 +277,32 @@ export function resolveUioYears(f: FilterState, uioUnits: UioUnit[]): number[] {
 
 export type UioByProductRow = { product: string; uio: number };
 
-export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterState): UioByProductRow[] {
+/** Level agregasi yang bisa dipilih untuk chart UIO ("hierarchy control"):
+ * Product adalah level paling ringkas (per brand), Model lebih rinci (per
+ * tipe unit), Customer Group paling rinci (per segmen pelanggan). */
+export const UIO_DIMENSIONS = ["product", "model", "customerGroup"] as const;
+export type UioDimension = (typeof UIO_DIMENSIONS)[number];
+
+export const UIO_DIMENSION_LABELS: Record<UioDimension, string> = {
+  product: "Product",
+  model: "Model",
+  customerGroup: "Customer Group"
+};
+
+export type UioAggRow = { label: string; uio: number };
+
+function uioDimensionValue(u: UioUnit, dimension: UioDimension): string {
+  if (dimension === "model") return u.model || "Lainnya";
+  if (dimension === "customerGroup") return u.customer_group || "Lainnya";
+  return u.product || "Lainnya";
+}
+
+export function uioByDimension(
+  uioUnits: UioUnit[],
+  years: number[],
+  dimension: UioDimension,
+  f?: FilterState
+): UioAggRow[] {
   const totals: Record<string, number> = {};
   uioUnits.forEach((u) => {
     if (years.length > 0 && (u.year === null || !years.includes(u.year))) return;
@@ -288,12 +313,17 @@ export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterSta
       if (f.product.length > 0 && !f.product.includes(u.product || "")) return;
       if (f.modelUnit.length > 0 && !f.modelUnit.includes(u.model || "")) return;
     }
-    const product = u.product || "Lainnya";
-    totals[product] = (totals[product] || 0) + 1;
+    const label = uioDimensionValue(u, dimension);
+    totals[label] = (totals[label] || 0) + 1;
   });
   return Object.entries(totals)
-    .map(([product, uio]) => ({ product, uio }))
+    .map(([label, uio]) => ({ label, uio }))
     .sort((a, b) => b.uio - a.uio);
+}
+
+/** Kept for backward compatibility — equivalent to uioByDimension(..., "product"). */
+export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterState): UioByProductRow[] {
+  return uioByDimension(uioUnits, years, "product", f).map((r) => ({ product: r.label, uio: r.uio }));
 }
 
 /** Index (tahun|product|model) -> jumlah unit, dibangun sekali supaya
@@ -331,6 +361,31 @@ export function resolvePrice(
     if (general) return general.price;
   }
   return fallback;
+}
+
+export type PartWithoutPrice = { product: string; model: string; part_number: string; part_name: string };
+
+/** Part Number yang "gagal" dapat harga: tidak ada entri cocok di Data
+ * Harga (baik harga khusus per Customer Group maupun harga umum), dan
+ * pricelist bawaan part itu sendiri juga 0 — sehingga Contract Price-nya
+ * jadi 0 dan part ini otomatis tidak menyumbang apa pun ke Market Size
+ * tanpa ada tanda apapun di chart. Dipakai untuk daftar "Part Number
+ * tanpa harga" di modal info, supaya ketahuan part mana yang perlu
+ * dilengkapi di Data Harga. */
+export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]): PartWithoutPrice[] {
+  const priced = new Set(priceList.map((p) => p.part_number));
+  const seen = new Set<string>();
+  const out: PartWithoutPrice[] = [];
+  parts.forEach((p) => {
+    if (!p.part_number) return;
+    if (priced.has(p.part_number)) return;
+    if (p.pricelist && p.pricelist > 0) return;
+    const key = `${p.product}|${p.model}|${p.part_number}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ product: p.product, model: p.model, part_number: p.part_number, part_name: p.part_name || "" });
+  });
+  return out;
 }
 
 export type MarketSizeYearRow = { year: number; market_size: number; actual_sales: number };
@@ -382,6 +437,23 @@ export function marketSizeByYear(
     });
     return { year, market_size: Math.round(total), actual_sales: Math.round(actualByYear[year] || 0) };
   });
+}
+
+export type ActualSalesMonthRow = { month: string; actual_sales: number };
+
+/** Actual Sales per bulan untuk SATU tahun tertentu — Market Size tidak
+ * punya versi ini karena Data UIO (sumbernya) cuma granular per tahun,
+ * jadi perbandingan bulanan hanya tersedia untuk Actual Sales. */
+export function actualSalesByMonth(actualSales: ActualSalesRow[], year: number, f?: FilterState): ActualSalesMonthRow[] {
+  const allowed = f ? allowedProducts(f) : null;
+  const totals: Record<string, number> = {};
+  actualSales.forEach((r) => {
+    if (r.year !== year) return;
+    if (allowed && !allowed.includes(r.product)) return;
+    if (f && f.product.length > 0 && !f.product.includes(r.product)) return;
+    totals[r.month] = (totals[r.month] || 0) + (r.actual_sales || 0);
+  });
+  return MONTH_ORDER.map((month) => ({ month, actual_sales: Math.round(totals[month] || 0) }));
 }
 
 export type MarketShareYearRow = { year: number; market_share: number };
