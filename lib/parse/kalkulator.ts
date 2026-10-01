@@ -67,7 +67,7 @@ export function parseKalkulatorWorkbook(wb: XLSX.WorkBook): KalkulatorParseResul
     assumptions.push({
       product: str(brand) || "",
       workdays_month: num(cellAt(ws, 4, col + 1)) || 22,
-      discount: discountRaw === null || Number.isNaN(Number(discountRaw)) ? 0.5 : num(discountRaw)
+      discount: discountRaw === null || Number.isNaN(Number(discountRaw)) ? 0 : num(discountRaw)
     });
   }
 
