@@ -1,6 +1,9 @@
 /** Template downloads for the 2 upload types (Data UIO & Data Harga).
- * XLSX is imported dynamically so the library is only pulled into the
- * bundle when the user actually clicks "Unduh template". */
+ * ExcelJS is imported dynamically so the library is only pulled into the
+ * bundle when the user actually clicks "Unduh template". It's used here
+ * (instead of @e965/xlsx, used elsewhere in the app) specifically because
+ * it can actually write cell styles — @e965/xlsx parses styles but silently
+ * drops them when writing, so the header row never came out colored. */
 
 async function downloadWorkbook(
   sheetName: string,
@@ -8,12 +11,22 @@ async function downloadWorkbook(
   colWidths: number[],
   filename: string
 ) {
-  const XLSX = await import("@e965/xlsx");
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws["!cols"] = colWidths.map((wch) => ({ wch }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  const buf: ArrayBuffer = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName);
+
+  const headers = Object.keys(rows[0] ?? {});
+  ws.columns = headers.map((header, i) => ({ header, key: header, width: colWidths[i] ?? 16 }));
+  rows.forEach((row) => ws.addRow(row));
+
+  const headerRow = ws.getRow(1);
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
