@@ -38,7 +38,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         refreshing={state.refreshing}
       />
 
-      <FilterBar state={state} />
+      {activeTab === "dashboard" && <FilterBar state={state} />}
 
       <div className="main">
         {!hasData && (
@@ -63,7 +63,12 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       </div>
 
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={state.refetch} />
-      <InfoModal open={infoOpen} onClose={() => setInfoOpen(false)} meta={state.data.meta} />
+      <InfoModal
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        meta={state.data.meta}
+        partsWithoutPrice={state.partsWithoutPrice}
+      />
     </div>
   );
 }
