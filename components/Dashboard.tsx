@@ -48,6 +48,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           </div>
         )}
 
+        
         {activeTab === "dashboard" ? (
           <section className="view">
             <KpiCards state={state} />
