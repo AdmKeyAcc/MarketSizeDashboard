@@ -30,7 +30,7 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Market Share (Actual Sales ÷ Market Size) — per Tahun</h2>
+        <h2>Market Share per Tahun</h2>
       </div>
       {labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
