@@ -23,7 +23,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, LineElem
 const FALLBACK = { ink: "#47566A", blue: "#175596", red: "#AC1F2C", border: "#DCE2E9" };
 
 export default function MarketSizeChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { marketSizeYearRows } = state;
+  const { marketSizeYearRows, marketSizeView, setMarketSizeView, actualSalesMonthRows, singleYear } = state;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -36,18 +36,79 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
     });
   }, [theme]);
 
-  const labels = marketSizeYearRows.map((r) => String(r.year));
+  const isBulanan = marketSizeView === "bulan";
+
+  // Tahunan: Market Size (garis) + Actual Sales (bar), X = Tahun.
+  const yearLabels = marketSizeYearRows.map((r) => String(r.year));
   const msData = marketSizeYearRows.map((r) => r.market_size);
-  const actData = marketSizeYearRows.map((r) => r.actual_sales);
+  const actYearData = marketSizeYearRows.map((r) => r.actual_sales);
+
+  // Bulanan: hanya Actual Sales (Market Size tidak tersedia per bulan,
+  // karena Data UIO sumbernya cuma granular per tahun), X = Bulan, untuk
+  // satu tahun yang dipilih di filter Tahun.
+  const monthLabels = actualSalesMonthRows.map((r) => r.month);
+  const actMonthData = actualSalesMonthRows.map((r) => r.actual_sales);
+
+  const labels = isBulanan ? monthLabels : yearLabels;
+  const noData = isBulanan ? singleYear === null : yearLabels.length === 0;
 
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Market Size vs Actual Sales — per Tahun</h2>
+        <h2>Market Size {isBulanan ? "" : "per Tahun"}</h2>
+        <div className="seg">
+          <button
+            type="button"
+            className={`seg-btn${!isBulanan ? " active" : ""}`}
+            onClick={() => setMarketSizeView("tahun")}
+          >
+            Tahunan
+          </button>
+          <button
+            type="button"
+            className={`seg-btn${isBulanan ? " active" : ""}`}
+            onClick={() => setMarketSizeView("bulan")}
+          >
+            Bulanan
+          </button>
+        </div>
       </div>
-      {labels.length === 0 ? (
+      {noData ? (
         <div className="empty-hint" style={{ margin: 0 }}>
-          Belum ada Data UIO yang diupload, jadi Market Size per tahun belum bisa dihitung.
+          {isBulanan
+            ? "Pilih tepat satu Tahun di filter untuk melihat Actual Sales per bulan (Market Size tidak tersedia per bulan karena Data UIO hanya per tahun)."
+            : "Belum ada Data UIO yang diupload, jadi Market Size per tahun belum bisa dihitung."}
+        </div>
+      ) : isBulanan ? (
+        <div className="chart-wrap">
+          <Chart
+            type="bar"
+            data={{
+              labels: monthLabels,
+              datasets: [
+                {
+                  type: "bar" as const,
+                  label: `Actual sales ${singleYear}`,
+                  data: actMonthData,
+                  backgroundColor: colors.red,
+                  borderRadius: 4,
+                  maxBarThickness: 46
+                }
+              ]
+            }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: "bottom", labels: { color: colors.ink, boxWidth: 12, padding: 16 } },
+                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtIDRFull(c.parsed.y as number)}` } }
+              },
+              scales: {
+                x: { ticks: { color: colors.ink }, grid: { display: false } },
+                y: { ticks: { color: colors.ink, callback: (v) => fmtIDR(v as number) }, grid: { display: false } }
+              }
+            }}
+          />
         </div>
       ) : (
         <div className="chart-wrap">
@@ -59,7 +120,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                 {
                   type: "bar" as const,
                   label: "Actual sales",
-                  data: actData,
+                  data: actYearData,
                   backgroundColor: colors.red,
                   borderRadius: 4,
                   order: 2,
