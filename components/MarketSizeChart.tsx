@@ -105,7 +105,12 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
               },
               scales: {
                 x: { ticks: { color: colors.ink }, grid: { display: false } },
-                y: { ticks: { color: colors.ink, callback: (v) => fmtIDR(v as number) }, grid: { display: false } }
+                y: {
+                  beginAtZero: true,
+                  ticks: { color: colors.ink, maxTicksLimit: 6, callback: (v) => fmtIDR(v as number) },
+                  grid: { color: colors.border, drawTicks: false },
+                  border: { display: false }
+                }
               }
             }}
           />
@@ -148,7 +153,12 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
               },
               scales: {
                 x: { ticks: { color: colors.ink }, grid: { display: false } },
-                y: { ticks: { color: colors.ink, callback: (v) => fmtIDR(v as number) }, grid: { display: false } }
+                y: {
+                  beginAtZero: true,
+                  ticks: { color: colors.ink, maxTicksLimit: 6, callback: (v) => fmtIDR(v as number) },
+                  grid: { color: colors.border, drawTicks: false },
+                  border: { display: false }
+                }
               }
             }}
           />
