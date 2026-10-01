@@ -9,7 +9,7 @@ import type { Theme } from "@/hooks/useTheme";
 
 ChartJS.register(CategoryScale, LinearScale, LineElement, LineController, PointElement, Tooltip, Legend);
 
-const FALLBACK = { ink: "#47566A", green: "#227A46", border: "#DCE2E9" };
+const FALLBACK = { ink: "#47566A", green: "#227A46", border: "#DCE2E9", surface: "#FFFFFF" };
 
 export default function MarketShareChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
   const { marketShareYearRows } = state;
@@ -20,7 +20,8 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
     setColors({
       ink: cs.getPropertyValue("--ink-soft").trim() || FALLBACK.ink,
       green: cs.getPropertyValue("--green-600").trim() || FALLBACK.green,
-      border: cs.getPropertyValue("--border").trim() || FALLBACK.border
+      border: cs.getPropertyValue("--border").trim() || FALLBACK.border,
+      surface: cs.getPropertyValue("--surface").trim() || FALLBACK.surface
     });
   }, [theme]);
 
@@ -37,7 +38,7 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
           Belum ada Data UIO yang diupload, jadi Market Share per tahun belum bisa dihitung.
         </div>
       ) : (
-        <div className="chart-wrap">
+        <div className="chart-wrap-compact">
           <Chart
             type="line"
             data={{
@@ -48,8 +49,11 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
                   data: values,
                   borderColor: colors.green,
                   backgroundColor: colors.green,
+                  borderWidth: 2,
                   tension: 0.3,
-                  pointRadius: 4
+                  pointRadius: 4,
+                  pointBorderWidth: 2,
+                  pointBorderColor: colors.surface
                 }
               ]
             }}
@@ -62,7 +66,16 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
               },
               scales: {
                 x: { ticks: { color: colors.ink }, grid: { display: false } },
-                y: { ticks: { color: colors.ink, callback: (v) => `${v}%` }, grid: { display: false } }
+                y: {
+                  beginAtZero: true,
+                  ticks: {
+                    color: colors.ink,
+                    maxTicksLimit: 6,
+                    callback: (v) => `${Math.round(v as number).toLocaleString("id-ID")}%`
+                  },
+                  grid: { color: colors.border, drawTicks: false },
+                  border: { display: false }
+                }
               }
             }}
           />
