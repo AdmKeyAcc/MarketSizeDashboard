@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, BarController, Tooltip, Legend } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtInt } from "@/lib/calculations";
+import { fmtInt, UIO_DIMENSIONS, UIO_DIMENSION_LABELS } from "@/lib/calculations";
 import type { Theme } from "@/hooks/useTheme";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, Tooltip, Legend);
@@ -12,7 +12,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, Tooltip,
 const FALLBACK = { ink: "#47566A", blue: "#175596", border: "#DCE2E9" };
 
 export default function UioChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { uioByProductRows, uioYears } = state;
+  const { uioByProductRows, uioYears, uioDimension, setUioDimension } = state;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -24,14 +24,31 @@ export default function UioChart({ state, theme }: { state: UseDashboardState; t
     });
   }, [theme]);
 
-  const labels = uioByProductRows.map((r) => r.product);
+  const labels = uioByProductRows.map((r) => r.label);
   const values = uioByProductRows.map((r) => r.uio);
 
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>UIO per Product</h2>
-        <span className="note">{uioYears.length > 0 ? `Tahun ${uioYears.join(", ")}` : "Belum ada data UIO"}</span>
+        <h2>
+          UIO per {UIO_DIMENSION_LABELS[uioDimension]}
+          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation).">i</span>
+        </h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div className="seg">
+            {UIO_DIMENSIONS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`seg-btn${uioDimension === d ? " active" : ""}`}
+                onClick={() => setUioDimension(d)}
+              >
+                {UIO_DIMENSION_LABELS[d]}
+              </button>
+            ))}
+          </div>
+          <span className="note">{uioYears.length > 0 ? `Tahun ${uioYears.join(", ")}` : "Belum ada data UIO"}</span>
+        </div>
       </div>
       {labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
