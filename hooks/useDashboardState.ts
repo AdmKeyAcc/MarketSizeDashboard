@@ -17,9 +17,12 @@ import {
   getRealCustomers,
   isScalingActive,
   resolveUioYears,
-  uioByProduct,
+  uioByDimension,
+  type UioDimension,
   marketSizeByYear,
-  marketShareByYear
+  marketShareByYear,
+  findPartsWithoutPrice,
+  actualSalesByMonth
 } from "@/lib/calculations";
 import { BUSINESS_AREA_MAP, CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
 
@@ -27,6 +30,8 @@ export function useDashboardState(initialData: DashboardData) {
   const [data, setData] = useState<DashboardData>(initialData);
   const [refreshing, setRefreshing] = useState(false);
   const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
+  const [uioDimension, setUioDimension] = useState<UioDimension>("product");
+  const [marketSizeView, setMarketSizeView] = useState<"tahun" | "bulan">("tahun");
 
   const refetch = useCallback(async () => {
     setRefreshing(true);
@@ -55,14 +60,27 @@ export function useDashboardState(initialData: DashboardData) {
   // ---- dashboard charts: UIO per product / market size & share per tahun ----
   const uioYears = useMemo(() => resolveUioYears(filters, data.uioUnits), [filters, data.uioUnits]);
   const uioByProductRows = useMemo(
-    () => uioByProduct(data.uioUnits, uioYears, filters),
-    [data.uioUnits, uioYears, filters]
+    () => uioByDimension(data.uioUnits, uioYears, uioDimension, filters),
+    [data.uioUnits, uioYears, uioDimension, filters]
   );
   const marketSizeYearRows = useMemo(
     () => marketSizeByYear(data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters),
     [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters]
   );
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
+  const partsWithoutPrice = useMemo(
+    () => findPartsWithoutPrice(data.parts, data.priceList),
+    [data.parts, data.priceList]
+  );
+  // Actual Sales per bulan hanya masuk akal kalau pengguna sudah mempersempit
+  // ke SATU tahun (kalau belum/lebih dari satu, ambigu bulan dari tahun yang
+  // mana) — Market Size tidak punya versi bulanan sama sekali (lihat
+  // actualSalesByMonth di lib/calculations.ts).
+  const singleYear = filters.tahun.length === 1 ? parseInt(filters.tahun[0], 10) : null;
+  const actualSalesMonthRows = useMemo(
+    () => (singleYear !== null && Number.isFinite(singleYear) ? actualSalesByMonth(data.actualSales, singleYear, filters) : []),
+    [data.actualSales, singleYear, filters]
+  );
 
   // ---- cascading filter option lists (no "Semua" sentinel anymore — an
   // empty selection in the checklist itself means "no restriction") ----
@@ -142,7 +160,14 @@ export function useDashboardState(initialData: DashboardData) {
     months,
     options,
     uioYears,
+    uioDimension,
+    setUioDimension,
     uioByProductRows,
+    partsWithoutPrice,
+    marketSizeView,
+    setMarketSizeView,
+    actualSalesMonthRows,
+    singleYear,
     marketSizeYearRows,
     marketShareYearRows
   };
