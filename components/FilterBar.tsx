@@ -147,7 +147,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
             values={filters.businessArea}
             options={options.businessArea}
             onChange={(v) => setFilter("businessArea", v)}
-            info="Pengelompokan awal berdasarkan lini produk TRAKNUS — mohon dikonfirmasi ke tim terkait."
+            info="Kode Sales Office (SOff.) tempat customer bertransaksi — satu customer bisa masuk lebih dari satu Business Area kalau pernah beli dari beberapa SOff."
           />
           <MultiSelectField
             label="Customer Group"
