@@ -24,7 +24,7 @@ import {
   findPartsWithoutPrice,
   actualSalesByMonth
 } from "@/lib/calculations";
-import { BUSINESS_AREA_MAP, CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
+import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
 
 export function useDashboardState(initialData: DashboardData) {
   const [data, setData] = useState<DashboardData>(initialData);
@@ -90,7 +90,9 @@ export function useDashboardState(initialData: DashboardData) {
     const allYears = uniq([...years, ...uioYearsAll.map(String)]).sort();
     const monthOpts = uniq(monthly.map((r) => r.month)).sort((a, b) => monthIndex(a) - monthIndex(b));
     const areaOpts = uniq(realCustomers.map((c) => c.cabang)).sort();
-    const businessAreaOpts = Object.keys(BUSINESS_AREA_MAP);
+    // Business Area = kode Sales Office (SOff.) customer — satu customer
+    // bisa punya lebih dari satu, jadi di-flatten dulu sebelum di-uniq.
+    const businessAreaOpts = uniq(realCustomers.flatMap((c) => c.business_area || [])).sort();
     const pssOpts = uniq(realCustomers.map((c) => c.pss)).sort();
     const groupOpts = uniq(realCustomers.map((c) => c.customer_group)).sort();
     const tierOpts = uniq(realCustomers.map((c) => c.tier)).sort((a, b) => {
@@ -105,6 +107,8 @@ export function useDashboardState(initialData: DashboardData) {
     let custPool = realCustomers;
     if (filters.customerGroup.length > 0) custPool = custPool.filter((c) => filters.customerGroup.includes(c.customer_group || ""));
     if (filters.area.length > 0) custPool = custPool.filter((c) => filters.area.includes(c.cabang || ""));
+    if (filters.businessArea.length > 0)
+      custPool = custPool.filter((c) => (c.business_area || []).some((ba) => filters.businessArea.includes(ba)));
     if (filters.tier.length > 0) custPool = custPool.filter((c) => filters.tier.includes(c.tier || ""));
     // uniq() is required here: the same Customer Name can legitimately exist
     // under more than one Customer Group (the DB's natural key is the
