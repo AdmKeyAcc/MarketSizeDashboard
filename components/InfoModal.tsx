@@ -40,8 +40,8 @@ export default function InfoModal({
             populasi UIO dari waktu ke waktu tetap bisa dilihat trennya.
           </li>
           <li>
-            Business Area adalah usulan pengelompokan awal berdasarkan lini produk (Material Handling, Agrikultur,
-            Konstruksi, Power &amp; Industrial) — mohon dikonfirmasi.
+            Business Area diambil dari kode Sales Office (SOff.) pada data konfirmasi UIO per customer — satu
+            customer bisa punya lebih dari satu Business Area kalau pernah bertransaksi dari beberapa SOff berbeda.
           </li>
           <li>Semua data disimpan di Supabase dan terlihat oleh siapa pun yang mengakses dashboard ini.</li>
         </ul>
