@@ -23,7 +23,7 @@ export function parseCustomerWorkbook(wb: XLSX.WorkBook): Customer[] {
   const lastRow = Math.max(sheetLastRow(ws), 200);
   for (let row = 4; row <= lastRow && row <= 5000; row++) {
     const group = cellAt(ws, row, 3);
-    const name = cellAt(ws, row, 6);
+    const name = cellAt(ws, row, 6); 
     if (group === null && name === null) continue;
     const uioByBrand: Record<string, number> = {};
     brands.forEach((b, i) => {
