@@ -8,8 +8,7 @@ import {
   type UioUnit,
   type PriceListEntry,
   MONTH_ORDER,
-  CUST_BRAND_MAP,
-  BUSINESS_AREA_MAP
+  CUST_BRAND_MAP
 } from "@/lib/types";
 
 /** Every filter is multi-select (checklist): an empty array means "no
@@ -51,10 +50,15 @@ export function getRealCustomers(customers: Customer[]): Customer[] {
 }
 
 export function getScopedCustomers(customers: Customer[], f: FilterState): Customer[] | null {
-  const anyScope = [f.area, f.customerGroup, f.customerName, f.pss, f.tier].some((arr) => arr.length > 0);
+  const anyScope = [f.area, f.businessArea, f.customerGroup, f.customerName, f.pss, f.tier].some(
+    (arr) => arr.length > 0
+  );
   if (!anyScope) return null;
   return getRealCustomers(customers).filter((c) => {
     if (f.area.length > 0 && !f.area.includes(c.cabang || "")) return false;
+    // business_area (SOff) bisa lebih dari satu per customer — cocok kalau
+    // SALAH SATU SOff customer ada di pilihan filter yang dipilih.
+    if (f.businessArea.length > 0 && !(c.business_area || []).some((ba) => f.businessArea.includes(ba))) return false;
     if (f.customerGroup.length > 0 && !f.customerGroup.includes(c.customer_group || "")) return false;
     if (f.customerName.length > 0 && !f.customerName.includes(c.customer_name || "")) return false;
     if (f.pss.length > 0 && !f.pss.includes(c.pss || "")) return false;
@@ -86,13 +90,14 @@ export function allocationFactor(customers: Customer[], f: FilterState, product:
   return scopedSum / totalSum;
 }
 
-export function allowedProducts(f: FilterState): string[] | null {
-  if (f.businessArea.length === 0) return null;
-  const set = new Set<string>();
-  f.businessArea.forEach((ba) => {
-    (BUSINESS_AREA_MAP[ba] || []).forEach((p) => set.add(p));
-  });
-  return Array.from(set);
+/** Dulu dipakai untuk menerjemahkan filter "Business Area" (pengelompokan
+ * brand statis) jadi daftar product yang diizinkan. Sekarang Business Area
+ * sudah jadi atribut per-customer (kode Sales Office / SOff — lihat
+ * getScopedCustomers), jadi tidak ada lagi filter yang membatasi daftar
+ * product di sini. Fungsi ini dibiarkan ada (selalu null) supaya semua
+ * pemanggilnya tidak perlu diubah satu-satu. */
+export function allowedProducts(_f: FilterState): string[] | null {
+  return null;
 }
 
 export type ScaledPart = Part & {
