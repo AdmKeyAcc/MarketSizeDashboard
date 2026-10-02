@@ -56,6 +56,17 @@ export type Customer = {
   tier: string | null;
   uio_by_brand: Record<string, number>;
   total_uio: number;
+  /** Kode Sales Office (SOff.) tempat customer ini pernah bertransaksi —
+   * bisa lebih dari satu (customer yang sama bisa beli dari beberapa SOff
+   * berbeda di invoice berbeda), jadi disimpan sebagai array. Dipakai
+   * sebagai sumber filter "Business Area", menggantikan pengelompokan
+   * brand statis yang lama. Opsional & sengaja TIDAK diisi oleh
+   * parseCustomerWorkbook (upload "Cust Data") — kolom ini hanya diisi lewat
+   * SQL import terpisah dari sheet "Populasi All Branch". Dengan begitu,
+   * setiap kali file Cust Data diupload ulang lewat menu Upload, kolom
+   * business_area di database TIDAK ikut tertimpa (supabase upsert hanya
+   * meng-update kolom yang benar-benar ada di payload). */
+  business_area?: string[];
 };
 
 export type ActualSalesRow = {
@@ -165,9 +176,3 @@ export const CUST_BRAND_MAP: Record<string, string> = {
   PERKINS: "PER", GD: "GD/COM", KUBOTA: "KBT", HSC: "HSC"
 };
 
-export const BUSINESS_AREA_MAP: Record<string, string[]> = {
-  "Material Handling": ["TOYOTA", "BT", "RAYMOND"],
-  "Agrikultur": ["MF"],
-  "Konstruksi": ["HSC", "KUBOTA", "CANYCOM"],
-  "Power & Industrial": ["PERKINS", "GD"]
-};
