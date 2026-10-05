@@ -5,12 +5,13 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fetchDashboardDataWithClient } from "@/lib/fetchDashboardDataShared";
 import {
   EMPTY_FILTERS,
+  DEFAULT_AREA,
   type FilterState,
   uniq,
   monthIndex,
   buildMonthly,
   buildModelLookup,
-  filteredParts,
+  buildDetailRows,
   aggregatedMonthly,
   monthsInScope,
   allowedProducts,
@@ -26,10 +27,15 @@ import {
 } from "@/lib/calculations";
 import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
 
+function initialFilters(d: DashboardData): FilterState {
+  const hasDefaultArea = d.customers.some((c) => c.customer_name && c.cabang === DEFAULT_AREA);
+  return hasDefaultArea ? { ...EMPTY_FILTERS, area: [DEFAULT_AREA] } : EMPTY_FILTERS;
+}
+
 export function useDashboardState(initialData: DashboardData) {
   const [data, setData] = useState<DashboardData>(initialData);
   const [refreshing, setRefreshing] = useState(false);
-  const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
+  const [filters, setFiltersState] = useState<FilterState>(() => initialFilters(initialData));
   const [uioDimension, setUioDimension] = useState<UioDimension>("product");
   const [marketSizeView, setMarketSizeView] = useState<"tahun" | "bulan">("tahun");
 
@@ -46,13 +52,16 @@ export function useDashboardState(initialData: DashboardData) {
   const setFilter = useCallback(<K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFiltersState((prev) => ({ ...prev, [key]: value }));
   }, []);
-  const resetFilters = useCallback(() => setFiltersState(EMPTY_FILTERS), []);
+  const resetFilters = useCallback(() => setFiltersState(initialFilters(data)), [data]);
 
   const monthly = useMemo(() => buildMonthly(data.parts, data.actualSales), [data.parts, data.actualSales]);
   const modelLookup = useMemo(() => buildModelLookup(data.uio), [data.uio]);
   const realCustomers = useMemo(() => getRealCustomers(data.customers), [data.customers]);
 
-  const rows = useMemo(() => filteredParts(data.parts, data.customers, filters), [data.parts, data.customers, filters]);
+  const detailRows = useMemo(
+    () => buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, filters),
+    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, filters]
+  );
   const monthlyAgg = useMemo(() => aggregatedMonthly(monthly, data.customers, filters), [monthly, data.customers, filters]);
   const scaling = useMemo(() => isScalingActive(data.customers, filters), [data.customers, filters]);
   const months = useMemo(() => monthsInScope(monthly, filters), [monthly, filters]);
@@ -60,12 +69,12 @@ export function useDashboardState(initialData: DashboardData) {
   // ---- dashboard charts: UIO per product / market size & share per tahun ----
   const uioYears = useMemo(() => resolveUioYears(filters, data.uioUnits), [filters, data.uioUnits]);
   const uioByProductRows = useMemo(
-    () => uioByDimension(data.uioUnits, uioYears, uioDimension, filters),
-    [data.uioUnits, uioYears, uioDimension, filters]
+    () => uioByDimension(data.uioUnits, uioYears, uioDimension, filters, data.customers),
+    [data.uioUnits, uioYears, uioDimension, filters, data.customers]
   );
   const marketSizeYearRows = useMemo(
-    () => marketSizeByYear(data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters),
-    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters]
+    () => marketSizeByYear(data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters, data.customers),
+    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters, data.customers]
   );
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
   const partsWithoutPrice = useMemo(
@@ -158,7 +167,7 @@ export function useDashboardState(initialData: DashboardData) {
     monthly,
     modelLookup,
     realCustomers,
-    rows,
+    detailRows,
     monthlyAgg,
     scaling,
     months,
