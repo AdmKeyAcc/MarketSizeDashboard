@@ -172,12 +172,6 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
           />
         </div>
       )}
-      {!isBulanan && !noData && marketSizeYearRows.some((r) => r.estimated) && (
-        <p className="chart-note">
-          Perhitungan sementara: Market Size memakai UIO dari unit tanpa tahun / template kalkulator untuk tahun yang
-          belum punya Data UIO bertahun.
-        </p>
-      )}
     </div>
   );
 }
