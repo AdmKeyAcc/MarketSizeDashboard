@@ -20,7 +20,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const summaryState = useCalculatorSummary();
   const { theme, cycleTheme } = useTheme();
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "kalkulator">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "summary">("dashboard");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -43,8 +43,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       <div className="main">
         {!hasData && (
           <div className="empty-hint">
-            Belum ada data part di database. Klik ⭱ di atas untuk upload template kalkulator, atau jalankan{" "}
-            <code>scripts/seed.mjs</code> untuk mengisi data contoh.
+            Belum ada data part di database. Klik ⭱ di atas untuk Upload Data
           </div>
         )}
 
