@@ -81,6 +81,12 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
           />
         </div>
       )}
+      {labels.length > 0 && marketShareYearRows.some((r) => r.estimated) && (
+        <p className="chart-note">
+          Perhitungan sementara: Market Size memakai UIO dari unit tanpa tahun / template kalkulator untuk tahun yang
+          belum punya Data UIO bertahun — bentuk grafik masih indikatif.
+        </p>
+      )}
     </div>
   );
 }
