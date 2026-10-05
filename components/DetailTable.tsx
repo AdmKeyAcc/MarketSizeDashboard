@@ -2,11 +2,9 @@
 
 import { useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtInt, fmtIDRFull } from "@/lib/calculations";
+import { fmtInt, fmtIDRFull, type DetailRow } from "@/lib/calculations";
 
-type SortKey =
-  | "product" | "model" | "part_name" | "part_number"
-  | "hm_day" | "uio_scaled" | "qty_market_size_scaled" | "amount_market_size_scaled";
+type SortKey = Exclude<keyof DetailRow, "uio_source">;
 
 const COLS: { key: SortKey; label: string; computed?: boolean }[] = [
   { key: "product", label: "Product" },
@@ -14,17 +12,21 @@ const COLS: { key: SortKey; label: string; computed?: boolean }[] = [
   { key: "part_name", label: "Part name" },
   { key: "part_number", label: "Part number" },
   { key: "hm_day", label: "HM/Day" },
-  { key: "uio_scaled", label: "UIO (qty)" },
-  { key: "qty_market_size_scaled", label: "Qty market size", computed: true },
-  { key: "amount_market_size_scaled", label: "Market size (Rp)", computed: true }
+  { key: "annual_hm", label: "Annual HM" },
+  { key: "freq_replacement_hm", label: "Frekuensi ganti (HM)" },
+  { key: "qty_per_unit", label: "Qty per unit" },
+  { key: "uio", label: "UIO" },
+  { key: "price", label: "Price (Rp)" },
+  { key: "qty_market_size", label: "Qty market size", computed: true },
+  { key: "amount_market_size", label: "Market size (Rp)", computed: true }
 ];
 
 const PAGE_SIZE = 20;
 
 export default function DetailTable({ state }: { state: UseDashboardState }) {
-  const { rows } = state;
+  const rows = state.detailRows;
   const [search, setSearch] = useState("");
-  const [sortCol, setSortCol] = useState<SortKey>("amount_market_size_scaled");
+  const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
 
@@ -42,8 +44,8 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   const sorted = useMemo(() => {
     const copy = filtered.slice();
     copy.sort((a, b) => {
-      const av = a[sortCol];
-      const bv = b[sortCol];
+      const av = a[sortCol] ?? "";
+      const bv = b[sortCol] ?? "";
       if (typeof av === "string" && typeof bv === "string") {
         return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
       }
@@ -99,8 +101,8 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((row) => {
-              const key = `${row.product}|${row.model}|${row.part_number}`;
+            {pageRows.map((row, i) => {
+              const key = `${row.product}|${row.model}|${row.part_number}|${i}`;
               return (
                 <tr key={key}>
                   <td>{row.product}</td>
@@ -108,15 +110,27 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   <td>{row.part_name}</td>
                   <td>{row.part_number}</td>
                   <td>{fmtInt(row.hm_day)}</td>
-                  <td>{fmtInt(row.uio_scaled)}</td>
-                  <td className="computed">{fmtInt(row.qty_market_size_scaled)}</td>
-                  <td className="computed">{fmtIDRFull(row.amount_market_size_scaled)}</td>
+                  <td>{fmtInt(row.annual_hm)}</td>
+                  <td>{fmtInt(row.freq_replacement_hm)}</td>
+                  <td>{fmtInt(row.qty_per_unit)}</td>
+                  <td title={row.uio_source === "template" ? "UIO dari template kalkulator (belum ada Data UIO untuk model ini)" : "UIO dari Data UIO"}>
+                    {fmtInt(row.uio)}
+                    {row.uio_source === "template" && "*"}
+                  </td>
+                  <td>{fmtIDRFull(row.price)}</td>
+                  <td className="computed">{fmtInt(row.qty_market_size)}</td>
+                  <td className="computed">{fmtIDRFull(row.amount_market_size)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      <p className="chart-note">
+        Qty market size = ROUND(Annual HM ÷ Frekuensi ganti × Qty per unit × UIO) · Market size (Rp) = Price × Qty market size
+        · Price dari Data Harga (fallback pricelist part) · UIO dari Data UIO per Product + Model unit.
+        {rows.some((r) => r.uio_source === "template") && " * = UIO dari template kalkulator (model ini belum ada di Data UIO)."}
+      </p>
       <div className="pagination">
         <button disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
           ‹ Sebelumnya
