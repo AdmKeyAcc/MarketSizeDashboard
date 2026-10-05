@@ -461,13 +461,14 @@ export function actualSalesByMonth(actualSales: ActualSalesRow[], year: number, 
   return MONTH_ORDER.map((month) => ({ month, actual_sales: Math.round(totals[month] || 0) }));
 }
 
-export type MarketShareYearRow = { year: number; market_share: number };
+export type MarketShareYearRow = { year: number; market_share: number; estimated?: boolean };
 
 /** Market Share = Actual Sales ÷ Market Size, per tahun. */
 export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearRow[] {
   return msRows.map((r) => ({
     year: r.year,
-    market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0
+    market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0,
+    estimated: (r as { estimated?: boolean }).estimated
   }));
 }
 
