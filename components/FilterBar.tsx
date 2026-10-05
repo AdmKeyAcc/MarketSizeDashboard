@@ -43,9 +43,25 @@ function MultiSelectField({
     : options;
   const visible = filtered.slice(0, MAX_RENDERED_OPTIONS);
   const hiddenCount = filtered.length - visible.length;
+  const selected = new Set(values);
 
   function toggle(o: string) {
-    onChange(values.includes(o) ? values.filter((v) => v !== o) : [...values, o]);
+    onChange(selected.has(o) ? values.filter((v) => v !== o) : [...values, o]);
+  }
+
+  // "Pilih semua" memilih SEMUA hasil yang sedang tampil sesuai pencarian
+  // (kalau kotak cari kosong = seluruh pilihan), ditambahkan ke yang sudah
+  // dipilih sebelumnya.
+  const allFilteredSelected = filtered.length > 0 && filtered.every((o) => selected.has(o));
+  function selectAllFiltered() {
+    const next = new Set(values);
+    filtered.forEach((o) => next.add(o));
+    onChange(Array.from(next));
+  }
+  function clearFiltered() {
+    if (!search.trim()) return onChange([]);
+    const drop = new Set(filtered);
+    onChange(values.filter((v) => !drop.has(v)));
   }
 
   const summary = values.length === 0 ? "Semua" : values.length <= 2 ? values.join(", ") : `${values.length} dipilih`;
@@ -59,19 +75,25 @@ function MultiSelectField({
       <details className="msf">
         <summary title={summary}>{summary}</summary>
         <div className="msf-panel">
-          {options.length > 8 && (
-            <input
-              className="msf-search"
-              placeholder="Cari…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          )}
+          <input
+            className="msf-search"
+            placeholder="Cari…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <button
+            type="button"
+            className="msf-all"
+            disabled={filtered.length === 0}
+            onClick={allFilteredSelected ? clearFiltered : selectAllFiltered}
+          >
+            {allFilteredSelected ? "Batalkan semua" : search.trim() ? `Pilih semua hasil (${filtered.length.toLocaleString("id-ID")})` : "Pilih semua"}
+          </button>
           <div className="msf-list">
             {filtered.length === 0 && <div className="msf-empty">Tidak ada hasil</div>}
             {visible.map((o) => (
               <label className="msf-opt" key={o}>
-                <input type="checkbox" checked={values.includes(o)} onChange={() => toggle(o)} />
+                <input type="checkbox" checked={selected.has(o)} onChange={() => toggle(o)} />
                 <span>{o}</span>
               </label>
             ))}
@@ -95,14 +117,23 @@ function MultiSelectField({
 export default function FilterBar({ state }: { state: UseDashboardState }) {
   const { filters, setFilter, resetFilters, options } = state;
 
-  const chipEntries: { key: keyof FilterState; label: string; value: string }[] = [];
+  // Kalau satu filter punya banyak pilihan (mis. hasil "Pilih semua"),
+  // chip-nya diringkas jadi satu — ribuan chip bikin halaman berat.
+  const MAX_CHIPS_PER_FILTER = 5;
+  const chipEntries: { key: keyof FilterState; label: string; value: string; all?: boolean }[] = [];
   MULTI_KEYS.forEach((k) => {
-    (filters[k] as string[]).forEach((value) => {
+    const arr = filters[k] as string[];
+    if (arr.length > MAX_CHIPS_PER_FILTER) {
+      chipEntries.push({ key: k, label: CHIP_LABELS[k]!, value: `${arr.length.toLocaleString("id-ID")} dipilih`, all: true });
+      return;
+    }
+    arr.forEach((value) => {
       chipEntries.push({ key: k, label: CHIP_LABELS[k]!, value });
     });
   });
 
-  function removeChip(key: keyof FilterState, value: string) {
+  function removeChip(key: keyof FilterState, value: string, all?: boolean) {
+    if (all) return setFilter(key, [] as FilterState[typeof key]);
     const arr = filters[key] as string[];
     setFilter(key, arr.filter((v) => v !== value) as FilterState[typeof key]);
   }
@@ -127,12 +158,12 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
 
         {chipEntries.length > 0 && (
           <div className="chips">
-            {chipEntries.map(({ key, label, value }) => (
+            {chipEntries.map(({ key, label, value, all }) => (
               <span className="chip" key={`${key}-${value}`}>
                 <span>
                   {label}: {value}
                 </span>
-                <button onClick={() => removeChip(key, value)}>✕</button>
+                <button onClick={() => removeChip(key, value, all)}>✕</button>
               </span>
             ))}
           </div>
@@ -141,7 +172,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
         <div className="filterbar-row">
           <MultiSelectField label="Tahun" values={filters.tahun} options={options.tahun} onChange={(v) => setFilter("tahun", v)} />
           <MultiSelectField label="Bulan" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
-          <MultiSelectField label="Area (Cabang)" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
+          <MultiSelectField label="Area" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
           <MultiSelectField
             label="Business Area"
             values={filters.businessArea}
