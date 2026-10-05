@@ -37,12 +37,55 @@ export const EMPTY_FILTERS: FilterState = {
   product: [], modelUnit: [], partNumber: [], partName: []
 };
 
+/** Nilai Area yang otomatis terpilih saat website dibuka (arahan mentor).
+ * Dipakai hanya kalau nilai ini benar-benar ada di data Area — kalau tidak,
+ * dashboard dibuka tanpa filter Area supaya tidak tampil kosong. */
+export const DEFAULT_AREA = "Power AGCON";
+
 export function uniq<T>(arr: (T | null | undefined)[]): T[] {
   return Array.from(new Set(arr.filter((v): v is T => v !== null && v !== undefined && v !== ("" as unknown as T))));
 }
 export function monthIndex(m: string): number {
   const i = MONTH_ORDER.findIndex((x) => x.toLowerCase() === String(m || "").trim().toLowerCase());
   return i < 0 ? 999 : i;
+}
+
+/** Kode brand di Data UIO (kolom Product, mis. TYT / PER) → nama Product di
+ * data part (TOYOTA / PERKINS). Tanpa pemetaan ini, unit UIO tidak pernah
+ * ketemu pasangannya di part, sehingga Market Size per tahun selalu 0. Kode
+ * yang tidak ada di daftar dipakai apa adanya. */
+export const UIO_PRODUCT_ALIAS: Record<string, string> = {
+  TYT: "TOYOTA",
+  PER: "PERKINS",
+  MFT: "MF",
+  KBT: "KUBOTA",
+  BTF: "BT",
+  GDD: "GD",
+  CNC: "CANYCOM"
+};
+
+export function canonicalProduct(p: string | null | undefined): string {
+  const k = String(p || "").trim().toUpperCase();
+  return UIO_PRODUCT_ALIAS[k] || k;
+}
+
+/** Model dinormalisasi (huruf besar, tanpa spasi/tanda hubung) supaya
+ * "60-8FD25" dan "60 8FD25" dianggap model yang sama. */
+function normModel(m: string | null | undefined): string {
+  return String(m || "").toUpperCase().replace(/[\s\-_/]+/g, "");
+}
+
+/** Array filter → Set (di-cache per array) supaya cek "apakah nilai ini
+ * dipilih" O(1) — penting kalau pilihan ribuan (mis. hasil "Pilih semua"). */
+const setCache = new WeakMap<string[], Set<string>>();
+function setOf(arr: string[]): Set<string> {
+  let s = setCache.get(arr);
+  if (!s) setCache.set(arr, (s = new Set(arr)));
+  return s;
+}
+
+function custKey(group: string | null | undefined, name: string | null | undefined): string {
+  return `${String(group || "").trim().toUpperCase()}|${String(name || "").trim().toUpperCase()}`;
 }
 
 export function getRealCustomers(customers: Customer[]): Customer[] {
@@ -55,14 +98,14 @@ export function getScopedCustomers(customers: Customer[], f: FilterState): Custo
   );
   if (!anyScope) return null;
   return getRealCustomers(customers).filter((c) => {
-    if (f.area.length > 0 && !f.area.includes(c.cabang || "")) return false;
+    if (f.area.length > 0 && !setOf(f.area).has(c.cabang || "")) return false;
     // business_area (SOff) bisa lebih dari satu per customer — cocok kalau
     // SALAH SATU SOff customer ada di pilihan filter yang dipilih.
-    if (f.businessArea.length > 0 && !(c.business_area || []).some((ba) => f.businessArea.includes(ba))) return false;
-    if (f.customerGroup.length > 0 && !f.customerGroup.includes(c.customer_group || "")) return false;
-    if (f.customerName.length > 0 && !f.customerName.includes(c.customer_name || "")) return false;
-    if (f.pss.length > 0 && !f.pss.includes(c.pss || "")) return false;
-    if (f.tier.length > 0 && !f.tier.includes(c.tier || "")) return false;
+    if (f.businessArea.length > 0 && !(c.business_area || []).some((ba) => setOf(f.businessArea).has(ba))) return false;
+    if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(c.customer_group || "")) return false;
+    if (f.customerName.length > 0 && !setOf(f.customerName).has(c.customer_name || "")) return false;
+    if (f.pss.length > 0 && !setOf(f.pss).has(c.pss || "")) return false;
+    if (f.tier.length > 0 && !setOf(f.tier).has(c.tier || "")) return false;
     return true;
   });
 }
@@ -224,10 +267,13 @@ export function defaultUioQty(
   model: string
 ): number {
   const year = latestUioYear(uioUnits);
-  if (year !== null) {
-    const count = uioUnits.filter((u) => u.year === year && u.product === product && u.model === model).length;
-    if (count > 0) return count;
-  }
+  const prod = canonicalProduct(product);
+  const mod = normModel(model);
+  // Unit tanpa tahun ikut dihitung (populasi yang berlaku di tahun mana pun).
+  const count = uioUnits.filter(
+    (u) => (year === null || u.year === null || u.year === year) && canonicalProduct(u.product) === prod && normModel(u.model) === mod
+  ).length;
+  if (count > 0) return count;
   const src = lookup[(model || "").trim().toUpperCase()];
   return src?.uio_qty || 0;
 }
@@ -302,23 +348,51 @@ function uioDimensionValue(u: UioUnit, dimension: UioDimension): string {
   return u.product || "Lainnya";
 }
 
+type UnitScopeKeys = { areaKeys: Set<string> | null; otherKeys: Set<string> | null };
+
+/** Filter yang butuh data customer (Area via cabang, PSS, Tier, Business
+ * Area) diterjemahkan jadi himpunan kunci "group|nama" customer, lalu dipakai
+ * untuk menyaring unit UIO. */
+function buildUnitScopeKeys(customers: Customer[] | undefined, f: FilterState | undefined): UnitScopeKeys {
+  if (!customers || !f) return { areaKeys: null, otherKeys: null };
+  const toSet = (list: Customer[] | null) => (list ? new Set(list.map((c) => custKey(c.customer_group, c.customer_name))) : null);
+  const areaKeys = f.area.length > 0 ? toSet(getScopedCustomers(customers, { ...EMPTY_FILTERS, area: f.area })) : null;
+  const otherKeys = toSet(
+    getScopedCustomers(customers, { ...EMPTY_FILTERS, pss: f.pss, tier: f.tier, businessArea: f.businessArea })
+  );
+  return { areaKeys, otherKeys };
+}
+
+/** Unit tanpa tahun (year null) dianggap populasi yang selalu berlaku di
+ * tahun mana pun — jadi tetap terhitung walau tahun difilter. */
+function unitInScope(u: UioUnit, years: number[], f: FilterState | undefined, keys: UnitScopeKeys): boolean {
+  if (years.length > 0 && u.year !== null && !years.includes(u.year)) return false;
+  if (!f) return true;
+  if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(u.customer_group || "")) return false;
+  if (f.customerName.length > 0 && !setOf(f.customerName).has(u.customer_name || "")) return false;
+  if (f.area.length > 0) {
+    const byBranch = setOf(f.area).has(u.branch || "");
+    const byCust = keys.areaKeys ? keys.areaKeys.has(custKey(u.customer_group, u.customer_name)) : false;
+    if (!byBranch && !byCust) return false;
+  }
+  if (f.product.length > 0 && !setOf(f.product).has(u.product || "") && !setOf(f.product).has(canonicalProduct(u.product))) return false;
+  if (f.modelUnit.length > 0 && !setOf(f.modelUnit).has(u.model || "")) return false;
+  if (keys.otherKeys && !keys.otherKeys.has(custKey(u.customer_group, u.customer_name))) return false;
+  return true;
+}
+
 export function uioByDimension(
   uioUnits: UioUnit[],
   years: number[],
   dimension: UioDimension,
-  f?: FilterState
+  f?: FilterState,
+  customers?: Customer[]
 ): UioAggRow[] {
+  const keys = buildUnitScopeKeys(customers, f);
   const totals: Record<string, number> = {};
   uioUnits.forEach((u) => {
-    if (years.length > 0 && (u.year === null || !years.includes(u.year))) return;
-    if (f) {
-      if (f.customerGroup.length > 0 && !f.customerGroup.includes(u.customer_group || "")) return;
-      if (f.customerName.length > 0 && !f.customerName.includes(u.customer_name || "")) return;
-      if (f.area.length > 0 && !f.area.includes(u.branch || "")) return;
-      if (f.product.length > 0 && !f.product.includes(u.product || "")) return;
-      if (f.modelUnit.length > 0 && !f.modelUnit.includes(u.model || "")) return;
-    }
-    const label = uioDimensionValue(u, dimension);
+    if (!unitInScope(u, years, f, keys)) return;
+    const label = dimension === "product" ? canonicalProduct(u.product) || "Lainnya" : uioDimensionValue(u, dimension);
     totals[label] = (totals[label] || 0) + 1;
   });
   return Object.entries(totals)
@@ -331,21 +405,158 @@ export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterSta
   return uioByDimension(uioUnits, years, "product", f).map((r) => ({ product: r.label, uio: r.uio }));
 }
 
-/** Index (tahun|product|model) -> jumlah unit, dibangun sekali supaya
- * menghitung Market Size per tahun untuk banyak part tidak perlu scan
- * ulang seluruh uio_units per part (uio_units bisa puluhan ribu baris). */
-export function buildUioIndex(uioUnits: UioUnit[]): Map<string, number> {
-  const idx = new Map<string, number>();
+export type UnitCounter = {
+  /** Jumlah unit untuk Product + Model (sudah kena filter). Kalau tidak ada
+   * model yang persis sama, dicoba model yang diawali nama model part
+   * (mis. part "1103" → unit "1103A-33G"). */
+  count: (product: string, model: string) => number;
+};
+
+export function buildUnitCounter(
+  uioUnits: UioUnit[],
+  years: number[],
+  f?: FilterState,
+  customers?: Customer[]
+): UnitCounter {
+  const keys = buildUnitScopeKeys(customers, f);
+  const byProduct = new Map<string, Map<string, number>>();
   uioUnits.forEach((u) => {
-    if (u.year === null) return;
-    const key = `${u.year}|${u.product ?? ""}|${u.model ?? ""}`;
-    idx.set(key, (idx.get(key) || 0) + 1);
+    if (!unitInScope(u, years, f, keys)) return;
+    const p = canonicalProduct(u.product);
+    let m = byProduct.get(p);
+    if (!m) byProduct.set(p, (m = new Map()));
+    const nm = normModel(u.model);
+    m.set(nm, (m.get(nm) || 0) + 1);
   });
-  return idx;
+  const cache = new Map<string, number>();
+  return {
+    count(product, model) {
+      const p = canonicalProduct(product);
+      const nm = normModel(model);
+      const ck = `${p}|${nm}`;
+      const hit = cache.get(ck);
+      if (hit !== undefined) return hit;
+      const m = byProduct.get(p);
+      let n = m ? m.get(nm) || 0 : 0;
+      if (m && n === 0 && nm.length >= 3) {
+        m.forEach((c, k) => {
+          if (k.startsWith(nm)) n += c;
+        });
+      }
+      cache.set(ck, n);
+      return n;
+    }
+  };
 }
 
-function uioCountFromIndex(idx: Map<string, number>, year: number, product: string, model: string): number {
-  return idx.get(`${year}|${product}|${model}`) || 0;
+/** Rumus Market Size per part (sesuai arahan mentor):
+ *   Qty Market Size = ROUND(Annual HM ÷ Frekuensi ganti × Qty per unit × UIO)
+ *   Market Size (Rp) = Price × Qty Market Size */
+export function computePartMarketSize(input: {
+  annualHm: number;
+  freqReplacementHm: number;
+  qtyPerUnit: number;
+  uio: number;
+  price: number;
+}) {
+  const qty = input.freqReplacementHm > 0
+    ? Math.round((input.annualHm / input.freqReplacementHm) * input.qtyPerUnit * input.uio)
+    : 0;
+  return { qty, amount: input.price * qty };
+}
+
+function buildPriceResolver(priceList: PriceListEntry[]) {
+  const idx = new Map<string, number>();
+  priceList.forEach((p) => idx.set(`${p.part_number}|${p.customer_group || ""}`, p.price));
+  return (partNumber: string | null, customerGroup: string, fallback: number): number => {
+    if (partNumber) {
+      if (customerGroup) {
+        const specific = idx.get(`${partNumber}|${customerGroup}`);
+        if (specific !== undefined) return specific;
+      }
+      const general = idx.get(`${partNumber}|`);
+      if (general !== undefined) return general;
+    }
+    return fallback;
+  };
+}
+
+export type DetailRow = {
+  product: string;
+  model: string;
+  part_name: string;
+  part_number: string | null;
+  hm_day: number;
+  annual_hm: number;
+  freq_replacement_hm: number;
+  qty_per_unit: number;
+  uio: number;
+  /** "unit" = dihitung dari Data UIO; "template" = belum ada Data UIO untuk
+   * model ini, dipakai angka UIO dari template kalkulator. */
+  uio_source: "unit" | "template";
+  price: number;
+  qty_market_size: number;
+  amount_market_size: number;
+};
+
+/** Baris "Detail part" di page Summary: semua kolom diturunkan dari data
+ * (Product & Model dari data part, UIO dari Data UIO per Product+Model,
+ * Price dari Data Harga → pricelist) dan Qty/Market Size memakai rumus di
+ * computePartMarketSize. */
+export function buildDetailRows(
+  parts: Part[],
+  assumptions: Assumption[],
+  uioUnits: UioUnit[],
+  priceList: PriceListEntry[],
+  customers: Customer[],
+  f: FilterState
+): DetailRow[] {
+  const years = resolveUioYears(f, uioUnits);
+  const counter = buildUnitCounter(uioUnits, years, f, customers);
+  const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined);
+  const priceOf = buildPriceResolver(priceList);
+  const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
+  const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
+
+  const out: DetailRow[] = [];
+  parts.forEach((p) => {
+    if (f.product.length > 0 && !setOf(f.product).has(p.product)) return;
+    if (f.modelUnit.length > 0 && !setOf(f.modelUnit).has(p.model)) return;
+    if (f.partNumber.length > 0 && !setOf(f.partNumber).has(p.part_number || "")) return;
+    if (f.partName.length > 0 && !setOf(f.partName).has(p.part_name || "")) return;
+
+    let uio = counter.count(p.product, p.model);
+    let source: "unit" | "template" = "unit";
+    if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
+      uio = (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
+      source = "template";
+    }
+    const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
+    const price = priceOf(p.part_number, customerGroup, p.pricelist);
+    const { qty, amount } = computePartMarketSize({
+      annualHm,
+      freqReplacementHm: p.freq_replacement_hm,
+      qtyPerUnit: p.qty_per_unit,
+      uio,
+      price
+    });
+    out.push({
+      product: p.product,
+      model: p.model,
+      part_name: p.part_name,
+      part_number: p.part_number,
+      hm_day: p.hm_day || 8,
+      annual_hm: annualHm,
+      freq_replacement_hm: p.freq_replacement_hm,
+      qty_per_unit: p.qty_per_unit,
+      uio,
+      uio_source: source,
+      price,
+      qty_market_size: qty,
+      amount_market_size: amount
+    });
+  });
+  return out;
 }
 
 /** Harga kontrak untuk sebuah Part Number: pakai harga khusus Customer
@@ -393,54 +604,82 @@ export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]
   return out;
 }
 
-export type MarketSizeYearRow = { year: number; market_size: number; actual_sales: number };
+export type MarketSizeYearRow = {
+  year: number;
+  market_size: number;
+  actual_sales: number;
+  /** true = sebagian nilai masih perhitungan sementara (UIO dari unit tanpa
+   * tahun atau dari template kalkulator, bukan Data UIO bertahun). */
+  estimated: boolean;
+};
 
-/** Market Size per tahun, dihitung dari populasi UIO riil (Data UIO) di
- * tahun itu × formula standar (Annual HM ÷ Freq Replacement × Qty/Unit ×
- * Contract Price), dijumlah dari seluruh part. UIO diambil per tahun
- * (tidak dicampur antar tahun) — sesuai data yang ada, bukan lintas tahun. */
+/** Market Size per tahun = jumlah (Price × ROUND(Annual HM ÷ Frekuensi ganti
+ * × Qty/unit × UIO)) dari seluruh part. Daftar tahun = gabungan tahun di Data
+ * UIO dan tahun di Actual Sales, supaya Market Share bisa terlihat bentuknya
+ * walau Data UIO belum punya tahun di semua baris.
+ *
+ * Perhitungan sementara: unit UIO tanpa tahun dihitung di setiap tahun, dan
+ * part yang model-nya sama sekali belum ada di Data UIO memakai angka UIO
+ * dari template kalkulator. Tahun yang kena aturan ini ditandai estimated. */
 export function marketSizeByYear(
   parts: Part[],
   assumptions: Assumption[],
   uioUnits: UioUnit[],
   priceList: PriceListEntry[],
   actualSales: ActualSalesRow[],
-  f?: FilterState
+  f?: FilterState,
+  customers?: Customer[]
 ): MarketSizeYearRow[] {
-  const years = uioYearsAvailable(uioUnits);
-  if (years.length === 0) return [];
-  const idx = buildUioIndex(uioUnits);
-  // Contract Price per Customer Group hanya masuk akal untuk satu grup
-  // spesifik — kalau 0 atau lebih dari 1 Customer Group dicentang, pakai
-  // harga umum/nasional (resolvePrice akan fallback otomatis).
-  const customerGroup = f?.customerGroup.length === 1 ? f.customerGroup[0] : "";
-  const allowed = f ? allowedProducts(f) : null;
-
   const actualByYear: Record<number, number> = {};
   actualSales.forEach((r) => {
-    if (allowed && !allowed.includes(r.product)) return;
     if (f && f.product.length > 0 && !f.product.includes(r.product)) return;
     actualByYear[r.year] = (actualByYear[r.year] || 0) + (r.actual_sales || 0);
   });
+  const datedYears = uioYearsAvailable(uioUnits);
+  const years = Array.from(new Set([...datedYears, ...Object.keys(actualByYear).map(Number)])).sort((a, b) => a - b);
+  if (years.length === 0 || parts.length === 0) return [];
+
+  const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined);
+  const priceOf = buildPriceResolver(priceList);
+  // Contract Price per Customer Group hanya masuk akal untuk satu grup
+  // spesifik — kalau 0 atau lebih dari 1 Customer Group dicentang, pakai
+  // harga umum/nasional.
+  const customerGroup = f?.customerGroup.length === 1 ? f.customerGroup[0] : "";
+  const workdaysCache = new Map<string, number>();
+  const workdaysOf = (product: string) => {
+    let w = workdaysCache.get(product);
+    if (w === undefined) {
+      w = assumptions.find((a) => a.product === product)?.workdays_month || 22;
+      workdaysCache.set(product, w);
+    }
+    return w;
+  };
+  const nationalFilter = f ? { ...f, tahun: [] as string[] } : undefined;
 
   return years.map((year) => {
+    const counter = buildUnitCounter(uioUnits, [year], nationalFilter, customers);
     let total = 0;
+    let estimated = !datedYears.includes(year);
     parts.forEach((p) => {
-      if (allowed && !allowed.includes(p.product)) return;
       if (f && f.product.length > 0 && !f.product.includes(p.product)) return;
       if (f && f.modelUnit.length > 0 && !f.modelUnit.includes(p.model)) return;
-      const uioCount = uioCountFromIndex(idx, year, p.product, p.model);
-      if (uioCount === 0) return;
-      const workdaysMonth = assumptions.find((a) => a.product === p.product)?.workdays_month || 22;
-      const hmDay = p.hm_day || 8;
-      const annualHm = hmDay * workdaysMonth * 12;
-      const qtyMs = p.freq_replacement_hm ? (annualHm / p.freq_replacement_hm) * p.qty_per_unit * uioCount : 0;
-      const discount = defaultDiscount(assumptions, p.product);
-      const basePrice = resolvePrice(priceList, p.part_number, customerGroup, p.pricelist);
-      const contractPrice = basePrice * (1 - discount);
-      total += qtyMs * contractPrice;
+      let uio = counter.count(p.product, p.model);
+      if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
+        uio = (p.uio_qty || 0) * (f && customers ? allocationFactor(customers, f, p.product) : 1);
+        if (uio > 0) estimated = true;
+      }
+      if (uio === 0) return;
+      const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
+      const price = priceOf(p.part_number, customerGroup, p.pricelist);
+      total += computePartMarketSize({
+        annualHm,
+        freqReplacementHm: p.freq_replacement_hm,
+        qtyPerUnit: p.qty_per_unit,
+        uio,
+        price
+      }).amount;
     });
-    return { year, market_size: Math.round(total), actual_sales: Math.round(actualByYear[year] || 0) };
+    return { year, market_size: Math.round(total), actual_sales: Math.round(actualByYear[year] || 0), estimated };
   });
 }
 
@@ -461,14 +700,14 @@ export function actualSalesByMonth(actualSales: ActualSalesRow[], year: number, 
   return MONTH_ORDER.map((month) => ({ month, actual_sales: Math.round(totals[month] || 0) }));
 }
 
-export type MarketShareYearRow = { year: number; market_share: number; estimated?: boolean };
+export type MarketShareYearRow = { year: number; market_share: number; estimated: boolean };
 
 /** Market Share = Actual Sales ÷ Market Size, per tahun. */
 export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearRow[] {
   return msRows.map((r) => ({
     year: r.year,
     market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0,
-    estimated: (r as { estimated?: boolean }).estimated
+    estimated: r.estimated
   }));
 }
 
