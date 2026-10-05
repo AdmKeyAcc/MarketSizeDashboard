@@ -113,7 +113,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   <td>{fmtInt(row.annual_hm)}</td>
                   <td>{fmtInt(row.freq_replacement_hm)}</td>
                   <td>{fmtInt(row.qty_per_unit)}</td>
-                  <td title={row.uio_source === "template" ? "UIO dari template kalkulator (belum ada Data UIO untuk model ini)" : "UIO dari Data UIO"}>
+                  <td title={row.uio_source === "template" ? "UIO belum ada Data" : "UIO dari Data UIO"}>
                     {fmtInt(row.uio)}
                     {row.uio_source === "template" && "*"}
                   </td>
@@ -126,11 +126,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
           </tbody>
         </table>
       </div>
-      <p className="chart-note">
-        Qty market size = ROUND(Annual HM ÷ Frekuensi ganti × Qty per unit × UIO) · Market size (Rp) = Price × Qty market size
-        · Price dari Data Harga (fallback pricelist part) · UIO dari Data UIO per Product + Model unit.
-        {rows.some((r) => r.uio_source === "template") && " * = UIO dari template kalkulator (model ini belum ada di Data UIO)."}
-      </p>
+      
       <div className="pagination">
         <button disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
           ‹ Sebelumnya
