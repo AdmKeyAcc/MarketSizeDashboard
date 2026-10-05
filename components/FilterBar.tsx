@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { FilterState } from "@/lib/calculations";
 import TraknusLogo from "@/components/TraknusLogo";
@@ -20,10 +20,14 @@ const MULTI_KEYS = Object.keys(CHIP_LABELS) as (keyof FilterState)[];
 // kotak pencarian untuk mempersempit kalau hasilnya lebih banyak dari ini.
 const MAX_RENDERED_OPTIONS = 300;
 
-/** Compact checklist dropdown: the closed box stays the same size as a
- * normal <select>, and only the option panel (small, scrollable, with a
- * search box for long lists) opens below it — never a big list taking up
- * page space. */
+/** Dropdown checklist bergaya "pilih dulu, baru Terapkan":
+ *  - Kotak tertutup menampilkan "All" / nama pilihan / "N dipilih".
+ *  - Di panel: kotak cari, baris "(Pilih Semua)" (tri-state, berlaku untuk
+ *    hasil pencarian yang sedang tampil), daftar centang, hitungan terpilih,
+ *    dan tombol Batal / Terapkan. Pilihan baru berlaku setelah Terapkan.
+ *  - Tekan Enter di kotak cari = pilih hanya hasil pencarian lalu Terapkan.
+ *  - Kalau semua opsi tercentang saat Terapkan, filter disimpan kosong
+ *    (= tanpa batasan / "All"), jadi tidak ada array ribuan nilai. */
 function MultiSelectField({
   label,
   values,
@@ -37,34 +41,85 @@ function MultiSelectField({
   onChange: (next: string[]) => void;
   info?: string;
 }) {
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const filtered = search.trim()
-    ? options.filter((o) => o.toLowerCase().includes(search.trim().toLowerCase()))
-    : options;
+  const [draft, setDraft] = useState<Set<string>>(new Set());
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  function openPanel() {
+    // values kosong = "All" → semua opsi tercentang di panel.
+    setDraft(new Set(values.length === 0 ? options : values));
+    setSearch("");
+    setOpen(true);
+  }
+  function closePanel() {
+    setOpen(false);
+    setSearch("");
+  }
+
+  // Klik di luar panel = Batal (pilihan sementara dibuang).
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) closePanel();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closePanel();
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const filtered = useMemo(
+    () => (search.trim() ? options.filter((o) => o.toLowerCase().includes(search.trim().toLowerCase())) : options),
+    [options, search]
+  );
   const visible = filtered.slice(0, MAX_RENDERED_OPTIONS);
   const hiddenCount = filtered.length - visible.length;
-  const selected = new Set(values);
+
+  const selectedInFiltered = filtered.reduce((n, o) => n + (draft.has(o) ? 1 : 0), 0);
+  const allFilteredSelected = filtered.length > 0 && selectedInFiltered === filtered.length;
+  const someFilteredSelected = selectedInFiltered > 0 && !allFilteredSelected;
+  const allRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (allRef.current) allRef.current.indeterminate = someFilteredSelected;
+  }, [someFilteredSelected, open]);
 
   function toggle(o: string) {
-    onChange(selected.has(o) ? values.filter((v) => v !== o) : [...values, o]);
+    setDraft((prev) => {
+      const next = new Set(prev);
+      if (next.has(o)) next.delete(o);
+      else next.add(o);
+      return next;
+    });
+  }
+  function toggleAllFiltered() {
+    setDraft((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filtered.forEach((o) => next.delete(o));
+      else filtered.forEach((o) => next.add(o));
+      return next;
+    });
   }
 
-  // "Pilih semua" memilih SEMUA hasil yang sedang tampil sesuai pencarian
-  // (kalau kotak cari kosong = seluruh pilihan), ditambahkan ke yang sudah
-  // dipilih sebelumnya.
-  const allFilteredSelected = filtered.length > 0 && filtered.every((o) => selected.has(o));
-  function selectAllFiltered() {
-    const next = new Set(values);
-    filtered.forEach((o) => next.add(o));
-    onChange(Array.from(next));
-  }
-  function clearFiltered() {
-    if (!search.trim()) return onChange([]);
-    const drop = new Set(filtered);
-    onChange(values.filter((v) => !drop.has(v)));
+  function apply(selection: Set<string>) {
+    const chosen = options.filter((o) => selection.has(o));
+    onChange(chosen.length === options.length ? [] : chosen);
+    closePanel();
   }
 
-  const summary = values.length === 0 ? "Semua" : values.length <= 2 ? values.join(", ") : `${values.length} dipilih`;
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (!search.trim() || filtered.length === 0) return;
+    apply(new Set(filtered)); // hanya hasil pencarian, langsung diterapkan
+  }
+
+  const summary = values.length === 0 ? "All" : values.length <= 2 ? values.join(", ") : `${values.length.toLocaleString("id-ID")} dipilih`;
 
   return (
     <div className="field">
@@ -72,44 +127,70 @@ function MultiSelectField({
         {label}
         {info && <span className="info-dot" title={info}>i</span>}
       </label>
-      <details className="msf">
-        <summary title={summary}>{summary}</summary>
-        <div className="msf-panel">
-          <input
-            className="msf-search"
-            placeholder="Cari…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <button
-            type="button"
-            className="msf-all"
-            disabled={filtered.length === 0}
-            onClick={allFilteredSelected ? clearFiltered : selectAllFiltered}
-          >
-            {allFilteredSelected ? "Batalkan semua" : search.trim() ? `Pilih semua hasil (${filtered.length.toLocaleString("id-ID")})` : "Pilih semua"}
-          </button>
-          <div className="msf-list">
-            {filtered.length === 0 && <div className="msf-empty">Tidak ada hasil</div>}
-            {visible.map((o) => (
-              <label className="msf-opt" key={o}>
-                <input type="checkbox" checked={selected.has(o)} onChange={() => toggle(o)} />
-                <span>{o}</span>
+      <div className="msf" ref={rootRef}>
+        <button
+          type="button"
+          className={"msf-trigger" + (open ? " open" : "")}
+          title={summary}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => (open ? closePanel() : openPanel())}
+        >
+          <span className="msf-trigger-text">{summary}</span>
+          <span className="msf-chevron" aria-hidden="true">▾</span>
+        </button>
+        {open && (
+          <div className="msf-panel">
+            <div className="msf-searchwrap">
+              <svg className="msf-searchicon" width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M14 14l4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              <input
+                className="msf-search"
+                placeholder="Cari… (Enter utk Terapkan)"
+                value={search}
+                autoFocus
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={onSearchKey}
+              />
+            </div>
+            <div className="msf-list">
+              <label className="msf-opt msf-opt-all">
+                <input
+                  ref={allRef}
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  disabled={filtered.length === 0}
+                  onChange={toggleAllFiltered}
+                />
+                <span>(Pilih Semua)</span>
               </label>
-            ))}
-            {hiddenCount > 0 && (
-              <div className="msf-empty">
-                +{hiddenCount.toLocaleString("id-ID")} hasil lain — ketik di kotak pencarian untuk mempersempit
-              </div>
-            )}
+              {filtered.length === 0 && <div className="msf-empty">Tidak ada hasil</div>}
+              {visible.map((o) => (
+                <label className="msf-opt" key={o}>
+                  <input type="checkbox" checked={draft.has(o)} onChange={() => toggle(o)} />
+                  <span>{o}</span>
+                </label>
+              ))}
+              {hiddenCount > 0 && (
+                <div className="msf-empty">
+                  +{hiddenCount.toLocaleString("id-ID")} hasil lain — ketik di kotak pencarian untuk mempersempit
+                </div>
+              )}
+            </div>
+            <div className="msf-foot">
+              <span className="msf-count">{draft.size.toLocaleString("id-ID")} terpilih</span>
+              <button type="button" className="msf-cancel" onClick={closePanel}>
+                Batal
+              </button>
+              <button type="button" className="msf-apply" disabled={draft.size === 0} onClick={() => apply(draft)}>
+                Terapkan
+              </button>
+            </div>
           </div>
-          {values.length > 0 && (
-            <button type="button" className="msf-clear" onClick={() => onChange([])}>
-              Hapus pilihan
-            </button>
-          )}
-        </div>
-      </details>
+        )}
+      </div>
     </div>
   );
 }
