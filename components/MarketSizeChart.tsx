@@ -20,7 +20,7 @@ import type { Theme } from "@/hooks/useTheme";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, LineElement, LineController, PointElement, Tooltip, Legend);
 
-const FALLBACK = { ink: "#47566A", blue: "#175596", red: "#AC1F2C", border: "#DCE2E9" };
+const FALLBACK = { ink: "#47566A", blue: "#175596", red: "#AC1F2C", border: "#DCE2E9", surface: "#FFFFFF" };
 
 export default function MarketSizeChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
   const { marketSizeYearRows, marketSizeView, setMarketSizeView, actualSalesMonthRows, singleYear } = state;
@@ -32,7 +32,8 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
       ink: cs.getPropertyValue("--ink-soft").trim() || FALLBACK.ink,
       blue: cs.getPropertyValue("--blue-600").trim() || FALLBACK.blue,
       red: cs.getPropertyValue("--red-600").trim() || FALLBACK.red,
-      border: cs.getPropertyValue("--border").trim() || FALLBACK.border
+      border: cs.getPropertyValue("--border").trim() || FALLBACK.border,
+      surface: cs.getPropertyValue("--surface").trim() || FALLBACK.surface
     });
   }, [theme]);
 
@@ -80,7 +81,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
             : "Belum ada Data UIO yang diupload, jadi Market Size per tahun belum bisa dihitung."}
         </div>
       ) : isBulanan ? (
-        <div className="chart-wrap">
+        <div className="chart-wrap-compact">
           <Chart
             type="bar"
             data={{
@@ -92,7 +93,9 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                   data: actMonthData,
                   backgroundColor: colors.red,
                   borderRadius: 4,
-                  maxBarThickness: 46
+                  maxBarThickness: 24,
+                  categoryPercentage: 0.6,
+                  barPercentage: 0.9
                 }
               ]
             }}
@@ -116,7 +119,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
           />
         </div>
       ) : (
-        <div className="chart-wrap">
+        <div className="chart-wrap-compact">
           <Chart
             type="bar"
             data={{
@@ -129,7 +132,9 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                   backgroundColor: colors.red,
                   borderRadius: 4,
                   order: 2,
-                  maxBarThickness: 46
+                  maxBarThickness: 24,
+                  categoryPercentage: 0.5,
+                  barPercentage: 0.9
                 },
                 {
                   type: "line" as const,
@@ -137,8 +142,11 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                   data: msData,
                   borderColor: colors.blue,
                   backgroundColor: colors.blue,
+                  borderWidth: 2,
                   tension: 0.3,
-                  pointRadius: 3,
+                  pointRadius: 4,
+                  pointBorderWidth: 2,
+                  pointBorderColor: colors.surface,
                   order: 1
                 }
               ]
@@ -163,6 +171,12 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
             }}
           />
         </div>
+      )}
+      {!isBulanan && !noData && marketSizeYearRows.some((r) => r.estimated) && (
+        <p className="chart-note">
+          Perhitungan sementara: Market Size memakai UIO dari unit tanpa tahun / template kalkulator untuk tahun yang
+          belum punya Data UIO bertahun.
+        </p>
       )}
     </div>
   );
