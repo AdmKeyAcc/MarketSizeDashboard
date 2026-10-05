@@ -58,28 +58,34 @@ table { border-collapse: collapse; width: 100%; }
 .chip { background: var(--blue-100); color: var(--blue-600); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
 .chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
 
-/* Multi-select checklist filter: the closed box (summary) looks and sizes
-   exactly like the plain <select> it replaces; only the option panel that
-   drops down below it is its own small, scrollable box. */
+/* Multi-select checklist filter (pilih dulu, baru Terapkan). */
 .msf { position: relative; }
-.msf > summary { list-style: none; width: 100%; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font-weight: 500; font-size: 13.5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.msf > summary::-webkit-details-marker { display: none; }
-.msf > summary::after { content: "▾"; color: var(--ink-mute); font-size: 10px; flex-shrink: 0; }
-.msf[open] > summary::after { transform: rotate(180deg); }
-.msf-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: 260px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 8px; }
-.msf-search { width: 100%; padding: 6px 8px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12.5px; }
-.msf-all { width: 100%; margin-bottom: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--blue-600); font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
-.msf-all:hover:not(:disabled) { background: var(--surface-2); }
-.msf-all:disabled { color: var(--ink-mute); cursor: default; }
-.chart-note { margin: 8px 0 0; font-size: 12px; color: var(--ink-mute); }
-.msf-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; }
-.msf-opt { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: var(--radius-sm); font-size: 12.5px; cursor: pointer; }
+.msf-trigger { width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 500; font-size: 13.5px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; }
+.msf-trigger:hover { border-color: var(--blue-500); }
+.msf-trigger.open { border-color: var(--blue-600); box-shadow: 0 0 0 2px var(--blue-100); }
+.msf-trigger-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msf-chevron { color: var(--ink-mute); font-size: 12px; flex-shrink: 0; }
+.msf-trigger.open .msf-chevron { transform: rotate(180deg); }
+.msf-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: max-content; min-width: 100%; max-width: 340px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.msf-searchwrap { position: relative; margin: 10px 10px 8px; }
+.msf-searchicon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--ink-mute); pointer-events: none; }
+.msf-search { width: 100%; padding: 9px 10px 9px 33px; border: 1px solid var(--blue-500); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; outline: none; }
+.msf-search:focus { border-color: var(--blue-600); box-shadow: 0 0 0 2px var(--blue-100); }
+.msf-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; border-top: 1px solid var(--border); padding: 4px 6px; }
+.msf-opt { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .msf-opt:hover { background: var(--surface-2); }
-.msf-opt input { flex-shrink: 0; }
+.msf-opt input { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--blue-600); cursor: pointer; }
 .msf-opt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msf-empty { font-size: 12px; color: var(--ink-mute); padding: 6px; }
-.msf-clear { width: 100%; margin-top: 6px; padding: 6px; border: none; border-top: 1px solid var(--border); background: none; color: var(--red-600); font-size: 12px; cursor: pointer; }
-.msf-clear:hover { text-decoration: underline; }
+.msf-opt-all { font-weight: 700; border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; margin-bottom: 2px; }
+.msf-empty { font-size: 12px; color: var(--ink-mute); padding: 8px; }
+.msf-foot { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.msf-count { flex: 1; font-size: 12px; color: var(--ink-mute); }
+.msf-cancel { background: none; border: none; color: var(--ink-soft); font-size: 13px; cursor: pointer; padding: 7px 10px; }
+.msf-cancel:hover { text-decoration: underline; }
+.msf-apply { background: var(--blue-600); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.msf-apply:hover:not(:disabled) { background: var(--blue-700); }
+.msf-apply:disabled { opacity: .45; cursor: default; }
+.chart-note { margin: 8px 0 0; font-size: 12px; color: var(--ink-mute); }
 
 .filterbar-row { display: flex; flex-wrap: wrap; gap: 16px 20px; align-items: flex-end; }
 .field { min-width: 190px; flex: 1 1 190px; max-width: 240px; }
