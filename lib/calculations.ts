@@ -711,7 +711,6 @@ export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearR
   }));
 }
 
-/* ---------------- formatting ---------------- */
 
 export function fmtIDR(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "–";
