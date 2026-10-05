@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState } from "react"; 
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtInt, fmtIDRFull, type DetailRow } from "@/lib/calculations";
 
