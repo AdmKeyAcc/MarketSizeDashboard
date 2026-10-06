@@ -82,7 +82,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
           Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Size per tahun belum bisa dihitung.
         </div>
       ) : (
-        <div className="chart-wrap-compact">
+        <div className="chart-wrap-tall">
           <Chart
             type="bar"
             data={{
