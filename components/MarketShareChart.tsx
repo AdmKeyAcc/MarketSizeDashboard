@@ -31,11 +31,14 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Market Share per Tahun</h2>
+        <h2>
+          Market Share per Tahun
+          <span className="info-dot" title="Market share = Actual Sales ÷ Market Size (persentase), untuk periode yang sama.">i</span>
+        </h2>
       </div>
       {labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
-          Belum ada Data UIO yang diupload, jadi Market Share per tahun belum bisa dihitung.
+          Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Share per tahun belum bisa dihitung.
         </div>
       ) : (
         <div className="chart-wrap-compact">
