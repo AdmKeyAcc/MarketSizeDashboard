@@ -62,7 +62,10 @@ export const UIO_PRODUCT_ALIAS: Record<string, string> = {
   KBT: "KUBOTA",
   BTF: "BT",
   GDD: "GD",
-  CNC: "CANYCOM"
+  CNC: "CANYCOM",
+  FGW: "FG WILSON",
+  IRN: "IR",
+  LBT: "LINK-BELT"
 };
 
 export function canonicalProduct(p: string | null | undefined): string {
