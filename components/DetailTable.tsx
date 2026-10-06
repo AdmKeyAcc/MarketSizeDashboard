@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react"; 
+import { useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtInt, fmtIDRFull, type DetailRow } from "@/lib/calculations";
+import { fmtInt, fmtIDRFull, fmtPct, type DetailRow } from "@/lib/calculations";
 
 type SortKey = Exclude<keyof DetailRow, "uio_source">;
 
@@ -18,7 +18,10 @@ const COLS: { key: SortKey; label: string; computed?: boolean }[] = [
   { key: "uio", label: "UIO" },
   { key: "price", label: "Price (Rp)" },
   { key: "qty_market_size", label: "Qty market size", computed: true },
-  { key: "amount_market_size", label: "Market size (Rp)", computed: true }
+  { key: "amount_market_size", label: "Market size (Rp)", computed: true },
+  { key: "actual_qty", label: "Actual qty" },
+  { key: "actual_sales", label: "Actual sales (Rp)" },
+  { key: "market_share", label: "Market share", computed: true }
 ];
 
 const PAGE_SIZE = 20;
@@ -113,20 +116,28 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   <td>{fmtInt(row.annual_hm)}</td>
                   <td>{fmtInt(row.freq_replacement_hm)}</td>
                   <td>{fmtInt(row.qty_per_unit)}</td>
-                  <td title={row.uio_source === "template" ? "UIO belum ada Data" : "UIO dari Data UIO"}>
+                  <td title={row.uio_source === "template" ? "UIO dari template kalkulator (belum ada Data UIO untuk model ini)" : "UIO dari Data UIO"}>
                     {fmtInt(row.uio)}
                     {row.uio_source === "template" && "*"}
                   </td>
                   <td>{fmtIDRFull(row.price)}</td>
                   <td className="computed">{fmtInt(row.qty_market_size)}</td>
                   <td className="computed">{fmtIDRFull(row.amount_market_size)}</td>
+                  <td>{fmtInt(row.actual_qty)}</td>
+                  <td>{fmtIDRFull(row.actual_sales)}</td>
+                  <td className="computed">{fmtPct(row.market_share)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      
+      <p className="chart-note">
+        Qty market size = ROUND(Annual HM ÷ Frekuensi ganti × Qty per unit × UIO) · Market size (Rp) = Price × Qty market size
+        · Price dari Data Harga (fallback pricelist part) · UIO dari Data UIO per Product + Model unit · Actual dari
+        Actual Sales per part pada tahun acuan (tahun terbesar di filter Tahun, atau tahun terbaru) · Market share = Actual sales ÷ Market size periode yang sama.
+        {rows.some((r) => r.uio_source === "template") && " * = UIO dari template kalkulator (model ini belum ada di Data UIO)."}
+      </p>
       <div className="pagination">
         <button disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
           ‹ Sebelumnya
