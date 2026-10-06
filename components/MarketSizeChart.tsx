@@ -15,7 +15,7 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtIDR, fmtIDRFull } from "@/lib/calculations";
+import { fmtIDR, fmtIDRFull, fmtInt } from "@/lib/calculations";
 import type { Theme } from "@/hooks/useTheme";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, LineElement, LineController, PointElement, Tooltip, Legend);
@@ -23,7 +23,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, LineElem
 const FALLBACK = { ink: "#47566A", blue: "#175596", red: "#AC1F2C", border: "#DCE2E9", surface: "#FFFFFF" };
 
 export default function MarketSizeChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { marketSizeYearRows, marketSizeView, setMarketSizeView, actualSalesMonthRows, singleYear } = state;
+  const { marketSizeYearRows, marketSizeView, setMarketSizeView } = state;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -37,86 +37,49 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
     });
   }, [theme]);
 
-  const isBulanan = marketSizeView === "bulan";
-
-  // Tahunan: Market Size (garis) + Actual Sales (bar), X = Tahun.
-  const yearLabels = marketSizeYearRows.map((r) => String(r.year));
-  const msData = marketSizeYearRows.map((r) => r.market_size);
-  const actYearData = marketSizeYearRows.map((r) => r.actual_sales);
-
-  // Bulanan: hanya Actual Sales (Market Size tidak tersedia per bulan,
-  // karena Data UIO sumbernya cuma granular per tahun), X = Bulan, untuk
-  // satu tahun yang dipilih di filter Tahun.
-  const monthLabels = actualSalesMonthRows.map((r) => r.month);
-  const actMonthData = actualSalesMonthRows.map((r) => r.actual_sales);
-
-  const labels = isBulanan ? monthLabels : yearLabels;
-  const noData = isBulanan ? singleYear === null : yearLabels.length === 0;
+  const isQty = marketSizeView === "quantity";
+  const labels = marketSizeYearRows.map((r) => String(r.year));
+  const marketData = marketSizeYearRows.map((r) => (isQty ? r.market_qty : r.market_size));
+  const actualData = marketSizeYearRows.map((r) => (isQty ? r.actual_qty : r.actual_sales));
+  const partialYears = marketSizeYearRows.filter((r) => r.period_months < 12);
+  const fmtVal = (v: number) => (isQty ? `${fmtInt(v)} pcs` : fmtIDRFull(v));
 
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Market Size {isBulanan ? "" : "per Tahun"}</h2>
+        <h2>
+          Market Size per Tahun
+          {partialYears.length > 0 && (
+            <span
+              className="info-dot"
+              title={`Tahun yang Actual Sales-nya belum penuh setahun dibandingkan dengan Market Size periode yang sama: ${partialYears
+                .map((r) => `${r.year} (${r.period_months} bulan)`)
+                .join(", ")}.`}
+            >
+              i
+            </span>
+          )}
+        </h2>
         <div className="seg">
           <button
             type="button"
-            className={`seg-btn${!isBulanan ? " active" : ""}`}
-            onClick={() => setMarketSizeView("tahun")}
+            className={`seg-btn${!isQty ? " active" : ""}`}
+            onClick={() => setMarketSizeView("amount")}
           >
-            Tahunan
+            Amount
           </button>
           <button
             type="button"
-            className={`seg-btn${isBulanan ? " active" : ""}`}
-            onClick={() => setMarketSizeView("bulan")}
+            className={`seg-btn${isQty ? " active" : ""}`}
+            onClick={() => setMarketSizeView("quantity")}
           >
-            Bulanan
+            Quantity
           </button>
         </div>
       </div>
-      {noData ? (
+      {labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
-          {isBulanan
-            ? "Pilih tepat satu Tahun di filter untuk melihat Actual Sales per bulan (Market Size tidak tersedia per bulan karena Data UIO hanya per tahun)."
-            : "Belum ada Data UIO yang diupload, jadi Market Size per tahun belum bisa dihitung."}
-        </div>
-      ) : isBulanan ? (
-        <div className="chart-wrap-compact">
-          <Chart
-            type="bar"
-            data={{
-              labels: monthLabels,
-              datasets: [
-                {
-                  type: "bar" as const,
-                  label: `Actual sales ${singleYear}`,
-                  data: actMonthData,
-                  backgroundColor: colors.red,
-                  borderRadius: 4,
-                  maxBarThickness: 24,
-                  categoryPercentage: 0.6,
-                  barPercentage: 0.9
-                }
-              ]
-            }}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                legend: { position: "bottom", labels: { color: colors.ink, boxWidth: 12, padding: 16 } },
-                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtIDRFull(c.parsed.y as number)}` } }
-              },
-              scales: {
-                x: { ticks: { color: colors.ink }, grid: { display: false } },
-                y: {
-                  beginAtZero: true,
-                  ticks: { color: colors.ink, maxTicksLimit: 6, callback: (v) => fmtIDR(v as number) },
-                  grid: { color: colors.border, drawTicks: false },
-                  border: { display: false }
-                }
-              }
-            }}
-          />
+          Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Size per tahun belum bisa dihitung.
         </div>
       ) : (
         <div className="chart-wrap-compact">
@@ -127,8 +90,8 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
               datasets: [
                 {
                   type: "bar" as const,
-                  label: "Actual sales",
-                  data: actYearData,
+                  label: isQty ? "Actual sales (qty)" : "Actual sales",
+                  data: actualData,
                   backgroundColor: colors.red,
                   borderRadius: 4,
                   order: 2,
@@ -138,8 +101,8 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                 },
                 {
                   type: "line" as const,
-                  label: "Market size",
-                  data: msData,
+                  label: isQty ? "Market size (qty)" : "Market size",
+                  data: marketData,
                   borderColor: colors.blue,
                   backgroundColor: colors.blue,
                   borderWidth: 2,
@@ -157,13 +120,17 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
               interaction: { mode: "index", intersect: false },
               plugins: {
                 legend: { position: "bottom", labels: { color: colors.ink, boxWidth: 12, padding: 16 } },
-                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtIDRFull(c.parsed.y as number)}` } }
+                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtVal(c.parsed.y as number)}` } }
               },
               scales: {
                 x: { ticks: { color: colors.ink }, grid: { display: false } },
                 y: {
                   beginAtZero: true,
-                  ticks: { color: colors.ink, maxTicksLimit: 6, callback: (v) => fmtIDR(v as number) },
+                  ticks: {
+                    color: colors.ink,
+                    maxTicksLimit: 6,
+                    callback: (v) => (isQty ? fmtInt(v as number) : fmtIDR(v as number))
+                  },
                   grid: { color: colors.border, drawTicks: false },
                   border: { display: false }
                 }
