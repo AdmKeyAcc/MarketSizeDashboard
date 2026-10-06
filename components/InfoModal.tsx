@@ -40,8 +40,8 @@ export default function InfoModal({
             populasi UIO dari waktu ke waktu tetap bisa dilihat trennya.
           </li>
           <li>
-            Business Area diambil dari kode Sales Office (SOff.) pada data konfirmasi UIO per customer — satu
-            customer bisa punya lebih dari satu Business Area kalau pernah bertransaksi dari beberapa SOff berbeda.
+            Sector diambil dari kolom Customer Sector pada data populasi UIO — satu customer bisa punya lebih
+            dari satu Sector kalau tercatat di beberapa sektor berbeda.
           </li>
           <li>Semua data disimpan di Supabase dan terlihat oleh siapa pun yang mengakses dashboard ini.</li>
         </ul>
