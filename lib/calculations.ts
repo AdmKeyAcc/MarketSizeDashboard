@@ -5,6 +5,7 @@ import {
   type Customer,
   type MonthlyRow,
   type ActualSalesRow,
+  type ActualSalesTx,
   type UioUnit,
   type PriceListEntry,
   MONTH_ORDER,
@@ -266,13 +267,11 @@ export function defaultUioQty(
   product: string,
   model: string
 ): number {
-  const year = latestUioYear(uioUnits);
   const prod = canonicalProduct(product);
   const mod = normModel(model);
-  // Unit tanpa tahun ikut dihitung (populasi yang berlaku di tahun mana pun).
-  const count = uioUnits.filter(
-    (u) => (year === null || u.year === null || u.year === year) && canonicalProduct(u.product) === prod && normModel(u.model) === mod
-  ).length;
+  // UIO = unit yang beroperasi sampai tahun terbaru = semua unit yang sudah
+  // terjual (Year Inv) sampai tahun itu, ditambah unit tanpa tahun.
+  const count = uioUnits.filter((u) => canonicalProduct(u.product) === prod && normModel(u.model) === mod).length;
   if (count > 0) return count;
   const src = lookup[(model || "").trim().toUpperCase()];
   return src?.uio_qty || 0;
@@ -365,7 +364,10 @@ function buildUnitScopeKeys(customers: Customer[] | undefined, f: FilterState | 
 /** Unit tanpa tahun (year null) dianggap populasi yang selalu berlaku di
  * tahun mana pun — jadi tetap terhitung walau tahun difilter. */
 function unitInScope(u: UioUnit, years: number[], f: FilterState | undefined, keys: UnitScopeKeys): boolean {
-  if (years.length > 0 && u.year !== null && !years.includes(u.year)) return false;
+  // UIO (unit in operation) pada tahun Y = semua unit yang sudah terjual
+  // (Year Inv) sampai tahun Y — unit tahun lalu masih beroperasi. Kalau
+  // beberapa tahun dipilih, dipakai tahun terbesar. Unit tanpa tahun selalu ikut.
+  if (years.length > 0 && u.year !== null && u.year > Math.max(...years)) return false;
   if (!f) return true;
   if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(u.customer_group || "")) return false;
   if (f.customerName.length > 0 && !setOf(f.customerName).has(u.customer_name || "")) return false;
@@ -480,6 +482,112 @@ function buildPriceResolver(priceList: PriceListEntry[]) {
   };
 }
 
+/* ---------------- Actual Sales (per transaksi/part) ---------------- */
+
+/** Bulan apa saja yang punya data Actual Sales di tiap tahun (tanpa melihat
+ * filter). Dipakai supaya Market Size dibandingkan untuk PERIODE YANG SAMA
+ * dengan Actual Sales — mis. 2026 baru ada Januari–Agustus, maka Market Size
+ * 2026 dihitung 8/12 tahun. */
+export function actualCoverage(actualSales: ActualSalesRow[], actualTx: ActualSalesTx[]): Map<number, Set<string>> {
+  const cov = new Map<number, Set<string>>();
+  const add = (year: number, month: string) => {
+    let m = cov.get(year);
+    if (!m) cov.set(year, (m = new Set()));
+    m.add(month);
+  };
+  if (actualTx.length > 0) actualTx.forEach((r) => add(r.year, r.month));
+  else actualSales.forEach((r) => add(r.year, r.month));
+  return cov;
+}
+
+/** Berapa bagian dari Market Size setahun yang dipakai: jumlah bulan yang
+ * dipilih di filter Bulan, atau (kalau kosong) jumlah bulan yang punya
+ * Actual Sales di tahun itu, atau 12 kalau belum ada Actual Sales. */
+function periodMonths(year: number | null, f: FilterState, cov: Map<number, Set<string>>): number {
+  if (f.bulan.length > 0) return f.bulan.length;
+  const n = year === null ? 0 : cov.get(year)?.size || 0;
+  return n > 0 ? n : 12;
+}
+
+type TxLike = {
+  month: string;
+  customer_group: string | null;
+  customer_name: string | null;
+  product: string | null;
+  model: string | null;
+  part_number: string | null;
+};
+
+/** Penyaring baris Actual Sales sesuai filter dashboard (kecuali Tahun —
+ * tahun ditangani pemanggil). Filter customer (Area/Tier/Sector/PSS) lewat
+ * himpunan customer yang masuk scope. */
+function buildActualScope(f: FilterState, customers: Customer[] | undefined, parts: Part[]) {
+  const keys = buildUnitScopeKeys(customers, f);
+  const partNameByNo = f.partName.length > 0 ? new Map(parts.map((p) => [p.part_number || "", p.part_name])) : null;
+  const models = f.modelUnit.length > 0 ? new Set(f.modelUnit.map(normModel)) : null;
+  return (r: TxLike): boolean => {
+    if (f.bulan.length > 0 && !setOf(f.bulan).has(r.month)) return false;
+    if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(r.customer_group || "")) return false;
+    if (f.customerName.length > 0 && !setOf(f.customerName).has(r.customer_name || "")) return false;
+    if (keys.areaKeys || keys.otherKeys) {
+      const ck = custKey(r.customer_group, r.customer_name);
+      if (keys.areaKeys && !keys.areaKeys.has(ck)) return false;
+      if (keys.otherKeys && !keys.otherKeys.has(ck)) return false;
+    }
+    if (f.product.length > 0 && !setOf(f.product).has(canonicalProduct(r.product))) return false;
+    if (models && !models.has(normModel(r.model))) return false;
+    if (f.partNumber.length > 0 && !setOf(f.partNumber).has(r.part_number || "")) return false;
+    if (partNameByNo && !setOf(f.partName).has(partNameByNo.get(r.part_number || "") || "")) return false;
+    return true;
+  };
+}
+
+type ActualAgg = { amount: number; qty: number };
+
+/** Total Actual Sales (Rp & qty) per tahun, sesuai filter. Kalau tabel per
+ * transaksi masih kosong, dipakai tabel Actual Sales lama (per product,
+ * tanpa qty). */
+function actualByYear(
+  actualSales: ActualSalesRow[],
+  actualTx: ActualSalesTx[],
+  f: FilterState,
+  customers: Customer[] | undefined,
+  parts: Part[]
+): Map<number, ActualAgg> {
+  const out = new Map<number, ActualAgg>();
+  const bump = (year: number, amount: number, qty: number) => {
+    const a = out.get(year);
+    if (a) {
+      a.amount += amount;
+      a.qty += qty;
+    } else out.set(year, { amount, qty });
+  };
+  if (actualTx.length > 0) {
+    const inScope = buildActualScope(f, customers, parts);
+    actualTx.forEach((r) => {
+      if (inScope(r)) bump(r.year, r.amount || 0, r.qty || 0);
+    });
+  } else {
+    actualSales.forEach((r) => {
+      if (f.product.length > 0 && !setOf(f.product).has(canonicalProduct(r.product))) return;
+      if (f.bulan.length > 0 && !setOf(f.bulan).has(r.month)) return;
+      bump(r.year, r.actual_sales || 0, 0);
+    });
+  }
+  return out;
+}
+
+/** Tahun acuan Detail part: tahun terbesar yang dipilih di filter Tahun,
+ * kalau kosong tahun terbaru yang punya data. */
+function referenceYear(f: FilterState, uioUnits: UioUnit[], cov: Map<number, Set<string>>): number | null {
+  const sel = f.tahun.map((y) => parseInt(y, 10)).filter((n) => Number.isFinite(n));
+  if (sel.length > 0) return Math.max(...sel);
+  const latest = latestUioYear(uioUnits);
+  const covYears = Array.from(cov.keys());
+  const all = [...(latest !== null ? [latest] : []), ...covYears];
+  return all.length > 0 ? Math.max(...all) : null;
+}
+
 export type DetailRow = {
   product: string;
   model: string;
@@ -496,18 +604,24 @@ export type DetailRow = {
   price: number;
   qty_market_size: number;
   amount_market_size: number;
+  /** Actual Sales part ini pada tahun acuan (qty & Rp). */
+  actual_qty: number;
+  actual_sales: number;
+  /** Market share = Actual Sales ÷ Market Size periode yang sama (null kalau Market Size 0). */
+  market_share: number | null;
 };
 
 /** Baris "Detail part" di page Summary: semua kolom diturunkan dari data
  * (Product & Model dari data part, UIO dari Data UIO per Product+Model,
- * Price dari Data Harga → pricelist) dan Qty/Market Size memakai rumus di
- * computePartMarketSize. */
+ * Price dari Data Harga → pricelist, Actual dari Actual Sales per part) dan
+ * Qty/Market Size memakai rumus di computePartMarketSize. */
 export function buildDetailRows(
   parts: Part[],
   assumptions: Assumption[],
   uioUnits: UioUnit[],
   priceList: PriceListEntry[],
   customers: Customer[],
+  actualTx: ActualSalesTx[],
   f: FilterState
 ): DetailRow[] {
   const years = resolveUioYears(f, uioUnits);
@@ -516,6 +630,24 @@ export function buildDetailRows(
   const priceOf = buildPriceResolver(priceList);
   const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
+
+  // Actual Sales per part pada tahun acuan.
+  const cov = actualCoverage([], actualTx);
+  const refYear = referenceYear(f, uioUnits, cov);
+  const factor = periodMonths(refYear, f, cov) / 12;
+  const actualByPart = new Map<string, ActualAgg>();
+  if (actualTx.length > 0 && refYear !== null) {
+    const inScope = buildActualScope(f, customers, parts);
+    actualTx.forEach((r) => {
+      if (r.year !== refYear || !inScope(r)) return;
+      const k = `${canonicalProduct(r.product)}|${normModel(r.model)}|${r.part_number || ""}`;
+      const a = actualByPart.get(k);
+      if (a) {
+        a.amount += r.amount || 0;
+        a.qty += r.qty || 0;
+      } else actualByPart.set(k, { amount: r.amount || 0, qty: r.qty || 0 });
+    });
+  }
 
   const out: DetailRow[] = [];
   parts.forEach((p) => {
@@ -539,6 +671,8 @@ export function buildDetailRows(
       uio,
       price
     });
+    const act = actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`);
+    const periodMarket = amount * factor;
     out.push({
       product: p.product,
       model: p.model,
@@ -552,7 +686,10 @@ export function buildDetailRows(
       uio_source: source,
       price,
       qty_market_size: qty,
-      amount_market_size: amount
+      amount_market_size: amount,
+      actual_qty: act?.qty ?? 0,
+      actual_sales: act?.amount ?? 0,
+      market_share: periodMarket > 0 ? (act?.amount ?? 0) / periodMarket : null
     });
   });
   return out;
@@ -583,10 +720,8 @@ export type PartWithoutPrice = { product: string; model: string; part_number: st
 /** Part Number yang "gagal" dapat harga: tidak ada entri cocok di Data
  * Harga (baik harga khusus per Customer Group maupun harga umum), dan
  * pricelist bawaan part itu sendiri juga 0 — sehingga Contract Price-nya
- * jadi 0 dan part ini otomatis tidak menyumbang apa pun ke Market Size
- * tanpa ada tanda apapun di chart. Dipakai untuk daftar "Part Number
- * tanpa harga" di modal info, supaya ketahuan part mana yang perlu
- * dilengkapi di Data Harga. */
+ * jadi 0 dan part ini otomatis tidak menyumbang apa pun ke Market Size.
+ * Dipakai untuk daftar "Part Number tanpa harga" di modal info. */
 export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]): PartWithoutPrice[] {
   const priced = new Set(priceList.map((p) => p.part_number));
   const seen = new Set<string>();
@@ -605,37 +740,39 @@ export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]
 
 export type MarketSizeYearRow = {
   year: number;
+  /** Market Size (Rp) untuk periode yang sama dengan Actual Sales. */
   market_size: number;
   actual_sales: number;
-  /** true = sebagian nilai masih perhitungan sementara (UIO dari unit tanpa
-   * tahun atau dari template kalkulator, bukan Data UIO bertahun). */
-  estimated: boolean;
+  /** Market Size & Actual Sales dalam jumlah (qty). */
+  market_qty: number;
+  actual_qty: number;
+  /** Jumlah bulan yang dibandingkan di tahun ini (12 = setahun penuh). */
+  period_months: number;
 };
 
 /** Market Size per tahun = jumlah (Price × ROUND(Annual HM ÷ Frekuensi ganti
- * × Qty/unit × UIO)) dari seluruh part. Daftar tahun = gabungan tahun di Data
- * UIO dan tahun di Actual Sales, supaya Market Share bisa terlihat bentuknya
- * walau Data UIO belum punya tahun di semua baris.
- *
- * Perhitungan sementara: unit UIO tanpa tahun dihitung di setiap tahun, dan
- * part yang model-nya sama sekali belum ada di Data UIO memakai angka UIO
- * dari template kalkulator. Tahun yang kena aturan ini ditandai estimated. */
+ * × Qty/unit × UIO)) dari seluruh part, dengan UIO = unit yang sudah terjual
+ * sampai tahun itu. Daftar tahun = gabungan tahun di Data UIO dan di Actual
+ * Sales; kalau filter Tahun kosong semua tahun tampil. Market Size diambil
+ * untuk periode yang sama dengan Actual Sales (mis. Jan–Agu 2026 = 8/12). */
 export function marketSizeByYear(
   parts: Part[],
   assumptions: Assumption[],
   uioUnits: UioUnit[],
   priceList: PriceListEntry[],
   actualSales: ActualSalesRow[],
-  f?: FilterState,
+  actualTx: ActualSalesTx[],
+  f: FilterState = EMPTY_FILTERS,
   customers?: Customer[]
 ): MarketSizeYearRow[] {
-  const actualByYear: Record<number, number> = {};
-  actualSales.forEach((r) => {
-    if (f && f.product.length > 0 && !f.product.includes(r.product)) return;
-    actualByYear[r.year] = (actualByYear[r.year] || 0) + (r.actual_sales || 0);
-  });
+  const actual = actualByYear(actualSales, actualTx, f, customers, parts);
+  const cov = actualCoverage(actualSales, actualTx);
   const datedYears = uioYearsAvailable(uioUnits);
-  const years = Array.from(new Set([...datedYears, ...Object.keys(actualByYear).map(Number)])).sort((a, b) => a - b);
+  let years = Array.from(new Set([...datedYears, ...Array.from(cov.keys())])).sort((a, b) => a - b);
+  if (f.tahun.length > 0) {
+    const sel = new Set(f.tahun.map((y) => parseInt(y, 10)));
+    years = years.filter((y) => sel.has(y));
+  }
   if (years.length === 0 || parts.length === 0) return [];
 
   const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined);
@@ -643,7 +780,7 @@ export function marketSizeByYear(
   // Contract Price per Customer Group hanya masuk akal untuk satu grup
   // spesifik — kalau 0 atau lebih dari 1 Customer Group dicentang, pakai
   // harga umum/nasional.
-  const customerGroup = f?.customerGroup.length === 1 ? f.customerGroup[0] : "";
+  const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
   const workdaysCache = new Map<string, number>();
   const workdaysOf = (product: string) => {
     let w = workdaysCache.get(product);
@@ -653,60 +790,57 @@ export function marketSizeByYear(
     }
     return w;
   };
-  const nationalFilter = f ? { ...f, tahun: [] as string[] } : undefined;
+  // Tahun & Bulan tidak membatasi populasi unit (UIO dihitung per tahun di bawah).
+  const unitFilter = { ...f, tahun: [] as string[], bulan: [] as string[] };
 
   return years.map((year) => {
-    const counter = buildUnitCounter(uioUnits, [year], nationalFilter, customers);
+    const counter = buildUnitCounter(uioUnits, [year], unitFilter, customers);
     let total = 0;
-    let estimated = !datedYears.includes(year);
+    let totalQty = 0;
     parts.forEach((p) => {
-      if (f && f.product.length > 0 && !f.product.includes(p.product)) return;
-      if (f && f.modelUnit.length > 0 && !f.modelUnit.includes(p.model)) return;
+      if (f.product.length > 0 && !setOf(f.product).has(p.product)) return;
+      if (f.modelUnit.length > 0 && !setOf(f.modelUnit).has(p.model)) return;
+      if (f.partNumber.length > 0 && !setOf(f.partNumber).has(p.part_number || "")) return;
+      if (f.partName.length > 0 && !setOf(f.partName).has(p.part_name || "")) return;
       let uio = counter.count(p.product, p.model);
       if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
-        uio = (p.uio_qty || 0) * (f && customers ? allocationFactor(customers, f, p.product) : 1);
-        if (uio > 0) estimated = true;
+        uio = (p.uio_qty || 0) * (customers ? allocationFactor(customers, f, p.product) : 1);
       }
       if (uio === 0) return;
       const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
       const price = priceOf(p.part_number, customerGroup, p.pricelist);
-      total += computePartMarketSize({
+      const r = computePartMarketSize({
         annualHm,
         freqReplacementHm: p.freq_replacement_hm,
         qtyPerUnit: p.qty_per_unit,
         uio,
         price
-      }).amount;
+      });
+      total += r.amount;
+      totalQty += r.qty;
     });
-    return { year, market_size: Math.round(total), actual_sales: Math.round(actualByYear[year] || 0), estimated };
+    const months = periodMonths(year, f, cov);
+    const factor = months / 12;
+    const a = actual.get(year);
+    return {
+      year,
+      market_size: Math.round(total * factor),
+      market_qty: Math.round(totalQty * factor),
+      actual_sales: Math.round(a?.amount || 0),
+      actual_qty: Math.round(a?.qty || 0),
+      period_months: months
+    };
   });
 }
 
-export type ActualSalesMonthRow = { month: string; actual_sales: number };
+export type MarketShareYearRow = { year: number; market_share: number; period_months: number };
 
-/** Actual Sales per bulan untuk SATU tahun tertentu — Market Size tidak
- * punya versi ini karena Data UIO (sumbernya) cuma granular per tahun,
- * jadi perbandingan bulanan hanya tersedia untuk Actual Sales. */
-export function actualSalesByMonth(actualSales: ActualSalesRow[], year: number, f?: FilterState): ActualSalesMonthRow[] {
-  const allowed = f ? allowedProducts(f) : null;
-  const totals: Record<string, number> = {};
-  actualSales.forEach((r) => {
-    if (r.year !== year) return;
-    if (allowed && !allowed.includes(r.product)) return;
-    if (f && f.product.length > 0 && !f.product.includes(r.product)) return;
-    totals[r.month] = (totals[r.month] || 0) + (r.actual_sales || 0);
-  });
-  return MONTH_ORDER.map((month) => ({ month, actual_sales: Math.round(totals[month] || 0) }));
-}
-
-export type MarketShareYearRow = { year: number; market_share: number; estimated: boolean };
-
-/** Market Share = Actual Sales ÷ Market Size, per tahun. */
+/** Market Share = Actual Sales ÷ Market Size (persentase), per tahun. */
 export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearRow[] {
   return msRows.map((r) => ({
     year: r.year,
     market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0,
-    estimated: r.estimated
+    period_months: r.period_months
   }));
 }
 
