@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, BarController, Tooltip, Legend } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtInt, UIO_DIMENSIONS, UIO_DIMENSION_LABELS } from "@/lib/calculations";
+import { fmtInt } from "@/lib/calculations";
 import type { Theme } from "@/hooks/useTheme";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, Tooltip, Legend);
@@ -12,7 +12,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, Tooltip,
 const FALLBACK = { ink: "#47566A", blue: "#175596", border: "#DCE2E9" };
 
 export default function UioChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { uioByProductRows, uioYears, uioDimension, setUioDimension } = state;
+  const { uioByProductRows, uioYears } = state;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -31,24 +31,12 @@ export default function UioChart({ state, theme }: { state: UseDashboardState; t
     <div className="panel">
       <div className="panel-head">
         <h2>
-          UIO per {UIO_DIMENSION_LABELS[uioDimension]}
-          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation).">i</span>
+          UIO per Product
+          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation), yaitu semua unit yang sudah terjual sampai tahun yang ditampilkan.">i</span>
         </h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div className="seg">
-            {UIO_DIMENSIONS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={`seg-btn${uioDimension === d ? " active" : ""}`}
-                onClick={() => setUioDimension(d)}
-              >
-                {UIO_DIMENSION_LABELS[d]}
-              </button>
-            ))}
-          </div>
-          <span className="note">{uioYears.length > 0 ? `Tahun ${uioYears.join(", ")}` : "Belum ada data UIO"}</span>
-        </div>
+        <span className="note">
+          {uioYears.length > 0 ? `Posisi sampai tahun ${Math.max(...uioYears)}` : "Belum ada data UIO"}
+        </span>
       </div>
       {labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
@@ -67,7 +55,9 @@ export default function UioChart({ state, theme }: { state: UseDashboardState; t
                   data: values,
                   backgroundColor: colors.blue,
                   borderRadius: 4,
-                  maxBarThickness: 46
+                  maxBarThickness: 24,
+                  categoryPercentage: 0.6,
+                  barPercentage: 0.9
                 }
               ]
             }}
