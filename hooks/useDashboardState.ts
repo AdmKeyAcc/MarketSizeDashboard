@@ -10,21 +10,15 @@ import {
   uniq,
   canonicalProduct,
   monthIndex,
-  buildMonthly,
   buildModelLookup,
   buildDetailRows,
-  aggregatedMonthly,
-  monthsInScope,
   allowedProducts,
   getRealCustomers,
-  isScalingActive,
   resolveUioYears,
   uioByDimension,
-  type UioDimension,
   marketSizeByYear,
   marketShareByYear,
-  findPartsWithoutPrice,
-  actualSalesByMonth
+  findPartsWithoutPrice
 } from "@/lib/calculations";
 import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
 
@@ -32,8 +26,7 @@ export function useDashboardState(initialData: DashboardData) {
   const [data, setData] = useState<DashboardData>(initialData);
   const [refreshing, setRefreshing] = useState(false);
   const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
-  const [uioDimension, setUioDimension] = useState<UioDimension>("product");
-  const [marketSizeView, setMarketSizeView] = useState<"tahun" | "bulan">("tahun");
+  const [marketSizeView, setMarketSizeView] = useState<"amount" | "quantity">("amount");
 
   const refetch = useCallback(async () => {
     setRefreshing(true);
@@ -50,50 +43,63 @@ export function useDashboardState(initialData: DashboardData) {
   }, []);
   const resetFilters = useCallback(() => setFiltersState(EMPTY_FILTERS), []);
 
-  const monthly = useMemo(() => buildMonthly(data.parts, data.actualSales), [data.parts, data.actualSales]);
+  // Tahun & bulan yang punya data Actual Sales (dipakai untuk pilihan filter).
+  const actualPeriods = useMemo(() => {
+    const ys = new Set<number>();
+    const ms = new Set<string>();
+    if (data.actualSalesTx.length > 0) {
+      data.actualSalesTx.forEach((r) => {
+        ys.add(r.year);
+        ms.add(r.month);
+      });
+    } else {
+      data.actualSales.forEach((r) => {
+        ys.add(r.year);
+        ms.add(r.month);
+      });
+    }
+    return { years: Array.from(ys).map(String), months: Array.from(ms) };
+  }, [data.actualSalesTx, data.actualSales]);
   const modelLookup = useMemo(() => buildModelLookup(data.uio), [data.uio]);
   const realCustomers = useMemo(() => getRealCustomers(data.customers), [data.customers]);
 
   const detailRows = useMemo(
-    () => buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, filters),
-    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, filters]
+    () => buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters),
+    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters]
   );
-  const monthlyAgg = useMemo(() => aggregatedMonthly(monthly, data.customers, filters), [monthly, data.customers, filters]);
-  const scaling = useMemo(() => isScalingActive(data.customers, filters), [data.customers, filters]);
-  const months = useMemo(() => monthsInScope(monthly, filters), [monthly, filters]);
 
   // ---- dashboard charts: UIO per product / market size & share per tahun ----
   const uioYears = useMemo(() => resolveUioYears(filters, data.uioUnits), [filters, data.uioUnits]);
   const uioByProductRows = useMemo(
-    () => uioByDimension(data.uioUnits, uioYears, uioDimension, filters, data.customers),
-    [data.uioUnits, uioYears, uioDimension, filters, data.customers]
+    () => uioByDimension(data.uioUnits, uioYears, "product", filters, data.customers),
+    [data.uioUnits, uioYears, filters, data.customers]
   );
   const marketSizeYearRows = useMemo(
-    () => marketSizeByYear(data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters, data.customers),
-    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, filters, data.customers]
+    () =>
+      marketSizeByYear(
+        data.parts,
+        data.assumptions,
+        data.uioUnits,
+        data.priceList,
+        data.actualSales,
+        data.actualSalesTx,
+        filters,
+        data.customers
+      ),
+    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, data.actualSalesTx, filters, data.customers]
   );
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
   const partsWithoutPrice = useMemo(
     () => findPartsWithoutPrice(data.parts, data.priceList),
     [data.parts, data.priceList]
   );
-  // Actual Sales per bulan hanya masuk akal kalau pengguna sudah mempersempit
-  // ke SATU tahun (kalau belum/lebih dari satu, ambigu bulan dari tahun yang
-  // mana) — Market Size tidak punya versi bulanan sama sekali (lihat
-  // actualSalesByMonth di lib/calculations.ts).
-  const singleYear = filters.tahun.length === 1 ? parseInt(filters.tahun[0], 10) : null;
-  const actualSalesMonthRows = useMemo(
-    () => (singleYear !== null && Number.isFinite(singleYear) ? actualSalesByMonth(data.actualSales, singleYear, filters) : []),
-    [data.actualSales, singleYear, filters]
-  );
-
   // ---- cascading filter option lists (no "Semua" sentinel anymore — an
   // empty selection in the checklist itself means "no restriction") ----
   const options = useMemo(() => {
-    const years = uniq(monthly.map((r) => String(r.year))).sort();
+    const years = actualPeriods.years;
     const uioYearsAll = uniq(data.uioUnits.map((u) => u.year)).filter((y): y is number => y !== null).sort((a, b) => a - b);
     const allYears = uniq([...years, ...uioYearsAll.map(String)]).sort();
-    const monthOpts = uniq(monthly.map((r) => r.month)).sort((a, b) => monthIndex(a) - monthIndex(b));
+    const monthOpts = actualPeriods.months.slice().sort((a, b) => monthIndex(a) - monthIndex(b));
     const areaOpts = uniq(realCustomers.map((c) => c.cabang))
       .filter((a) => !EXCLUDED_AREAS.includes(a.trim().toUpperCase()))
       .sort();
@@ -151,7 +157,7 @@ export function useDashboardState(initialData: DashboardData) {
 
     return {
       tahun: allYears.length ? allYears : ["2026"],
-      bulan: monthOpts.length ? monthOpts : (MONTH_ORDER.slice(0, 9) as unknown as string[]),
+      bulan: monthOpts.length ? monthOpts : (MONTH_ORDER as unknown as string[]),
       area: areaOpts,
       sector: sectorOpts,
       pss: pssOpts,
@@ -163,7 +169,7 @@ export function useDashboardState(initialData: DashboardData) {
       partNumber: partNumberOpts,
       partName: partNameOpts
     };
-  }, [monthly, realCustomers, data.parts, data.uioUnits, filters]);
+  }, [actualPeriods, realCustomers, data.parts, data.uioUnits, filters]);
 
   return {
     data,
@@ -173,23 +179,15 @@ export function useDashboardState(initialData: DashboardData) {
     filters,
     setFilter,
     resetFilters,
-    monthly,
     modelLookup,
     realCustomers,
     detailRows,
-    monthlyAgg,
-    scaling,
-    months,
     options,
     uioYears,
-    uioDimension,
-    setUioDimension,
     uioByProductRows,
     partsWithoutPrice,
     marketSizeView,
     setMarketSizeView,
-    actualSalesMonthRows,
-    singleYear,
     marketSizeYearRows,
     marketShareYearRows
   };
