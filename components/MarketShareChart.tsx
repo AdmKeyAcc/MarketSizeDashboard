@@ -41,7 +41,7 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
           Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Share per tahun belum bisa dihitung.
         </div>
       ) : (
-        <div className="chart-wrap-compact">
+        <div className="chart-wrap-tall">
           <Chart
             type="line"
             data={{
