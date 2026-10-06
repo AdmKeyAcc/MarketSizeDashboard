@@ -35,11 +35,11 @@ export type Assumption = {
  * dipakai untuk mengurutkan pilihan filter. Customer dengan tier di luar
  * daftar ini tetap tampil (tidak difilter), hanya urutannya di akhir. */
 export const CUSTOMER_TIER_OPTIONS = [
-  "KA Nasional",
-  "KA Branch Platinum",
-  "KA Branch Gold",
+  "KA NASIONAL",
+  "KA BRANCH PLATINUM",
+  "KA BRANCH GOLD",
   "NKA",
-  "Dealer",
+  "DEALER",
   "SHN"
 ] as const;
 
@@ -56,17 +56,12 @@ export type Customer = {
   tier: string | null;
   uio_by_brand: Record<string, number>;
   total_uio: number;
-  /** Kode Sales Office (SOff.) tempat customer ini pernah bertransaksi —
-   * bisa lebih dari satu (customer yang sama bisa beli dari beberapa SOff
-   * berbeda di invoice berbeda), jadi disimpan sebagai array. Dipakai
-   * sebagai sumber filter "Business Area", menggantikan pengelompokan
-   * brand statis yang lama. Opsional & sengaja TIDAK diisi oleh
-   * parseCustomerWorkbook (upload "Cust Data") — kolom ini hanya diisi lewat
-   * SQL import terpisah dari sheet "Populasi All Branch". Dengan begitu,
-   * setiap kali file Cust Data diupload ulang lewat menu Upload, kolom
-   * business_area di database TIDAK ikut tertimpa (supabase upsert hanya
-   * meng-update kolom yang benar-benar ada di payload). */
-  business_area?: string[];
+  /** Customer Sector (Plantation, Rental, Mining, dst) — bisa lebih dari satu
+   * per customer, jadi array. Dipakai sebagai sumber filter "Sector".
+   * Opsional & sengaja TIDAK diisi oleh parseCustomerWorkbook (upload "Cust
+   * Data") — diisi lewat SQL import terpisah, jadi re-upload Cust Data tidak
+   * menimpanya (supabase upsert hanya meng-update kolom yang ada di payload). */
+  customer_sector?: string[];
 };
 
 export type ActualSalesRow = {
@@ -175,4 +170,3 @@ export const CUST_BRAND_MAP: Record<string, string> = {
   MF: "MF", CANYCOM: "CNY", TOYOTA: "TYT", BT: "BT/RAY", RAYMOND: "BT/RAY",
   PERKINS: "PER", GD: "GD/COM", KUBOTA: "KBT", HSC: "HSC"
 };
-
