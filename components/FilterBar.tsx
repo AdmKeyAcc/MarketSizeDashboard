@@ -6,7 +6,7 @@ import type { FilterState } from "@/lib/calculations";
 import TraknusLogo from "@/components/TraknusLogo";
 
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
-  tahun: "Tahun", bulan: "Bulan", area: "Area", businessArea: "Business area",
+  tahun: "Tahun", bulan: "Bulan", area: "Area", sector: "Sector",
   customerGroup: "Customer group", customerName: "Customer name",
   pss: "PSS", tier: "Tier", product: "Product", modelUnit: "Model unit",
   partNumber: "Part number", partName: "Part name"
@@ -255,11 +255,11 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
           <MultiSelectField label="Bulan" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
           <MultiSelectField label="Area" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
           <MultiSelectField
-            label="Business Area"
-            values={filters.businessArea}
-            options={options.businessArea}
-            onChange={(v) => setFilter("businessArea", v)}
-            info="Kode Sales Office (SOff.) tempat customer bertransaksi — satu customer bisa masuk lebih dari satu Business Area kalau pernah beli dari beberapa SOff."
+            label="Sector"
+            values={filters.sector}
+            options={options.sector}
+            onChange={(v) => setFilter("sector", v)}
+            info="Sektor industri customer (Plantation, Rental, Mining, dst). Satu customer bisa punya lebih dari satu sector."
           />
           <MultiSelectField
             label="Customer Group"
