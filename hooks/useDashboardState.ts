@@ -5,7 +5,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fetchDashboardDataWithClient } from "@/lib/fetchDashboardDataShared";
 import {
   EMPTY_FILTERS,
-  DEFAULT_AREA,
+  EXCLUDED_AREAS,
   type FilterState,
   uniq,
   monthIndex,
@@ -27,15 +27,10 @@ import {
 } from "@/lib/calculations";
 import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
 
-function initialFilters(d: DashboardData): FilterState {
-  const hasDefaultArea = d.customers.some((c) => c.customer_name && c.cabang === DEFAULT_AREA);
-  return hasDefaultArea ? { ...EMPTY_FILTERS, area: [DEFAULT_AREA] } : EMPTY_FILTERS;
-}
-
 export function useDashboardState(initialData: DashboardData) {
   const [data, setData] = useState<DashboardData>(initialData);
   const [refreshing, setRefreshing] = useState(false);
-  const [filters, setFiltersState] = useState<FilterState>(() => initialFilters(initialData));
+  const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
   const [uioDimension, setUioDimension] = useState<UioDimension>("product");
   const [marketSizeView, setMarketSizeView] = useState<"tahun" | "bulan">("tahun");
 
@@ -52,7 +47,7 @@ export function useDashboardState(initialData: DashboardData) {
   const setFilter = useCallback(<K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFiltersState((prev) => ({ ...prev, [key]: value }));
   }, []);
-  const resetFilters = useCallback(() => setFiltersState(initialFilters(data)), [data]);
+  const resetFilters = useCallback(() => setFiltersState(EMPTY_FILTERS), []);
 
   const monthly = useMemo(() => buildMonthly(data.parts, data.actualSales), [data.parts, data.actualSales]);
   const modelLookup = useMemo(() => buildModelLookup(data.uio), [data.uio]);
@@ -98,10 +93,12 @@ export function useDashboardState(initialData: DashboardData) {
     const uioYearsAll = uniq(data.uioUnits.map((u) => u.year)).filter((y): y is number => y !== null).sort((a, b) => a - b);
     const allYears = uniq([...years, ...uioYearsAll.map(String)]).sort();
     const monthOpts = uniq(monthly.map((r) => r.month)).sort((a, b) => monthIndex(a) - monthIndex(b));
-    const areaOpts = uniq(realCustomers.map((c) => c.cabang)).sort();
-    // Business Area = kode Sales Office (SOff.) customer — satu customer
-    // bisa punya lebih dari satu, jadi di-flatten dulu sebelum di-uniq.
-    const businessAreaOpts = uniq(realCustomers.flatMap((c) => c.business_area || [])).sort();
+    const areaOpts = uniq(realCustomers.map((c) => c.cabang))
+      .filter((a) => !EXCLUDED_AREAS.includes(a.trim().toUpperCase()))
+      .sort();
+    // Sector customer — satu customer bisa punya lebih dari satu, jadi
+    // di-flatten dulu sebelum di-uniq.
+    const sectorOpts = uniq(realCustomers.flatMap((c) => c.customer_sector || [])).sort();
     const pssOpts = uniq(realCustomers.map((c) => c.pss)).sort();
     const groupOpts = uniq(realCustomers.map((c) => c.customer_group)).sort();
     const tierOpts = uniq(realCustomers.map((c) => c.tier)).sort((a, b) => {
@@ -116,8 +113,8 @@ export function useDashboardState(initialData: DashboardData) {
     let custPool = realCustomers;
     if (filters.customerGroup.length > 0) custPool = custPool.filter((c) => filters.customerGroup.includes(c.customer_group || ""));
     if (filters.area.length > 0) custPool = custPool.filter((c) => filters.area.includes(c.cabang || ""));
-    if (filters.businessArea.length > 0)
-      custPool = custPool.filter((c) => (c.business_area || []).some((ba) => filters.businessArea.includes(ba)));
+    if (filters.sector.length > 0)
+      custPool = custPool.filter((c) => (c.customer_sector || []).some((s) => filters.sector.includes(s)));
     if (filters.tier.length > 0) custPool = custPool.filter((c) => filters.tier.includes(c.tier || ""));
     // uniq() is required here: the same Customer Name can legitimately exist
     // under more than one Customer Group (the DB's natural key is the
@@ -144,7 +141,7 @@ export function useDashboardState(initialData: DashboardData) {
       tahun: allYears.length ? allYears : ["2026"],
       bulan: monthOpts.length ? monthOpts : (MONTH_ORDER.slice(0, 9) as unknown as string[]),
       area: areaOpts,
-      businessArea: businessAreaOpts,
+      sector: sectorOpts,
       pss: pssOpts,
       customerGroup: groupOpts,
       customerName: customerNameOpts,
