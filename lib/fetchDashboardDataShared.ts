@@ -7,6 +7,7 @@ import type {
   Assumption,
   Customer,
   ActualSalesRow,
+  ActualSalesTx,
   UioUnit,
   PriceListEntry
 } from "@/lib/types";
@@ -46,13 +47,49 @@ async function fetchAll<T>(
   return all;
 }
 
+/**
+ * Actual Sales per transaksi bisa puluhan ribu baris. Halamannya diambil
+ * PARALEL (bukan satu-satu) supaya dashboard tidak menunggu puluhan request
+ * berurutan. Kalau tabel actual_sales_tx belum dibuat/kosong, hasilnya []
+ * dan dashboard jatuh ke tabel actual_sales yang lama.
+ */
+async function fetchActualSalesTx(supabase: SupabaseClient): Promise<ActualSalesTx[]> {
+  const cols = "year,month,customer_group,customer_name,product,model,part_number,qty,amount";
+  const head = await supabase.from("actual_sales_tx").select("id", { count: "exact", head: true });
+  if (head.error || !head.count) return [];
+  const total = head.count;
+  const starts: number[] = [];
+  for (let from = 0; from < total; from += PAGE_SIZE) starts.push(from);
+  const out: ActualSalesTx[][] = new Array(starts.length);
+  const CONCURRENCY = 8;
+  for (let i = 0; i < starts.length; i += CONCURRENCY) {
+    await Promise.all(
+      starts.slice(i, i + CONCURRENCY).map(async (from, k) => {
+        const { data, error } = await supabase
+          .from("actual_sales_tx")
+          .select(cols)
+          .order("id", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw new Error(`actual_sales_tx: ${error.message}`);
+        out[i + k] = ((data ?? []) as unknown as ActualSalesTx[]).map((r) => ({
+          ...r,
+          qty: Number(r.qty) || 0,
+          amount: Number(r.amount) || 0
+        }));
+      })
+    );
+  }
+  return out.flat();
+}
+
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, uio, assumptions, customers, actualSales, uioUnits, priceList, metaRows] = await Promise.all([
+  const [parts, uio, assumptions, customers, actualSales, actualSalesTx, uioUnits, priceList, metaRows] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<UioMaster>(supabase, "uio_master"),
     fetchAll<Assumption>(supabase, "assumptions", "product"),
     fetchAll<Customer>(supabase, "customers"),
     fetchAll<ActualSalesRow>(supabase, "actual_sales"),
+    fetchActualSalesTx(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),
     fetchAll<PriceListEntry>(supabase, "price_list"),
     fetchAll<{ key: string; value: { filename?: string | null } }>(supabase, "app_meta", "key")
@@ -73,5 +110,5 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     price_list_updated_at: null
   };
 
-  return { parts, uio, assumptions, customers, actualSales, uioUnits, priceList, meta };
+  return { parts, uio, assumptions, customers, actualSales, actualSalesTx, uioUnits, priceList, meta };
 }
