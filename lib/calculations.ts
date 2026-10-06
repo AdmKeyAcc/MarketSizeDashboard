@@ -18,7 +18,8 @@ export type FilterState = {
   tahun: string[];
   bulan: string[];
   area: string[];
-  businessArea: string[];
+  /** Customer Sector (Plantation, Rental, Mining, dst) — atribut per customer. */
+  sector: string[];
   customerGroup: string[];
   customerName: string[];
   pss: string[];
@@ -32,15 +33,14 @@ export type FilterState = {
 };
 
 export const EMPTY_FILTERS: FilterState = {
-  tahun: [], bulan: [], area: [], businessArea: [],
+  tahun: [], bulan: [], area: [], sector: [],
   customerGroup: [], customerName: [], pss: [], tier: [],
   product: [], modelUnit: [], partNumber: [], partName: []
 };
 
-/** Nilai Area yang otomatis terpilih saat website dibuka (arahan mentor).
- * Dipakai hanya kalau nilai ini benar-benar ada di data Area — kalau tidak,
- * dashboard dibuka tanpa filter Area supaya tidak tampil kosong. */
-export const DEFAULT_AREA = "Power AGCON";
+/** Nilai Area yang tidak ditampilkan sebagai pilihan di filter Area
+ * (huruf besar/kecil diabaikan). */
+export const EXCLUDED_AREAS = ["MHB", "POWER AGCON"];
 
 export function uniq<T>(arr: (T | null | undefined)[]): T[] {
   return Array.from(new Set(arr.filter((v): v is T => v !== null && v !== undefined && v !== ("" as unknown as T))));
@@ -93,15 +93,15 @@ export function getRealCustomers(customers: Customer[]): Customer[] {
 }
 
 export function getScopedCustomers(customers: Customer[], f: FilterState): Customer[] | null {
-  const anyScope = [f.area, f.businessArea, f.customerGroup, f.customerName, f.pss, f.tier].some(
+  const anyScope = [f.area, f.sector, f.customerGroup, f.customerName, f.pss, f.tier].some(
     (arr) => arr.length > 0
   );
   if (!anyScope) return null;
   return getRealCustomers(customers).filter((c) => {
     if (f.area.length > 0 && !setOf(f.area).has(c.cabang || "")) return false;
-    // business_area (SOff) bisa lebih dari satu per customer — cocok kalau
-    // SALAH SATU SOff customer ada di pilihan filter yang dipilih.
-    if (f.businessArea.length > 0 && !(c.business_area || []).some((ba) => setOf(f.businessArea).has(ba))) return false;
+    // Satu customer bisa punya lebih dari satu sector — cocok kalau SALAH
+    // SATU sector customer ada di pilihan filter.
+    if (f.sector.length > 0 && !(c.customer_sector || []).some((s) => setOf(f.sector).has(s))) return false;
     if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(c.customer_group || "")) return false;
     if (f.customerName.length > 0 && !setOf(f.customerName).has(c.customer_name || "")) return false;
     if (f.pss.length > 0 && !setOf(f.pss).has(c.pss || "")) return false;
@@ -350,15 +350,14 @@ function uioDimensionValue(u: UioUnit, dimension: UioDimension): string {
 
 type UnitScopeKeys = { areaKeys: Set<string> | null; otherKeys: Set<string> | null };
 
-/** Filter yang butuh data customer (Area via cabang, PSS, Tier, Business
- * Area) diterjemahkan jadi himpunan kunci "group|nama" customer, lalu dipakai
+/** Filter yang butuh data customer (Area via cabang, PSS, Tier, Sector) diterjemahkan jadi himpunan kunci "group|nama" customer, lalu dipakai
  * untuk menyaring unit UIO. */
 function buildUnitScopeKeys(customers: Customer[] | undefined, f: FilterState | undefined): UnitScopeKeys {
   if (!customers || !f) return { areaKeys: null, otherKeys: null };
   const toSet = (list: Customer[] | null) => (list ? new Set(list.map((c) => custKey(c.customer_group, c.customer_name))) : null);
   const areaKeys = f.area.length > 0 ? toSet(getScopedCustomers(customers, { ...EMPTY_FILTERS, area: f.area })) : null;
   const otherKeys = toSet(
-    getScopedCustomers(customers, { ...EMPTY_FILTERS, pss: f.pss, tier: f.tier, businessArea: f.businessArea })
+    getScopedCustomers(customers, { ...EMPTY_FILTERS, pss: f.pss, tier: f.tier, sector: f.sector })
   );
   return { areaKeys, otherKeys };
 }
@@ -711,6 +710,7 @@ export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearR
   }));
 }
 
+/* ---------------- formatting ---------------- */
 
 export function fmtIDR(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "–";
