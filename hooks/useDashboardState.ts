@@ -8,6 +8,7 @@ import {
   EXCLUDED_AREAS,
   type FilterState,
   uniq,
+  canonicalProduct,
   monthIndex,
   buildMonthly,
   buildModelLookup,
@@ -124,13 +125,24 @@ export function useDashboardState(initialData: DashboardData) {
     const customerNameOpts = uniq(custPool.map((c) => c.customer_name as string)).sort();
 
     const allowed = allowedProducts(filters);
-    let prods = uniq(data.parts.map((p) => p.product)).sort();
+    // Product & Model Unit diambil dari data part DAN dari Data UIO (populasi
+    // unit) — kalau cuma dari part, model yang hanya ada di Data UIO tidak
+    // pernah muncul di filter.
+    let prods = uniq([...data.parts.map((p) => p.product), ...data.uioUnits.map((u) => canonicalProduct(u.product))]).sort();
     if (allowed) prods = prods.filter((p) => allowed.includes(p));
 
     let modelPool = data.parts;
     if (allowed) modelPool = modelPool.filter((p) => allowed.includes(p.product));
     if (filters.product.length > 0) modelPool = modelPool.filter((p) => filters.product.includes(p.product));
-    const modelOpts = uniq(modelPool.map((p) => p.model)).sort();
+    const unitModels = data.uioUnits
+      .filter(
+        (u) =>
+          filters.product.length === 0 ||
+          filters.product.includes(canonicalProduct(u.product)) ||
+          filters.product.includes(u.product || "")
+      )
+      .map((u) => u.model);
+    const modelOpts = uniq([...modelPool.map((p) => p.model), ...unitModels]).sort();
 
     let partPool = modelPool;
     if (filters.modelUnit.length > 0) partPool = partPool.filter((p) => filters.modelUnit.includes(p.model));
