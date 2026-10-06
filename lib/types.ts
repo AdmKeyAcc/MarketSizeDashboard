@@ -137,6 +137,20 @@ export type PriceListEntry = {
   price: number;
 };
 
+/** Actual Sales per transaksi/part (tabel actual_sales_tx). 1 baris = penjualan
+ * satu part ke satu customer pada satu bulan. */
+export type ActualSalesTx = {
+  year: number;
+  month: string;
+  customer_group: string | null;
+  customer_name: string | null;
+  product: string | null;
+  model: string | null;
+  part_number: string | null;
+  qty: number;
+  amount: number;
+};
+
 export type DataMeta = {
   kalkulator_updated_at: string | null;
   kalkulator_filename: string | null;
@@ -156,6 +170,8 @@ export type DashboardData = {
   assumptions: Assumption[];
   customers: Customer[];
   actualSales: ActualSalesRow[];
+  /** Actual Sales per transaksi/part; kosong kalau tabel actual_sales_tx belum diisi. */
+  actualSalesTx: ActualSalesTx[];
   uioUnits: UioUnit[];
   priceList: PriceListEntry[];
   meta: DataMeta;
