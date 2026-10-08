@@ -592,6 +592,8 @@ function referenceYear(f: FilterState, uioUnits: UioUnit[], cov: Map<number, Set
 }
 
 export type DetailRow = {
+  /** id baris di tabel parts — dipakai untuk menyimpan hasil edit. */
+  part_id?: number;
   product: string;
   model: string;
   part_name: string;
@@ -677,6 +679,7 @@ export function buildDetailRows(
     const act = actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`);
     const periodMarket = amount * factor;
     out.push({
+      part_id: p.id,
       product: p.product,
       model: p.model,
       part_name: p.part_name,
