@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtInt, fmtIDRFull, fmtPct, type DetailRow } from "@/lib/calculations";
 import { FIELD_LABEL, type EditableField } from "@/lib/partsEdit";
+import { MultiSelectField } from "@/components/FilterBar";
+import { exportDetailToExcel } from "@/lib/exportDetail";
 
 type SortKey = Exclude<keyof DetailRow, "uio_source" | "part_id">;
 
@@ -30,6 +32,10 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   const rows = state.detailRows;
   const { setData } = state;
   const [search, setSearch] = useState("");
+  const [fProduct, setFProduct] = useState<string[]>([]);
+  const [fModel, setFModel] = useState<string[]>([]);
+  const [fPartName, setFPartName] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
@@ -38,16 +44,49 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  // Pilihan filter bertingkat: Model unit mengikuti Product, Part name mengikuti
+  // Product + Model unit. Dasarnya baris yang sudah lolos filter di bagian atas.
+  const productOpts = useMemo(() => Array.from(new Set(rows.map((r) => r.product))).sort(), [rows]);
+  const modelOpts = useMemo(() => {
+    const ps = new Set(fProduct);
+    return Array.from(new Set(rows.filter((r) => ps.size === 0 || ps.has(r.product)).map((r) => r.model))).sort();
+  }, [rows, fProduct]);
+  const partNameOpts = useMemo(() => {
+    const ps = new Set(fProduct);
+    const ms = new Set(fModel);
+    return Array.from(
+      new Set(
+        rows
+          .filter((r) => (ps.size === 0 || ps.has(r.product)) && (ms.size === 0 || ms.has(r.model)))
+          .map((r) => r.part_name)
+      )
+    ).sort();
+  }, [rows, fProduct, fModel]);
+
+  const localFiltered = useMemo(() => {
+    const ps = new Set(fProduct);
+    const ms = new Set(fModel);
+    const ns = new Set(fPartName);
+    return rows.filter(
+      (r) =>
+        (ps.size === 0 || ps.has(r.product)) &&
+        (ms.size === 0 || ms.has(r.model)) &&
+        (ns.size === 0 || ns.has(r.part_name))
+    );
+  }, [rows, fProduct, fModel, fPartName]);
+
+  const hasLocalFilter = fProduct.length + fModel.length + fPartName.length > 0;
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    if (!s) return rows;
-    return rows.filter(
+    if (!s) return localFiltered;
+    return localFiltered.filter(
       (r) =>
         (r.part_name || "").toLowerCase().includes(s) ||
         (r.part_number || "").toLowerCase().includes(s) ||
         (r.model || "").toLowerCase().includes(s)
     );
-  }, [rows, search]);
+  }, [localFiltered, search]);
 
   const sorted = useMemo(() => {
     const copy = filtered.slice();
@@ -67,6 +106,60 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages);
   const pageRows = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  function changeProduct(next: string[]) {
+    setFProduct(next);
+    // Buang pilihan Model / Part name yang tidak lagi tersedia untuk Product baru.
+    const ps = new Set(next);
+    const avail = rows.filter((r) => ps.size === 0 || ps.has(r.product));
+    const models = new Set(avail.map((r) => r.model));
+    const names = new Set(avail.map((r) => r.part_name));
+    setFModel((m) => m.filter((x) => models.has(x)));
+    setFPartName((n) => n.filter((x) => names.has(x)));
+    setPage(1);
+  }
+  function changeModel(next: string[]) {
+    setFModel(next);
+    const ps = new Set(fProduct);
+    const ms = new Set(next);
+    const names = new Set(
+      rows.filter((r) => (ps.size === 0 || ps.has(r.product)) && (ms.size === 0 || ms.has(r.model))).map((r) => r.part_name)
+    );
+    setFPartName((n) => n.filter((x) => names.has(x)));
+    setPage(1);
+  }
+  function changePartName(next: string[]) {
+    setFPartName(next);
+    setPage(1);
+  }
+  function resetLocalFilters() {
+    setFProduct([]);
+    setFModel([]);
+    setFPartName([]);
+    setSearch("");
+    setPage(1);
+  }
+
+  function filterNote(): string {
+    const parts: string[] = [];
+    if (fProduct.length) parts.push(`Product: ${fProduct.join(", ")}`);
+    if (fModel.length) parts.push(`Model unit: ${fModel.join(", ")}`);
+    if (fPartName.length) parts.push(`Part name: ${fPartName.join(", ")}`);
+    if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
+    return parts.join(" | ");
+  }
+
+  async function onExport() {
+    if (exporting || sorted.length === 0) return;
+    setExporting(true);
+    try {
+      await exportDetailToExcel(sorted, filterNote());
+    } catch {
+      setMessage({ type: "err", text: "Gagal membuat file ekspor." });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function onSort(key: SortKey) {
     if (sortCol === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -171,6 +264,9 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
       <div className="panel-head">
         <h2>Detail part</h2>
         <div className="panel-tools">
+          <button type="button" className="btn btn-ghost" disabled={exporting || sorted.length === 0} onClick={onExport} title="Unduh baris yang sedang tampil (sesuai filter) sebagai Excel">
+            {exporting ? "Menyiapkan…" : "⭳ Ekspor Excel"}
+          </button>
           <input
             className="search-input"
             placeholder="Cari part name / nomor part / model…"
@@ -180,6 +276,21 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
               setPage(1);
             }}
           />
+        </div>
+      </div>
+      <div className="detail-filters">
+        <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
+        <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
+        <MultiSelectField label="Part name" values={fPartName} options={partNameOpts} onChange={changePartName} />
+        <div className="detail-filters-info">
+          <span>
+            {sorted.length.toLocaleString("id-ID")} dari {rows.length.toLocaleString("id-ID")} baris
+          </span>
+          {(hasLocalFilter || search.trim() !== "") && (
+            <button type="button" className="link-btn" onClick={resetLocalFilters}>
+              Reset filter tabel
+            </button>
+          )}
         </div>
       </div>
       {message && (
