@@ -10,7 +10,7 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
   // filter Tahun kosong), untuk periode yang sama antara Market Size dan Actual Sales.
   const ms = marketSizeYearRows.reduce((s, r) => s + r.market_size, 0);
   const act = marketSizeYearRows.reduce((s, r) => s + r.actual_sales, 0);
-  const achievement = ms > 0 ? act / ms : NaN;
+  const marketShare = ms > 0 ? act / ms : NaN;
   const gap = ms - act;
 
   const years = marketSizeYearRows.map((r) => r.year);
@@ -35,8 +35,8 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
         <div className="kpi-sub">{periodLabel}</div>
       </div>
       <div className="kpi green">
-        <div className="kpi-label">Achievement</div>
-        <div className="kpi-value mono">{fmtPct(achievement)}</div>
+        <div className="kpi-label">Market Share</div>
+        <div className="kpi-value mono">{fmtPct(marketShare)}</div>
         <div className="kpi-sub">Actual sales ÷ market size</div>
       </div>
       <div className="kpi">
