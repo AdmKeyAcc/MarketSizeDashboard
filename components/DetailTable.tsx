@@ -11,7 +11,7 @@ type SortKey = Exclude<keyof DetailRow, "uio_source" | "part_id">;
 
 const COLS: { key: SortKey; label: string; computed?: boolean; editable?: EditableField }[] = [
   { key: "product", label: "Product" },
-  { key: "model", label: "Model unit" },
+  { key: "model", label: "Model unit" }, 
   { key: "part_name", label: "Part name" },
   { key: "part_number", label: "Part number" },
   { key: "hm_day", label: "HM/Day", editable: "hm_day" },
