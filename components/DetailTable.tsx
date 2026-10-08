@@ -345,14 +345,6 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
           </tbody>
         </table>
       </div>
-      <p className="chart-note">
-        Qty market size = ROUND(Annual HM ÷ Frekuensi ganti × Qty per unit × UIO) · Market size (Rp) = Price × Qty market size
-        · Price dari Data Harga (fallback pricelist part) · UIO dari Data UIO per Product + Model unit · Actual dari
-        Actual Sales per part pada tahun acuan (tahun terbesar di filter Tahun, atau tahun terbaru) · Market share = Actual sales ÷ Market size periode yang sama.
-        {rows.some((r) => r.uio_source === "template") && " * = UIO dari template kalkulator (model ini belum ada di Data UIO)."}
-        {" "}Kolom bertanda ✎ bisa diedit dengan klik angkanya; perubahan langsung tersimpan permanen di database dan berlaku untuk semua pengguna.
-        Price yang diedit disimpan sebagai harga umum part tersebut.
-      </p>
       <div className="pagination">
         <button disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
           ‹ Sebelumnya
