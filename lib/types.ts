@@ -161,7 +161,7 @@ export type DataMeta = {
   uio_units_updated_at: string | null;
   uio_units_filename: string | null;
   price_list_updated_at: string | null;
-  price_list_filename: string | null;
+  price_list_filename: string | null; 
 };
 
 export type DashboardData = {
