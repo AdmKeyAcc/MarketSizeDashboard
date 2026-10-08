@@ -28,7 +28,7 @@ const MAX_RENDERED_OPTIONS = 300;
  *  - Tekan Enter di kotak cari = pilih hanya hasil pencarian lalu Terapkan.
  *  - Kalau semua opsi tercentang saat Terapkan, filter disimpan kosong
  *    (= tanpa batasan / "All"), jadi tidak ada array ribuan nilai. */
-function MultiSelectField({
+export function MultiSelectField({
   label,
   values,
   options,
