@@ -845,7 +845,7 @@ export type MarketShareYearRow = { year: number; market_share: number; period_mo
 export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearRow[] {
   return msRows.map((r) => ({
     year: r.year,
-    market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0,
+    market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0, 
     period_months: r.period_months
   }));
 }
