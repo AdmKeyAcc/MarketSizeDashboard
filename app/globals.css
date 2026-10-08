@@ -126,10 +126,20 @@ table { border-collapse: collapse; width: 100%; }
 .seg { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; }
 .seg-btn { border: none; background: none; padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12.5px; cursor: pointer; color: var(--ink-soft); }
 .seg-btn.active { background: var(--blue-600); color: #fff; }
+
+/* Full-width chart (UIO per dimension: bisa banyak kategori, perlu lebar
+   penuh), tetap landscape tapi tidak terlalu pipih agar bar tidak
+   "mengambang" dengan banyak ruang kosong. */
 .chart-wrap { position: relative; width: 100%; aspect-ratio: 2.6 / 1; }
 @media (max-width: 760px) { .chart-wrap { aspect-ratio: 16 / 10; } }
+
+/* Market Size & Market Share: dipasangkan 2 kolom (lebih kompak/proporsional
+   karena datanya sedikit — hanya per tahun), masing-masing lebih "kotak". */
 .charts-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 980px) { .charts-row2 { grid-template-columns: 1fr; } }
+.chart-wrap-compact { position: relative; width: 100%; aspect-ratio: 1.7 / 1; }
+@media (max-width: 760px) { .chart-wrap-compact { aspect-ratio: 16 / 10; } }
+/* Chart Market Size & Market Share: lebih tinggi supaya angka dan sumbu lega dibaca */
 .chart-wrap-tall { position: relative; width: 100%; aspect-ratio: 1.35 / 1; min-height: 340px; max-height: 520px; }
 @media (max-width: 760px) { .chart-wrap-tall { aspect-ratio: 4 / 3; min-height: 300px; } }
 
@@ -193,7 +203,7 @@ table.data tfoot td { padding: 9px 10px; border-top: 1px solid var(--border-stro
 .modal li { margin-bottom: 9px; font-size: 13px; color: var(--ink-soft); line-height: 1.55; }
 .modal-close { float: right; background: none; border: none; font-size: 18px; cursor: pointer; color: var(--ink-mute); }
 
-.upload-slot { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 12px; }
+.upload-slot { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 12px; } 
 .upload-slot h4 { margin: 0 0 4px; font-size: 13.5px; }
 .upload-slot .hint { font-size: 11.5px; color: var(--ink-mute); margin-bottom: 8px; line-height: 1.5; }
 .upload-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -203,3 +213,11 @@ table.data tfoot td { padding: 9px 10px; border-top: 1px solid var(--border-stro
 .file-input { font-size: 12px; }
 .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border-strong); border-top-color: var(--blue-600); border-radius: var(--radius-sm); animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Kolom yang bisa diedit di tabel Detail part */
+.panel-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+table.data th.editable { background: var(--amber-100); }
+table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40%, transparent); }
+.cell-edit { background: none; border: 1px dashed transparent; border-radius: var(--radius-sm); padding: 2px 6px; margin: -2px -6px; cursor: text; font: inherit; color: inherit; font-family: var(--mono); }
+.cell-edit:hover { border-color: var(--amber-600); background: var(--surface); }
+.cell-input { width: 110px; padding: 3px 6px; border: 1px solid var(--blue-600); border-radius: var(--radius-sm); background: var(--surface); font-family: var(--mono); font-size: 12px; }
