@@ -4,7 +4,7 @@ import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtIDR, fmtPct } from "@/lib/calculations";
 
 export default function KpiCards({ state }: { state: UseDashboardState }) {
-  const { marketSizeYearRows, filters } = state;
+  const { marketSizeYearRows, filters } = state; 
 
   // Jumlah dari semua tahun yang sedang tampil di chart (semua tahun kalau
   // filter Tahun kosong), untuk periode yang sama antara Market Size dan Actual Sales.
