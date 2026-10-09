@@ -101,8 +101,6 @@ export type CalcSummaryItem = {
   qtyMarketSize: number;
   contractPrice: number;
   amountMarketSize: number;
-  /** Ringkasan filter customer yang dipakai saat menghitung UIO (opsional). */
-  customer?: string;
 };
 
 /** Satu baris histori: direkam otomatis setiap kali upload kalkulator
