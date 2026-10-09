@@ -2,7 +2,7 @@
   --sans: "Poppins", "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   --bg: #eef1f5; --surface: #ffffff; --surface-2: #f4f6f9; --surface-3: #eaeef3;
-  --border: #dce2e9; --border-strong: #c3ccd6;
+  --border: #dce2e9; --border-strong: #c3ccd6; 
   --ink: #101826; --ink-soft: #47566a; --ink-mute: #8592a3;
   --blue-900: #081a33; --blue-700: #0f3d6e; --blue-600: #175596; --blue-500: #2e71b8; --blue-100: #e2ecf7;
   --red-700: #7a121d; --red-600: #ac1f2c; --red-500: #c93b44; --red-100: #fbe7e8;
