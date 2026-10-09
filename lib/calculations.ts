@@ -652,11 +652,19 @@ export function buildDetailRows(
   priceList: PriceListEntry[],
   customers: Customer[],
   actualTx: ActualSalesTx[],
-  f: FilterState
+  f: FilterState,
+  /** Opsional: himpunan kunci customer (custKey) dari filter lokal Detail part.
+   * Bila diisi, UIO & Actual Sales hanya dihitung dari customer tersebut. */
+  customerKeys?: Set<string> | null
 ): DetailRow[] {
-  const years = resolveUioYears(f, uioUnits);
+  const allUnits = uioUnits;
+  if (customerKeys) {
+    uioUnits = uioUnits.filter((u) => customerKeys.has(custKey(u.customer_group, u.customer_name)));
+    actualTx = actualTx.filter((r) => customerKeys.has(custKey(r.customer_group, r.customer_name)));
+  }
+  const years = resolveUioYears(f, allUnits);
   const counter = buildUnitCounter(uioUnits, years, f, customers);
-  const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined);
+  const allCounter = buildUnitCounter(allUnits, [], undefined, undefined);
   const priceOf = buildPriceResolver(priceList);
   const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
@@ -689,7 +697,9 @@ export function buildDetailRows(
     let uio = counter.count(p.product, p.model);
     let source: "unit" | "template" = "unit";
     if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
-      uio = (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
+      // Template hanya untuk model tanpa data unit sama sekali; kalau customer
+      // dipilih, UIO-nya 0 (tidak ada unit milik customer itu).
+      uio = customerKeys ? 0 : (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
       source = "template";
     }
     const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
