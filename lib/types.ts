@@ -101,6 +101,8 @@ export type CalcSummaryItem = {
   qtyMarketSize: number;
   contractPrice: number;
   amountMarketSize: number;
+  /** Ringkasan filter customer yang dipakai saat menghitung UIO (opsional). */
+  customer?: string;
 };
 
 /** Satu baris histori: direkam otomatis setiap kali upload kalkulator
@@ -161,7 +163,7 @@ export type DataMeta = {
   uio_units_updated_at: string | null;
   uio_units_filename: string | null;
   price_list_updated_at: string | null;
-  price_list_filename: string | null; 
+  price_list_filename: string | null;
 };
 
 export type DashboardData = {
