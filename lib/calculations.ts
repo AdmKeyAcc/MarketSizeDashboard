@@ -616,6 +616,36 @@ function referenceYear(f: FilterState, uioUnits: UioUnit[], cov: Map<number, Set
   return all.length > 0 ? Math.max(...all) : null;
 }
 
+export type GroupRow = {
+  group: string;
+  customers: number;
+  uio: number;
+  qty_market_size: number;
+  amount_market_size: number;
+  actual_qty: number;
+  actual_sales: number;
+  market_share: number | null;
+  period_market: number;
+};
+
+/** Ringkas baris Detail part jadi satu baris per Customer Group. UIO dijumlah
+ * per kombinasi Product+Model (bukan per part, supaya tidak terhitung ganda). */
+export function aggregateGroup(group: string, customers: number, rows: DetailRow[]): GroupRow {
+  const uioByModel = new Map<string, number>();
+  const g: GroupRow = { group, customers, uio: 0, qty_market_size: 0, amount_market_size: 0, actual_qty: 0, actual_sales: 0, market_share: null, period_market: 0 };
+  rows.forEach((r) => {
+    uioByModel.set(`${r.product}|${r.model}`, r.uio);
+    g.qty_market_size += r.qty_market_size;
+    g.amount_market_size += r.amount_market_size;
+    g.actual_qty += r.actual_qty;
+    g.actual_sales += r.actual_sales;
+    g.period_market += r.period_market;
+  });
+  uioByModel.forEach((v) => (g.uio += v));
+  g.market_share = g.period_market > 0 ? g.actual_sales / g.period_market : null;
+  return g;
+}
+
 export type DetailRow = {
   /** id baris di tabel parts — dipakai untuk menyimpan hasil edit. */
   part_id?: number;
@@ -639,6 +669,8 @@ export type DetailRow = {
   actual_sales: number;
   /** Market share = Actual Sales ÷ Market Size periode yang sama (null kalau Market Size 0). */
   market_share: number | null;
+  /** Market Size disesuaikan ke periode Actual (dasar penyebut Market share). */
+  period_market: number;
 };
 
 /** Baris "Detail part" di page Summary: semua kolom diturunkan dari data
@@ -730,7 +762,8 @@ export function buildDetailRows(
       amount_market_size: amount,
       actual_qty: act?.qty ?? 0,
       actual_sales: act?.amount ?? 0,
-      market_share: periodMarket > 0 ? (act?.amount ?? 0) / periodMarket : null
+      market_share: periodMarket > 0 ? (act?.amount ?? 0) / periodMarket : null,
+      period_market: periodMarket
     });
   });
   return out;
