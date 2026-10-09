@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { aggregateGroup, buildDetailRows, custKey, fmtInt, fmtIDRFull, fmtPct, uniq, type DetailRow, type GroupRow } from "@/lib/calculations";
 import { FIELD_LABEL, type EditableField } from "@/lib/partsEdit";
@@ -116,8 +116,10 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   }, [rows, fProduct, fModel]);
 
   // ---- Tampilan ringkas: satu baris per Customer Group ----
-  const groupRows = useMemo(() => {
-    if (view !== "group") return [] as GroupRow[];
+  const [groupRows, setGroupRows] = useState<GroupRow[]>([]);
+  const [groupBusy, setGroupBusy] = useState(false);
+  useEffect(() => {
+    if (view !== "group") return;
     const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
     const byGroup = new Map<string, Set<string>>();
     customers.forEach((c) => {
@@ -133,15 +135,55 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     const ps = new Set(fProduct);
     const ms = new Set(fModel);
     const ns = new Set(fPartName);
-    const out: GroupRow[] = [];
-    byGroup.forEach((keys, g) => {
-      const list = buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters, keys).filter(
-        (r) => (ps.size === 0 || ps.has(r.product)) && (ms.size === 0 || ms.has(r.model)) && (ns.size === 0 || ns.has(r.part_name))
-      );
-      const agg = aggregateGroup(g, keys.size, list);
-      if (agg.uio > 0 || agg.actual_sales > 0 || agg.amount_market_size > 0) out.push(agg);
+    // Pisahkan unit & transaksi per group SEKALI (bukan menyaring seluruh data untuk tiap group).
+    const groupOfKey = new Map<string, string>();
+    byGroup.forEach((keys, g) => keys.forEach((k) => groupOfKey.set(k, g)));
+    const unitsBy = new Map<string, typeof data.uioUnits>();
+    data.uioUnits.forEach((u) => {
+      const g = groupOfKey.get(custKey(u.customer_group, u.customer_name));
+      if (g === undefined) return;
+      const a = unitsBy.get(g);
+      if (a) a.push(u);
+      else unitsBy.set(g, [u]);
     });
-    return out;
+    const txBy = new Map<string, typeof data.actualSalesTx>();
+    data.actualSalesTx.forEach((r) => {
+      const g = groupOfKey.get(custKey(r.customer_group, r.customer_name));
+      if (g === undefined) return;
+      const a = txBy.get(g);
+      if (a) a.push(r);
+      else txBy.set(g, [r]);
+    });
+    const out: GroupRow[] = [];
+    const entries = Array.from(byGroup.entries());
+    let cancelled = false;
+    let i = 0;
+    setGroupBusy(true);
+    // Dihitung bertahap (beberapa group per putaran) supaya halaman tetap bisa diklik.
+    const step = () => {
+      if (cancelled) return;
+      const end = Math.min(i + 6, entries.length);
+      for (; i < end; i++) {
+        const [g, keys] = entries[i];
+        const gu = unitsBy.get(g) || [];
+        const gt = txBy.get(g) || [];
+        if (gu.length === 0 && gt.length === 0) continue;
+        const list = buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters, keys, { units: gu, tx: gt }).filter(
+          (r) => (ps.size === 0 || ps.has(r.product)) && (ms.size === 0 || ms.has(r.model)) && (ns.size === 0 || ns.has(r.part_name))
+        );
+        const agg = aggregateGroup(g, keys.size, list);
+        if (agg.uio > 0 || agg.actual_sales > 0 || agg.amount_market_size > 0) out.push(agg);
+      }
+      if (i < entries.length) setTimeout(step, 0);
+      else {
+        setGroupRows(out);
+        setGroupBusy(false);
+      }
+    };
+    setTimeout(step, 0);
+    return () => {
+      cancelled = true;
+    };
   }, [view, customers, cCode, cName, cGroup, cType, data, filters, fProduct, fModel, fPartName]);
 
   const groupSorted = useMemo(() => {
@@ -416,7 +458,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
         />
         <div className="detail-filters-info">
           <span>
-            {isGroup ? `${groupSorted.length.toLocaleString("id-ID")} customer group` : `${sorted.length.toLocaleString("id-ID")} dari ${rows.length.toLocaleString("id-ID")} baris`}
+            {isGroup ? (groupBusy ? "Menghitung…" : `${groupSorted.length.toLocaleString("id-ID")} customer group`) : `${sorted.length.toLocaleString("id-ID")} dari ${rows.length.toLocaleString("id-ID")} baris`}
           </span>
           {(hasLocalFilter || search.trim() !== "") && (
             <button type="button" className="link-btn" onClick={resetLocalFilters}>
