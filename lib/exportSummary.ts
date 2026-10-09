@@ -11,6 +11,7 @@ function toRow(it: CalcSummaryItem, i: number): ExportRow {
     "Model Unit": it.model,
     "Part Name": it.partName,
     "Part Number": it.partNumber || "",
+    "Customer": it.customer || "Semua",
     "Qty / Unit": it.qtyPerUnit,
     "Pricelist (Rp)": Math.round(it.pricelist),
     "Frekuensi Ganti (HM)": it.freqReplacementHm,
@@ -39,6 +40,7 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
     "Model Unit": "",
     "Part Name": "",
     "Part Number": "",
+    "Customer": "",
     "Qty / Unit": "",
     "Pricelist (Rp)": "",
     "Frekuensi Ganti (HM)": "",
@@ -54,7 +56,7 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
 
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 4 }, { wch: 12 }, { wch: 16 }, { wch: 28 }, { wch: 16 },
+    { wch: 4 }, { wch: 12 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 30 },
     { wch: 9 }, { wch: 16 }, { wch: 12 }, { wch: 9 }, { wch: 10 },
     { wch: 9 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 18 }
   ];
