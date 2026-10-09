@@ -9,6 +9,7 @@ import Topbar from "@/components/Topbar";
 import FilterBar from "@/components/FilterBar";
 import KpiCards from "@/components/KpiCards";
 import UioChart from "@/components/UioChart";
+import UioDetailTable from "@/components/UioDetailTable";
 import MarketSizeChart from "@/components/MarketSizeChart";
 import MarketShareChart from "@/components/MarketShareChart";
 import Calculator from "@/components/Calculator";
@@ -43,17 +44,20 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       <div className="main">
         {!hasData && (
           <div className="empty-hint">
-            Belum ada data part di database. Klik ⭱ di atas untuk Upload Data
+            Belum ada data part di database. Klik ⭱ di atas untuk upload Master Part, atau jalankan{" "}
+            <code>scripts/seed.mjs</code> untuk mengisi data contoh.
           </div>
         )}
 
-        
         {activeTab === "dashboard" ? (
           <section className="view">
             <KpiCards state={state} />
             <UioChart state={state} theme={theme} />
-            <MarketSizeChart state={state} theme={theme} />
-            <MarketShareChart state={state} theme={theme} />
+            <UioDetailTable state={state} />
+            <div className="charts-row2">
+              <MarketSizeChart state={state} theme={theme} />
+              <MarketShareChart state={state} theme={theme} />
+            </div>
           </section>
         ) : (
           <section className="view">
