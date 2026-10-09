@@ -16,6 +16,7 @@ import {
   getRealCustomers,
   resolveUioYears,
   uioByDimension,
+  uioDetailRows,
   marketSizeByYear,
   marketShareByYear,
   findPartsWithoutPrice
@@ -72,6 +73,10 @@ export function useDashboardState(initialData: DashboardData) {
   const uioYears = useMemo(() => resolveUioYears(filters, data.uioUnits), [filters, data.uioUnits]);
   const uioByProductRows = useMemo(
     () => uioByDimension(data.uioUnits, uioYears, "product", filters, data.customers),
+    [data.uioUnits, uioYears, filters, data.customers]
+  );
+  const uioDetail = useMemo(
+    () => uioDetailRows(data.uioUnits, uioYears, filters, data.customers),
     [data.uioUnits, uioYears, filters, data.customers]
   );
   const marketSizeYearRows = useMemo(
@@ -185,6 +190,7 @@ export function useDashboardState(initialData: DashboardData) {
     options,
     uioYears,
     uioByProductRows,
+    uioDetail,
     partsWithoutPrice,
     marketSizeView,
     setMarketSizeView,
