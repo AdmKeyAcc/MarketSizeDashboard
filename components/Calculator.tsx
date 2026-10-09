@@ -4,78 +4,23 @@ import { useMemo, useState, useEffect } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
 import {
-  canonicalProduct,
   computeQuickRow,
-  custKey,
   defaultDiscount,
   defaultHmDay,
   defaultUioQty,
   fmtIDRFull,
   fmtInt,
   fmtPct,
-  normModel as normModelKey,
   uniq
 } from "@/lib/calculations";
 import { exportSummaryToExcel } from "@/lib/exportSummary";
 import type { Part } from "@/lib/types";
 import DetailTable from "@/components/DetailTable";
-import { MultiSelectField } from "@/components/FilterBar";
 
 type SummaryState = ReturnType<typeof useCalculatorSummary>;
 
 function QuickCalculator({ state, summaryState }: { state: UseDashboardState; summaryState: SummaryState }) {
   const { data } = state;
-
-  // ---- Filter customer (Customer Code, Name, Group, Type/Tier) ----
-  // Kosong = semua customer. Kalau ada yang dipilih, UIO di kalkulator dihitung
-  // hanya dari unit milik customer terpilih.
-  const [cCode, setCCode] = useState<string[]>([]);
-  const [cName, setCName] = useState<string[]>([]);
-  const [cGroup, setCGroup] = useState<string[]>([]);
-  const [cType, setCType] = useState<string[]>([]);
-  const customers = state.realCustomers;
-  const customerOpts = useMemo(() => {
-    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
-    const ok = (c: (typeof customers)[number], skip: "code" | "name" | "group" | "type") =>
-      (skip === "code" || sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
-      (skip === "name" || sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
-      (skip === "group" || sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
-      (skip === "type" || sel.type.size === 0 || sel.type.has(c.tier || ""));
-    const list = (skip: "code" | "name" | "group" | "type", pick: (c: (typeof customers)[number]) => string | null) =>
-      uniq(customers.filter((c) => ok(c, skip)).map(pick)).sort();
-    return {
-      code: list("code", (c) => c.customer_code),
-      name: list("name", (c) => c.customer_name),
-      group: list("group", (c) => c.customer_group),
-      type: list("type", (c) => c.tier)
-    };
-  }, [customers, cCode, cName, cGroup, cType]);
-  const hasCustomerFilter = cCode.length + cName.length + cGroup.length + cType.length > 0;
-  const customerUnits = useMemo(() => {
-    if (!hasCustomerFilter) return data.uioUnits;
-    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
-    const keys = new Set(
-      customers
-        .filter(
-          (c) =>
-            (sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
-            (sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
-            (sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
-            (sel.type.size === 0 || sel.type.has(c.tier || ""))
-        )
-        .map((c) => custKey(c.customer_group, c.customer_name))
-    );
-    return data.uioUnits.filter((u) => keys.has(custKey(u.customer_group, u.customer_name)));
-  }, [hasCustomerFilter, data.uioUnits, customers, cCode, cName, cGroup, cType]);
-  const customerNote = useMemo(() => {
-    const parts: string[] = [];
-    const j = (label: string, a: string[]) => a.length && parts.push(`${label}: ${a.length > 3 ? `${a.length} dipilih` : a.join(", ")}`);
-    j("Code", cCode);
-    j("Name", cName);
-    j("Group", cGroup);
-    j("Type", cType);
-    return parts.join(" | ");
-  }, [cCode, cName, cGroup, cType]);
 
   const products = useMemo(() => uniq(data.parts.map((p) => p.product)).sort(), [data.parts]);
   const [product, setProduct] = useState(products[0] || "");
@@ -118,21 +63,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
     // Default HM/Day = 8 (bisa diubah manual). UIO default dari Data UIO
     // (populasi riil tahun terbaru) kalau ada, fallback ke uio_master.
     setHmDay(defaultHmDay(state.modelLookup, model));
+    setUio(defaultUioQty(state.modelLookup, data.uioUnits, product, model));
     setDiscountPct(Math.round(defaultDiscount(data.assumptions, product) * 100));
-  }, [product, model, state.modelLookup, data.assumptions]);
-  // UIO terpisah supaya mengubah filter customer tidak mereset HM/hari & diskon.
-  // Tanpa filter customer: seperti biasa (fallback ke template kalau model tak
-  // punya unit). Dengan filter customer: murni hitungan unit milik customer itu.
-  useEffect(() => {
-    if (!model || !product) return;
-    if (!hasCustomerFilter) {
-      setUio(defaultUioQty(state.modelLookup, data.uioUnits, product, model));
-      return;
-    }
-    const prod = canonicalProduct(product);
-    const mod = normModelKey(model);
-    setUio(customerUnits.filter((u) => canonicalProduct(u.product) === prod && normModelKey(u.model) === mod).length);
-  }, [product, model, state.modelLookup, data.uioUnits, hasCustomerFilter, customerUnits]);
+  }, [product, model, state.modelLookup, data.assumptions, data.uioUnits]);
   useEffect(() => {
     if (!selectedPart) return;
     setPartName(selectedPart.part_name);
@@ -176,8 +109,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
       annualHm,
       qtyMarketSize,
       contractPrice,
-      amountMarketSize,
-      customer: customerNote || undefined
+      amountMarketSize
     });
     setJustAdded(true);
   }
@@ -185,23 +117,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   return (
     <div className="panel">
       <h2>Kalkulator cepat — satu part</h2>
-      <div className="detail-filters four" style={{ marginBottom: 6 }}>
-        <MultiSelectField label="Customer Code" values={cCode} options={customerOpts.code} onChange={setCCode} />
-        <MultiSelectField label="Customer Name" values={cName} options={customerOpts.name} onChange={setCName} />
-        <MultiSelectField label="Customer Group" values={cGroup} options={customerOpts.group} onChange={setCGroup} />
-        <MultiSelectField
-          label="Customer Type"
-          values={cType}
-          options={customerOpts.type}
-          onChange={setCType}
-          info="Klasifikasi key account customer (KA Nasional, KA Branch, NKA, Dealer, SHN, dst)."
-        />
-      </div>
-      <p className="note" style={{ margin: "0 0 12px" }}>
-        {hasCustomerFilter
-          ? "UIO di bawah dihitung hanya dari unit milik customer yang dipilih (masih bisa diubah manual)."
-          : "Pilih customer (opsional) untuk menghitung UIO khusus customer tersebut. Kosong = semua customer."}
-      </p>
       <div className="calc-row">
         <div className="calc-field">
           <label>Product</label>
@@ -346,7 +261,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                   <th>Model</th>
                   <th>Part Name</th>
                   <th>Part Number</th>
-                  <th>Customer</th>
                   <th>Qty/Unit</th>
                   <th>Pricelist</th>
                   <th>Freq (HM)</th>
@@ -367,7 +281,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                     <td>{it.model}</td>
                     <td>{it.partName}</td>
                     <td>{it.partNumber || "–"}</td>
-                    <td title={it.customer || ""}>{it.customer || "Semua"}</td>
                     <td>{fmtInt(it.qtyPerUnit)}</td>
                     <td>{fmtIDRFull(it.pricelist)}</td>
                     <td>{fmtInt(it.freqReplacementHm)}</td>
@@ -388,7 +301,7 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={14} style={{ textAlign: "right", fontWeight: 600 }}>
+                  <td colSpan={13} style={{ textAlign: "right", fontWeight: 600 }}>
                     Total Amount Market Size
                   </td>
                   <td className="mono" style={{ fontWeight: 600 }}>
