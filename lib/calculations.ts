@@ -68,15 +68,27 @@ export const UIO_PRODUCT_ALIAS: Record<string, string> = {
   LBT: "LINK-BELT"
 };
 
+const canonProductCache = new Map<string, string>();
 export function canonicalProduct(p: string | null | undefined): string {
-  const k = String(p || "").trim().toUpperCase();
-  return UIO_PRODUCT_ALIAS[k] || k;
+  const raw = String(p || "");
+  const hit = canonProductCache.get(raw);
+  if (hit !== undefined) return hit;
+  const k = raw.trim().toUpperCase();
+  const v = UIO_PRODUCT_ALIAS[k] || k;
+  if (canonProductCache.size < 50000) canonProductCache.set(raw, v);
+  return v;
 }
 
 /** Model dinormalisasi (huruf besar, tanpa spasi/tanda hubung) supaya
  * "60-8FD25" dan "60 8FD25" dianggap model yang sama. */
+const normModelCache = new Map<string, string>();
 export function normModel(m: string | null | undefined): string {
-  return String(m || "").toUpperCase().replace(/[\s\-_/]+/g, "");
+  const raw = String(m || "");
+  const hit = normModelCache.get(raw);
+  if (hit !== undefined) return hit;
+  const v = raw.toUpperCase().replace(/[\s\-_/]+/g, "");
+  if (normModelCache.size < 50000) normModelCache.set(raw, v);
+  return v;
 }
 
 /** Array filter → Set (di-cache per array) supaya cek "apakah nilai ini
@@ -687,28 +699,34 @@ export function buildDetailRows(
   f: FilterState,
   /** Opsional: himpunan kunci customer (custKey) dari filter lokal Detail part.
    * Bila diisi, UIO & Actual Sales hanya dihitung dari customer tersebut. */
-  customerKeys?: Set<string> | null
+  customerKeys?: Set<string> | null,
+  /** Opsional: unit & transaksi milik customerKeys yang sudah dipisah
+   * sebelumnya (supaya tidak menyaring seluruh data berulang kali). */
+  subset?: { units: UioUnit[]; tx: ActualSalesTx[] }
 ): DetailRow[] {
-  const allUnits = uioUnits;
+  // Tahun acuan & cakupan periode selalu dari SELURUH data, bukan subset customer,
+  // supaya setiap customer/group memakai tahun yang sama.
+  const years = resolveUioYears(f, uioUnits);
+  const cov = actualCoverage([], actualTx);
+  const refYear = referenceYear(f, uioUnits, cov);
+  const factor = periodMonths(refYear, f, cov) / 12;
+
+  let scopedUnits = uioUnits;
+  let scopedTx = actualTx;
   if (customerKeys) {
-    uioUnits = uioUnits.filter((u) => customerKeys.has(custKey(u.customer_group, u.customer_name)));
-    actualTx = actualTx.filter((r) => customerKeys.has(custKey(r.customer_group, r.customer_name)));
+    scopedUnits = subset ? subset.units : uioUnits.filter((u) => customerKeys.has(custKey(u.customer_group, u.customer_name)));
+    scopedTx = subset ? subset.tx : actualTx.filter((r) => customerKeys.has(custKey(r.customer_group, r.customer_name)));
   }
-  const years = resolveUioYears(f, allUnits);
-  const counter = buildUnitCounter(uioUnits, years, f, customers);
-  const allCounter = buildUnitCounter(allUnits, [], undefined, undefined);
+  const counter = buildUnitCounter(scopedUnits, years, f, customers);
+  const allCounter = customerKeys ? null : buildUnitCounter(uioUnits, [], undefined, undefined);
   const priceOf = buildPriceResolver(priceList);
   const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
 
-  // Actual Sales per part pada tahun acuan.
-  const cov = actualCoverage([], actualTx);
-  const refYear = referenceYear(f, uioUnits, cov);
-  const factor = periodMonths(refYear, f, cov) / 12;
   const actualByPart = new Map<string, ActualAgg>();
-  if (actualTx.length > 0 && refYear !== null) {
+  if (scopedTx.length > 0 && refYear !== null) {
     const inScope = buildActualScope(f, customers, parts);
-    actualTx.forEach((r) => {
+    scopedTx.forEach((r) => {
       if (r.year !== refYear || !inScope(r)) return;
       const k = `${canonicalProduct(r.product)}|${normModel(r.model)}|${r.part_number || ""}`;
       const a = actualByPart.get(k);
@@ -727,11 +745,13 @@ export function buildDetailRows(
     if (f.partName.length > 0 && !setOf(f.partName).has(p.part_name || "")) return;
 
     let uio = counter.count(p.product, p.model);
+    // Mode customer/group: part tanpa unit & tanpa penjualan tidak berpengaruh ke total.
+    if (customerKeys && subset && uio === 0 && !actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`)) return;
     let source: "unit" | "template" = "unit";
-    if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
+    if (uio === 0 && allCounter && allCounter.count(p.product, p.model) === 0) {
       // Template hanya untuk model tanpa data unit sama sekali; kalau customer
       // dipilih, UIO-nya 0 (tidak ada unit milik customer itu).
-      uio = customerKeys ? 0 : (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
+      uio = (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
       source = "template";
     }
     const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
