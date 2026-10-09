@@ -228,3 +228,6 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .detail-filters-info { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--ink-mute); padding-bottom: 8px; white-space: nowrap; }
 @media (max-width: 900px) { .detail-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .detail-filters-info { grid-column: 1 / -1; } }
 @media (max-width: 560px) { .detail-filters { grid-template-columns: 1fr; } }
+.detail-filters.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { .detail-filters.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .detail-filters.four { grid-template-columns: 1fr; } }
