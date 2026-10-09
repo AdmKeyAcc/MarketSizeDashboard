@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { buildDetailRows, custKey, fmtInt, fmtIDRFull, fmtPct, uniq, type DetailRow } from "@/lib/calculations";
+import { aggregateGroup, buildDetailRows, custKey, fmtInt, fmtIDRFull, fmtPct, uniq, type DetailRow, type GroupRow } from "@/lib/calculations";
 import { FIELD_LABEL, type EditableField } from "@/lib/partsEdit";
 import { MultiSelectField } from "@/components/FilterBar";
-import { exportDetailToExcel } from "@/lib/exportDetail";
+import { exportDetailToExcel, exportGroupToExcel } from "@/lib/exportDetail";
 
 type SortKey = Exclude<keyof DetailRow, "uio_source" | "part_id">;
 
@@ -39,6 +39,9 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   const [cName, setCName] = useState<string[]>([]);
   const [cGroup, setCGroup] = useState<string[]>([]);
   const [cType, setCType] = useState<string[]>([]);
+  const [view, setView] = useState<"group" | "part">("group");
+  const [gSortCol, setGSortCol] = useState<keyof GroupRow>("amount_market_size");
+  const [gSortDir, setGSortDir] = useState<"asc" | "desc">("desc");
   const [exporting, setExporting] = useState(false);
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -112,6 +115,56 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     ).sort();
   }, [rows, fProduct, fModel]);
 
+  // ---- Tampilan ringkas: satu baris per Customer Group ----
+  const groupRows = useMemo(() => {
+    if (view !== "group") return [] as GroupRow[];
+    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
+    const byGroup = new Map<string, Set<string>>();
+    customers.forEach((c) => {
+      if (sel.code.size && !sel.code.has(c.customer_code || "")) return;
+      if (sel.name.size && !sel.name.has(c.customer_name || "")) return;
+      if (sel.group.size && !sel.group.has(c.customer_group || "")) return;
+      if (sel.type.size && !sel.type.has(c.tier || "")) return;
+      const g = c.customer_group || "(Tanpa group)";
+      let set = byGroup.get(g);
+      if (!set) byGroup.set(g, (set = new Set()));
+      set.add(custKey(c.customer_group, c.customer_name));
+    });
+    const ps = new Set(fProduct);
+    const ms = new Set(fModel);
+    const ns = new Set(fPartName);
+    const out: GroupRow[] = [];
+    byGroup.forEach((keys, g) => {
+      const list = buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters, keys).filter(
+        (r) => (ps.size === 0 || ps.has(r.product)) && (ms.size === 0 || ms.has(r.model)) && (ns.size === 0 || ns.has(r.part_name))
+      );
+      const agg = aggregateGroup(g, keys.size, list);
+      if (agg.uio > 0 || agg.actual_sales > 0 || agg.amount_market_size > 0) out.push(agg);
+    });
+    return out;
+  }, [view, customers, cCode, cName, cGroup, cType, data, filters, fProduct, fModel, fPartName]);
+
+  const groupSorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q ? groupRows.filter((g) => g.group.toLowerCase().includes(q)) : groupRows.slice();
+    list.sort((a, b) => {
+      const av = a[gSortCol] ?? 0;
+      const bv = b[gSortCol] ?? 0;
+      if (typeof av === "string" && typeof bv === "string") return gSortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      return gSortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+    return list;
+  }, [groupRows, search, gSortCol, gSortDir]);
+
+  function onGroupSort(key: keyof GroupRow) {
+    if (gSortCol === key) setGSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setGSortCol(key);
+      setGSortDir("desc");
+    }
+    setPage(1);
+  }
+
   const localFiltered = useMemo(() => {
     const ps = new Set(fProduct);
     const ms = new Set(fModel);
@@ -152,9 +205,12 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     return copy;
   }, [filtered, sortCol, sortDir]);
 
-  const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const isGroup = view === "group";
+  const totalCount = isGroup ? groupSorted.length : sorted.length;
+  const pages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const currentPage = Math.min(page, pages);
   const pageRows = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const groupPageRows = groupSorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   function changeProduct(next: string[]) {
     setFProduct(next);
@@ -207,10 +263,11 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   }
 
   async function onExport() {
-    if (exporting || sorted.length === 0) return;
+    if (exporting || totalCount === 0) return;
     setExporting(true);
     try {
-      await exportDetailToExcel(sorted, filterNote());
+      if (isGroup) await exportGroupToExcel(groupSorted, filterNote());
+      else await exportDetailToExcel(sorted, filterNote());
     } catch {
       setMessage({ type: "err", text: "Gagal membuat file ekspor." });
     } finally {
@@ -319,14 +376,22 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Detail part</h2>
+        <h2>{isGroup ? "Summary per Customer Group" : "Detail part"}</h2>
         <div className="panel-tools">
-          <button type="button" className="btn btn-ghost" disabled={exporting || sorted.length === 0} onClick={onExport} title="Unduh baris yang sedang tampil (sesuai filter) sebagai Excel">
+          <div className="view-toggle" role="group" aria-label="Tampilan tabel">
+            <button type="button" className={isGroup ? "active" : ""} onClick={() => { setView("group"); setPage(1); }}>
+              Per Customer Group
+            </button>
+            <button type="button" className={!isGroup ? "active" : ""} onClick={() => { setView("part"); setPage(1); }}>
+              Detail per part
+            </button>
+          </div>
+          <button type="button" className="btn btn-ghost" disabled={exporting || totalCount === 0} onClick={onExport} title="Unduh baris yang sedang tampil (sesuai filter) sebagai Excel">
             {exporting ? "Menyiapkan…" : "⭳ Ekspor Excel"}
           </button>
           <input
             className="search-input"
-            placeholder="Cari part name / nomor part / model…"
+            placeholder={isGroup ? "Cari customer group…" : "Cari part name / nomor part / model…"}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -351,7 +416,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
         />
         <div className="detail-filters-info">
           <span>
-            {sorted.length.toLocaleString("id-ID")} dari {rows.length.toLocaleString("id-ID")} baris
+            {isGroup ? `${groupSorted.length.toLocaleString("id-ID")} customer group` : `${sorted.length.toLocaleString("id-ID")} dari ${rows.length.toLocaleString("id-ID")} baris`}
           </span>
           {(hasLocalFilter || search.trim() !== "") && (
             <button type="button" className="link-btn" onClick={resetLocalFilters}>
@@ -365,6 +430,64 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
           {message.text}
         </div>
       )}
+      {isGroup ? (
+        <div className="table-scroll">
+          <table className="data">
+            <thead>
+              <tr>
+                {([
+                  ["group", "Customer Group"],
+                  ["customers", "Jumlah customer"],
+                  ["uio", "UIO (unit)"],
+                  ["qty_market_size", "Qty market size"],
+                  ["amount_market_size", "Market size (Rp)"],
+                  ["actual_qty", "Actual qty"],
+                  ["actual_sales", "Actual sales (Rp)"],
+                  ["market_share", "Market share"]
+                ] as [keyof GroupRow, string][]).map(([k, label]) => (
+                  <th key={k} onClick={() => onGroupSort(k)} style={{ cursor: "pointer" }} className={k === "qty_market_size" || k === "amount_market_size" || k === "market_share" ? "computed" : undefined}>
+                    {label}
+                    {gSortCol === k && <span className="arrow">{gSortDir === "asc" ? "▲" : "▼"}</span>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {groupPageRows.map((g) => (
+                <tr key={g.group}>
+                  <td>{g.group}</td>
+                  <td>{fmtInt(g.customers)}</td>
+                  <td>{fmtInt(g.uio)}</td>
+                  <td className="computed">{fmtInt(g.qty_market_size)}</td>
+                  <td className="computed">{fmtIDRFull(g.amount_market_size)}</td>
+                  <td>{fmtInt(g.actual_qty)}</td>
+                  <td>{fmtIDRFull(g.actual_sales)}</td>
+                  <td className="computed">{fmtPct(g.market_share)}</td>
+                </tr>
+              ))}
+              {groupSorted.length > 0 && (
+                <tr style={{ fontWeight: 600 }}>
+                  <td>TOTAL</td>
+                  <td>{fmtInt(groupSorted.reduce((t, g) => t + g.customers, 0))}</td>
+                  <td>{fmtInt(groupSorted.reduce((t, g) => t + g.uio, 0))}</td>
+                  <td className="computed">{fmtInt(groupSorted.reduce((t, g) => t + g.qty_market_size, 0))}</td>
+                  <td className="computed">{fmtIDRFull(groupSorted.reduce((t, g) => t + g.amount_market_size, 0))}</td>
+                  <td>{fmtInt(groupSorted.reduce((t, g) => t + g.actual_qty, 0))}</td>
+                  <td>{fmtIDRFull(groupSorted.reduce((t, g) => t + g.actual_sales, 0))}</td>
+                  <td className="computed">
+                    {fmtPct(
+                      (() => {
+                        const m = groupSorted.reduce((t, g) => t + g.period_market, 0);
+                        return m > 0 ? groupSorted.reduce((t, g) => t + g.actual_sales, 0) / m : null;
+                      })()
+                    )}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="table-scroll">
         <table className="data">
           <thead>
@@ -412,12 +535,13 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
           </tbody>
         </table>
       </div>
+      )}
       <div className="pagination">
         <button disabled={currentPage <= 1} onClick={() => setPage((p) => p - 1)}>
           ‹ Sebelumnya
         </button>
         <span>
-          Halaman {currentPage} / {pages} · {sorted.length} baris
+          Halaman {currentPage} / {pages} · {totalCount} {isGroup ? "group" : "baris"}
         </span>
         <button disabled={currentPage >= pages} onClick={() => setPage((p) => p + 1)}>
           Berikutnya ›
