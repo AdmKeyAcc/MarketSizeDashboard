@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtInt, fmtIDRFull, fmtPct, type DetailRow } from "@/lib/calculations";
+import { buildDetailRows, custKey, fmtInt, fmtIDRFull, fmtPct, uniq, type DetailRow } from "@/lib/calculations";
 import { FIELD_LABEL, type EditableField } from "@/lib/partsEdit";
 import { MultiSelectField } from "@/components/FilterBar";
 import { exportDetailToExcel } from "@/lib/exportDetail";
@@ -11,7 +11,7 @@ type SortKey = Exclude<keyof DetailRow, "uio_source" | "part_id">;
 
 const COLS: { key: SortKey; label: string; computed?: boolean; editable?: EditableField }[] = [
   { key: "product", label: "Product" },
-  { key: "model", label: "Model unit" }, 
+  { key: "model", label: "Model unit" },
   { key: "part_name", label: "Part name" },
   { key: "part_number", label: "Part number" },
   { key: "hm_day", label: "HM/Day", editable: "hm_day" },
@@ -29,12 +29,16 @@ const COLS: { key: SortKey; label: string; computed?: boolean; editable?: Editab
 
 const PAGE_SIZE = 20;
 export default function DetailTable({ state }: { state: UseDashboardState }) {
-  const rows = state.detailRows;
-  const { setData } = state;
+  const baseRows = state.detailRows;
+  const { setData, data, filters } = state;
   const [search, setSearch] = useState("");
   const [fProduct, setFProduct] = useState<string[]>([]);
   const [fModel, setFModel] = useState<string[]>([]);
   const [fPartName, setFPartName] = useState<string[]>([]);
+  const [cCode, setCCode] = useState<string[]>([]);
+  const [cName, setCName] = useState<string[]>([]);
+  const [cGroup, setCGroup] = useState<string[]>([]);
+  const [cType, setCType] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -44,9 +48,54 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  // ---- Filter customer (Code, Name, Group, Type) ----
+  // Pilihan saling mengikuti. Kalau ada yang dipilih, UIO & Actual Sales dihitung
+  // ulang hanya dari customer terpilih, sehingga Market size & share ikut berubah.
+  const customers = state.realCustomers;
+  type Cust = (typeof customers)[number];
+  type CKey = "code" | "name" | "group" | "type";
+  const customerOpts = useMemo(() => {
+    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
+    const ok = (c: Cust, skip: CKey) =>
+      (skip === "code" || sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
+      (skip === "name" || sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
+      (skip === "group" || sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
+      (skip === "type" || sel.type.size === 0 || sel.type.has(c.tier || ""));
+    const list = (skip: CKey, pick: (c: Cust) => string | null) => uniq(customers.filter((c) => ok(c, skip)).map(pick)).sort();
+    return {
+      code: list("code", (c) => c.customer_code),
+      name: list("name", (c) => c.customer_name),
+      group: list("group", (c) => c.customer_group),
+      type: list("type", (c) => c.tier)
+    };
+  }, [customers, cCode, cName, cGroup, cType]);
+  const hasCustomerFilter = cCode.length + cName.length + cGroup.length + cType.length > 0;
+  const customerKeys = useMemo(() => {
+    if (!hasCustomerFilter) return null;
+    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
+    return new Set(
+      customers
+        .filter(
+          (c) =>
+            (sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
+            (sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
+            (sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
+            (sel.type.size === 0 || sel.type.has(c.tier || ""))
+        )
+        .map((c) => custKey(c.customer_group, c.customer_name))
+    );
+  }, [hasCustomerFilter, customers, cCode, cName, cGroup, cType]);
+  const rows = useMemo(
+    () =>
+      customerKeys
+        ? buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters, customerKeys)
+        : baseRows,
+    [customerKeys, baseRows, data, filters]
+  );
+
   // Pilihan filter bertingkat: Model unit mengikuti Product, Part name mengikuti
   // Product + Model unit. Dasarnya baris yang sudah lolos filter di bagian atas.
-  const productOpts = useMemo(() => Array.from(new Set(rows.map((r) => r.product))).sort(), [rows]);
+  const productOpts = useMemo(() => Array.from(new Set(baseRows.map((r) => r.product))).sort(), [baseRows]);
   const modelOpts = useMemo(() => {
     const ps = new Set(fProduct);
     return Array.from(new Set(rows.filter((r) => ps.size === 0 || ps.has(r.product)).map((r) => r.model))).sort();
@@ -75,7 +124,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     );
   }, [rows, fProduct, fModel, fPartName]);
 
-  const hasLocalFilter = fProduct.length + fModel.length + fPartName.length > 0;
+  const hasLocalFilter = fProduct.length + fModel.length + fPartName.length > 0 || hasCustomerFilter;
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -136,6 +185,10 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     setFProduct([]);
     setFModel([]);
     setFPartName([]);
+    setCCode([]);
+    setCName([]);
+    setCGroup([]);
+    setCType([]);
     setSearch("");
     setPage(1);
   }
@@ -145,6 +198,10 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     if (fProduct.length) parts.push(`Product: ${fProduct.join(", ")}`);
     if (fModel.length) parts.push(`Model unit: ${fModel.join(", ")}`);
     if (fPartName.length) parts.push(`Part name: ${fPartName.join(", ")}`);
+    if (cCode.length) parts.push(`Customer Code: ${cCode.join(", ")}`);
+    if (cName.length) parts.push(`Customer Name: ${cName.join(", ")}`);
+    if (cGroup.length) parts.push(`Customer Group: ${cGroup.join(", ")}`);
+    if (cType.length) parts.push(`Customer Type: ${cType.join(", ")}`);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
     return parts.join(" | ");
   }
@@ -282,6 +339,16 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
         <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
         <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
         <MultiSelectField label="Part name" values={fPartName} options={partNameOpts} onChange={changePartName} />
+        <MultiSelectField label="Customer Code" values={cCode} options={customerOpts.code} onChange={(v) => { setCCode(v); setPage(1); }} />
+        <MultiSelectField label="Customer Name" values={cName} options={customerOpts.name} onChange={(v) => { setCName(v); setPage(1); }} />
+        <MultiSelectField label="Customer Group" values={cGroup} options={customerOpts.group} onChange={(v) => { setCGroup(v); setPage(1); }} />
+        <MultiSelectField
+          label="Customer Type"
+          values={cType}
+          options={customerOpts.type}
+          onChange={(v) => { setCType(v); setPage(1); }}
+          info="Klasifikasi key account customer (KA Nasional, KA Branch, NKA, Dealer, SHN, dst)."
+        />
         <div className="detail-filters-info">
           <span>
             {sorted.length.toLocaleString("id-ID")} dari {rows.length.toLocaleString("id-ID")} baris
