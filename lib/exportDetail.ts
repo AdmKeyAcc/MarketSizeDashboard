@@ -1,4 +1,4 @@
-import type { DetailRow } from "@/lib/calculations";
+import type { DetailRow, GroupRow } from "@/lib/calculations";
 
 /** Mengekspor baris Detail part (sesuai filter yang sedang dipilih) ke file
  * .xlsx dan memicu unduhan di browser. Pustaka XLSX baru dimuat saat tombol
@@ -68,6 +68,56 @@ export async function exportDetailToExcel(rows: DetailRow[], filterNote: string)
   const a = document.createElement("a");
   a.href = url;
   a.download = `detail-part-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Ekspor ringkasan Detail part per Customer Group. */
+export async function exportGroupToExcel(rows: GroupRow[], filterNote: string) {
+  const XLSX = await import("@e965/xlsx");
+  const data: Record<string, string | number>[] = rows.map((r, i) => ({
+    No: i + 1,
+    "Customer Group": r.group,
+    "Jumlah Customer": r.customers,
+    "UIO (Unit)": Math.round(r.uio),
+    "Qty Market Size": Math.round(r.qty_market_size),
+    "Market Size (Rp)": Math.round(r.amount_market_size),
+    "Actual Qty": Math.round(r.actual_qty),
+    "Actual Sales (Rp)": Math.round(r.actual_sales),
+    "Market Share (%)": r.market_share === null ? "" : Math.round(r.market_share * 1000) / 10
+  }));
+  const sum = (f: (r: GroupRow) => number) => Math.round(rows.reduce((s, r) => s + (f(r) || 0), 0));
+  data.push({
+    No: "",
+    "Customer Group": "TOTAL",
+    "Jumlah Customer": sum((r) => r.customers),
+    "UIO (Unit)": sum((r) => r.uio),
+    "Qty Market Size": sum((r) => r.qty_market_size),
+    "Market Size (Rp)": sum((r) => r.amount_market_size),
+    "Actual Qty": sum((r) => r.actual_qty),
+    "Actual Sales (Rp)": sum((r) => r.actual_sales),
+    "Market Share (%)": ""
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws["!cols"] = [{ wch: 6 }, { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 20 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Per Customer Group");
+  const info = XLSX.utils.aoa_to_sheet([
+    ["Ekspor Summary per Customer Group"],
+    ["Waktu ekspor", new Date().toLocaleString("id-ID")],
+    ["Jumlah group", rows.length],
+    ["Filter", filterNote || "Tanpa filter tambahan"]
+  ]);
+  info["!cols"] = [{ wch: 16 }, { wch: 70 }];
+  XLSX.utils.book_append_sheet(wb, info, "Info");
+  const buf: ArrayBuffer = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `summary-customer-group-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
