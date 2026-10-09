@@ -24,8 +24,8 @@ export default function InfoModal({
         <h3>Tentang data di dashboard ini</h3>
         <ul>
           <li>
-            Product, Model Unit, Part Name/Number, HM/Day, UIO nasional, serta rumus Qty &amp; Amount Market Size
-            diambil dari file kalkulator yang terakhir diupload (atau data contoh awal jika belum ada yang upload).
+            Product, Model Unit, Part Name/Number, HM/Day, Qty per unit, dan Frekuensi ganti diambil dari data Master Part;
+            UIO dari Data UIO; harga dari Data Harga (atau pricelist di Master Part); Actual Sales dari upload Actual Sales.
           </li>
           <li>
             Breakdown per Area / Customer Group / Customer Name dihitung proporsional dari distribusi UIO per brand
@@ -47,7 +47,7 @@ export default function InfoModal({
         </ul>
         <h3 style={{ marginTop: 18 }}>Sumber data yang sedang aktif</h3>
         <ul>
-          <li>Kalkulator (part &amp; UIO): <b>{meta.kalkulator_filename ?? "data contoh"}</b></li>
+          <li>Master Part: <b>{meta.kalkulator_filename ?? "data contoh"}</b></li>
           <li>Customer &amp; UIO per brand: <b>{meta.customers_filename ?? "data contoh"}</b></li>
           <li>Actual sales: <b>{meta.actual_sales_filename ?? "data contoh"}</b></li>
           <li>Data UIO (populasi unit): <b>{meta.uio_units_filename ?? "belum ada"}</b></li>
@@ -56,7 +56,7 @@ export default function InfoModal({
         <h3 style={{ marginTop: 18 }}>Part Number tanpa harga ({partsWithoutPrice.length})</h3>
         {partsWithoutPrice.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--ink-mute)" }}>
-            Semua Part Number di Kalkulator sudah punya harga (dari Data Harga atau pricelist bawaan).
+            Semua Part Number di Master Part sudah punya harga (dari Data Harga atau pricelist bawaan).
           </p>
         ) : (
           <>
