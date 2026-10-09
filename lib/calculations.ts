@@ -75,7 +75,7 @@ export function canonicalProduct(p: string | null | undefined): string {
 
 /** Model dinormalisasi (huruf besar, tanpa spasi/tanda hubung) supaya
  * "60-8FD25" dan "60 8FD25" dianggap model yang sama. */
-function normModel(m: string | null | undefined): string {
+export function normModel(m: string | null | undefined): string {
   return String(m || "").toUpperCase().replace(/[\s\-_/]+/g, "");
 }
 
@@ -88,7 +88,7 @@ function setOf(arr: string[]): Set<string> {
   return s;
 }
 
-function custKey(group: string | null | undefined, name: string | null | undefined): string {
+export function custKey(group: string | null | undefined, name: string | null | undefined): string {
   return `${String(group || "").trim().toUpperCase()}|${String(name || "").trim().toUpperCase()}`;
 }
 
@@ -402,6 +402,31 @@ export function uioByDimension(
   return Object.entries(totals)
     .map(([label, uio]) => ({ label, uio }))
     .sort((a, b) => b.uio - a.uio);
+}
+
+export type UioDetailRow = { product: string; model: string; year: number | null; units: number };
+
+/** Tabel rincian UIO: jumlah unit per Product + Model + Tahun delivery (Year Inv),
+ * untuk unit yang masuk cakupan filter yang sama dengan chart UIO per Product
+ * (unit sampai tahun terpilih, kena filter Area/Sector/Customer/dst). */
+export function uioDetailRows(
+  uioUnits: UioUnit[],
+  years: number[],
+  f?: FilterState,
+  customers?: Customer[]
+): UioDetailRow[] {
+  const keys = buildUnitScopeKeys(customers, f);
+  const agg = new Map<string, UioDetailRow>();
+  uioUnits.forEach((u) => {
+    if (!unitInScope(u, years, f, keys)) return;
+    const product = canonicalProduct(u.product) || "Lainnya";
+    const model = (u.model || "").trim() || "Lainnya";
+    const k = `${product}|${model}|${u.year ?? ""}`;
+    const r = agg.get(k);
+    if (r) r.units += 1;
+    else agg.set(k, { product, model, year: u.year, units: 1 });
+  });
+  return Array.from(agg.values());
 }
 
 /** Kept for backward compatibility — equivalent to uioByDimension(..., "product"). */
@@ -845,7 +870,7 @@ export type MarketShareYearRow = { year: number; market_share: number; period_mo
 export function marketShareByYear(msRows: MarketSizeYearRow[]): MarketShareYearRow[] {
   return msRows.map((r) => ({
     year: r.year,
-    market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0, 
+    market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0,
     period_months: r.period_months
   }));
 }
