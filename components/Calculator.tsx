@@ -15,7 +15,6 @@ import {
 } from "@/lib/calculations";
 import { exportSummaryToExcel } from "@/lib/exportSummary";
 import type { Part } from "@/lib/types";
-import GroupSummary from "@/components/GroupSummary";
 
 type SummaryState = ReturnType<typeof useCalculatorSummary>;
 
@@ -217,9 +216,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
       </div>
       <div className="btn-row" style={{ alignItems: "center" }}>
         <button className="btn btn-primary" onClick={handleAddToSummary} disabled={!partName}>
-          + Tambah part ini ke summary
+          + Tambah part ini ke daftar
         </button>
-        {justAdded && <span className="added-flash">✓ Ditambahkan ke summary di bawah</span>}
+        {justAdded && <span className="added-flash">✓ Ditambahkan ke daftar di bawah</span>}
       </div>
     </div>
   );
@@ -243,12 +242,12 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Summary part yang dicek {items.length > 0 && <span className="count-badge">{items.length}</span>}</h2>
+        <h2>Daftar part yang dicek {items.length > 0 && <span className="count-badge">{items.length}</span>}</h2>
       </div>
 
       {items.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
-          Belum ada part yang ditambahkan. Gunakan tombol <b>“+ Tambah part ini ke summary”</b> di kalkulator cepat di
+          Belum ada part yang ditambahkan. Gunakan tombol <b>“+ Tambah part ini ke daftar”</b> di kalkulator cepat di
           atas untuk mengumpulkan beberapa part di sini, lalu ekspor semuanya sekaligus ke Excel.
         </div>
       ) : (
@@ -292,7 +291,7 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                     <td>{fmtIDRFull(it.contractPrice)}</td>
                     <td className="mono">{fmtIDRFull(it.amountMarketSize)}</td>
                     <td>
-                      <button className="row-remove-btn" title="Hapus dari summary" onClick={() => removeItem(it.id)}>
+                      <button className="row-remove-btn" title="Hapus dari daftar" onClick={() => removeItem(it.id)}>
                         ✕
                       </button>
                     </td>
@@ -331,7 +330,6 @@ export default function Calculator({ state, summaryState }: { state: UseDashboar
     <>
       <QuickCalculator state={state} summaryState={summaryState} />
       <AddedPartsSummary summaryState={summaryState} />
-      <GroupSummary state={state} />
     </>
   );
 }
