@@ -65,7 +65,6 @@ export async function POST(request: Request) {
       customer_name: r.customer_name,
       branch: r.branch,
       serial_number: r.serial_number,
-      engine_serial_number: r.engine_serial_number,
       pss_name: r.pss_name,
       customer_code: r.customer_code,
       customer_type: r.customer_type,
@@ -79,29 +78,6 @@ export async function POST(request: Request) {
     // File populasi bisa puluhan ribu baris — chunk lebih besar di sini
     // (dibanding default 500) supaya tidak terlalu banyak roundtrip.
     await chunkedUpsert(supabase, "uio_units", withKeys, "dedupe_key", 2000);
-
-    // Histori: total unit & breakdown per tahun+product SETELAH merge, jadi
-    // "UIO Februari 300, Maret 350" bisa dilihat trennya dari snapshot demi
-    // snapshot tanpa perlu merekonstruksi ulang dari uio_units tiap saat.
-    const { data: allUnits, error: allUnitsErr } = await supabase
-      .from("uio_units")
-      .select("year, product");
-    if (allUnitsErr) throw allUnitsErr;
-
-    const byYearProduct: Record<string, Record<string, number>> = {};
-    for (const u of allUnits ?? []) {
-      const row = u as { year: number | null; product: string | null };
-      const yearKey = row.year !== null ? String(row.year) : "unknown";
-      const product = row.product || "unknown";
-      byYearProduct[yearKey] = byYearProduct[yearKey] || {};
-      byYearProduct[yearKey][product] = (byYearProduct[yearKey][product] || 0) + 1;
-    }
-    const insSnapshot = await supabase.from("uio_snapshots").insert({
-      filename: file.name,
-      total_units: (allUnits ?? []).length,
-      by_year_product: byYearProduct
-    });
-    if (insSnapshot.error) throw insSnapshot.error;
 
     await supabase.from("app_meta").upsert({
       key: "uio_units",
