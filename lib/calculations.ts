@@ -717,7 +717,7 @@ export function buildDetailRows(
   customerKeys?: Set<string> | null,
   /** Opsional: unit & transaksi milik customerKeys yang sudah dipisah
    * sebelumnya (supaya tidak menyaring seluruh data berulang kali). */
-  subset?: { units: UioUnit[]; tx: ActualSalesTx[] }
+  subset?: { units: UioUnit[]; tx: ActualSalesTx[]; priceGroup?: string }
 ): DetailRow[] {
   // Tahun acuan & cakupan periode selalu dari SELURUH data, bukan subset customer,
   // supaya setiap customer/group memakai tahun yang sama.
@@ -735,7 +735,8 @@ export function buildDetailRows(
   const counter = buildUnitCounter(scopedUnits, years, f, customers);
   const allCounter = customerKeys ? null : buildUnitCounter(uioUnits, [], undefined, undefined);
   const priceOf = buildPriceResolver(priceList);
-  const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
+  // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
+  const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
   const monthsSelected = f.bulan.length > 0 ? new Set(f.bulan).size : 12;
 
