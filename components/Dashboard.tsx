@@ -5,7 +5,7 @@ import type { DashboardData } from "@/lib/types";
 import { useDashboardState } from "@/hooks/useDashboardState";
 import { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
 import { useTheme } from "@/hooks/useTheme";
-import Topbar from "@/components/Topbar";
+import Topbar, { type Tab } from "@/components/Topbar";
 import FilterBar from "@/components/FilterBar";
 import KpiCards from "@/components/KpiCards";
 import UioChart from "@/components/UioChart";
@@ -13,6 +13,7 @@ import UioDetailTable from "@/components/UioDetailTable";
 import MarketSizeChart from "@/components/MarketSizeChart";
 import MarketShareChart from "@/components/MarketShareChart";
 import Calculator from "@/components/Calculator";
+import GroupSummary from "@/components/GroupSummary";
 import UploadModal from "@/components/UploadModal";
 import InfoModal from "@/components/InfoModal";
 
@@ -21,7 +22,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const summaryState = useCalculatorSummary();
   const { theme, cycleTheme } = useTheme();
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "summary">("dashboard");
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -58,6 +59,10 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
               <MarketSizeChart state={state} theme={theme} />
               <MarketShareChart state={state} theme={theme} />
             </div>
+          </section>
+        ) : activeTab === "summary" ? (
+          <section className="view">
+            <GroupSummary state={state} />
           </section>
         ) : (
           <section className="view">
