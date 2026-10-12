@@ -12,7 +12,6 @@ export type UioUnitParsed = {
   customer_name: string | null;
   branch: string | null;
   serial_number: string | null;
-  engine_serial_number: string | null;
   pss_name: string | null;
   customer_code: string | null;
   customer_type: string | null;
@@ -92,10 +91,6 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
     const serial = pick(norm, [
       "serialnumber", "unitserialnumber", "serialnumberunit", "nomorseri"
     ]);
-    const engineSerial = pick(norm, [
-      "engineserialnumber", "engineserialnumbertr", "engineno", "engineno"
-    ]);
-
     const pssName = pick(norm, ["pssname", "pss"]);
     const custCode = pick(norm, ["custcode", "customercode", "kodecustomer"]);
     const custType = pick(norm, ["custtype", "customertype", "tier"]);
@@ -121,7 +116,6 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
       customer_name: str(custName),
       branch: str(branch),
       serial_number: str(serial),
-      engine_serial_number: str(engineSerial),
       pss_name: str(pssName),
       customer_code: str(custCode),
       customer_type: str(custType),
