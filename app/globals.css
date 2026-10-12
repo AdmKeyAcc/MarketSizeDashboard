@@ -234,3 +234,7 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .view-toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
 .view-toggle button { padding: 6px 12px; font-size: 12.5px; background: transparent; border: 0; cursor: pointer; color: inherit; }
 .view-toggle button.active { background: var(--blue-600); color: #fff; }
+
+/* Pemilih tingkat baris tabel Summary */
+.level-select { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-soft); }
+.level-select select { padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font-size: 12.5px; }
