@@ -2,9 +2,11 @@
 
 import type { Theme } from "@/hooks/useTheme";
 
+export type Tab = "dashboard" | "summary" | "calculator";
+
 type Props = {
-  activeTab: "dashboard" | "summary";
-  setActiveTab: (t: "dashboard" | "summary") => void;
+  activeTab: Tab;
+  setActiveTab: (t: Tab) => void;
   onOpenUpload: () => void;
   onOpenInfo: () => void;
   theme: Theme;
@@ -40,6 +42,12 @@ export default function Topbar({
           onClick={() => setActiveTab("summary")}
         >
           Summary
+        </button>
+        <button
+          className={"tab" + (activeTab === "calculator" ? " active" : "")}
+          onClick={() => setActiveTab("calculator")}
+        >
+          Calculator
         </button>
       </nav>
       <div className="top-actions">
