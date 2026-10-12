@@ -171,8 +171,9 @@ export default function UploadModal({
         <div className="upload-slot">
           <h4>1. Data UIO — populasi unit (.xlsx)</h4>
           <div className="hint">
-            1 baris = 1 unit fisik pada tahun tertentu. Kolom: <b>Tahun, Product, Model, Customer Group, Customer
-            Name, Branch (Cabang), Serial Number</b>. Unit dengan serial number yang sama akan <b>diperbarui</b>;
+            1 baris = 1 unit fisik pada tahun tertentu. Kolom (urutan sama dengan tabel Detail UIO di Dashboard): <b>Branch, Pss Name, Cust. Code, Cust. Name,
+            Cust. Group, Cust. Type, Product, Model, Serial Number, Year, HM/Day, Day/Month, Month/Year</b>. Hanya
+            Product yang wajib terisi. Unit dengan serial number yang sama akan <b>diperbarui</b>;
             unit lain (termasuk dari upload tahun/bulan sebelumnya) tetap tersimpan — jadi tren populasi UIO dari
             waktu ke waktu tetap bisa dilihat lewat halaman Dashboard.
           </div>
