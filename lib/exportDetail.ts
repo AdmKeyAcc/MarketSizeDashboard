@@ -131,3 +131,47 @@ export async function exportGroupToExcel(rows: GroupRow[], filterNote: string) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+export type ExportCol = { label: string; key: string; width?: number };
+
+/** Ekspor tabel Summary (tingkat baris bisa Customer Group / Customer / Product / Model). */
+export async function exportSummaryTableToExcel(
+  title: string,
+  cols: ExportCol[],
+  rows: Record<string, string | number | null>[],
+  totalRow: Record<string, string | number | null>,
+  filterNote: string
+) {
+  const XLSX = await import("@e965/xlsx");
+  const toObj = (r: Record<string, string | number | null>, no: string | number) => {
+    const o: Record<string, string | number> = { No: no };
+    cols.forEach((c) => {
+      o[c.label] = r[c.key] ?? "";
+    });
+    return o;
+  };
+  const data = rows.map((r, i) => toObj(r, i + 1));
+  data.push(toObj(totalRow, ""));
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws["!cols"] = [{ wch: 6 }, ...cols.map((c) => ({ wch: c.width ?? 18 }))];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 30));
+  const info = XLSX.utils.aoa_to_sheet([
+    [`Ekspor Summary — ${title}`],
+    ["Waktu ekspor", new Date().toLocaleString("id-ID")],
+    ["Jumlah baris", rows.length],
+    ["Filter", filterNote || "Tanpa filter tambahan"]
+  ]);
+  info["!cols"] = [{ wch: 16 }, { wch: 70 }];
+  XLSX.utils.book_append_sheet(wb, info, "Info");
+  const buf: ArrayBuffer = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `summary-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
