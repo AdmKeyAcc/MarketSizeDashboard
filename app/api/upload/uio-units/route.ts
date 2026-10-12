@@ -66,6 +66,12 @@ export async function POST(request: Request) {
       branch: r.branch,
       serial_number: r.serial_number,
       engine_serial_number: r.engine_serial_number,
+      pss_name: r.pss_name,
+      customer_code: r.customer_code,
+      customer_type: r.customer_type,
+      hm_day: r.hm_day,
+      day_month: r.day_month,
+      month_year: r.month_year,
       source_filename: file.name,
       uploaded_at: now
     }));
