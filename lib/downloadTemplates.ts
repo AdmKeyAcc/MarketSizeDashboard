@@ -9,7 +9,8 @@ async function downloadWorkbook(
   sheetName: string,
   rows: Record<string, string | number>[],
   colWidths: number[],
-  filename: string
+  filename: string,
+  headerOnly = false
 ) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
@@ -17,7 +18,7 @@ async function downloadWorkbook(
 
   const headers = Object.keys(rows[0] ?? {});
   ws.columns = headers.map((header, i) => ({ header, key: header, width: colWidths[i] ?? 16 }));
-  rows.forEach((row) => ws.addRow(row));
+  if (!headerOnly) rows.forEach((row) => ws.addRow(row));
 
   const headerRow = ws.getRow(1);
   headerRow.eachCell((cell) => {
@@ -39,21 +40,30 @@ async function downloadWorkbook(
 }
 
 export async function downloadUioTemplate() {
+  // Hanya baris header (tanpa contoh data) — urutan kolom sama dengan tabel
+  // "Detail UIO" di Dashboard. Product wajib terisi; kolom lain boleh kosong.
   await downloadWorkbook(
     "Data UIO",
     [
       {
-        Tahun: 2026,
-        Product: "TOYOTA",
-        Model: "8FD30",
-        "Customer Group": "KA Nasional",
-        "Customer Name": "PT Contoh Sejahtera",
-        Branch: "Jakarta",
-        "Serial Number": "TY8FD30-00123"
+        Branch: "",
+        "Pss Name": "",
+        "Cust. Code": "",
+        "Cust. Name": "",
+        "Cust. Group": "",
+        "Cust. Type": "",
+        Product: "",
+        Model: "",
+        "Serial Number": "",
+        Year: "",
+        "HM/Day": "",
+        "Day/Month": "",
+        "Month/Year": ""
       }
     ],
-    [8, 12, 14, 18, 24, 14, 20],
-    "template_data_uio.xlsx"
+    [14, 18, 14, 28, 22, 18, 14, 16, 20, 8, 10, 11, 12],
+    "template_data_uio.xlsx",
+    true
   );
 }
 
