@@ -638,13 +638,15 @@ export type GroupRow = {
   actual_sales: number;
   market_share: number | null;
   period_market: number;
+  amount_per_month: number;
+  amount_period: number;
 };
 
 /** Ringkas baris Detail part jadi satu baris per Customer Group. UIO dijumlah
  * per kombinasi Product+Model (bukan per part, supaya tidak terhitung ganda). */
 export function aggregateGroup(group: string, customers: number, rows: DetailRow[]): GroupRow {
   const uioByModel = new Map<string, number>();
-  const g: GroupRow = { group, customers, uio: 0, qty_market_size: 0, amount_market_size: 0, actual_qty: 0, actual_sales: 0, market_share: null, period_market: 0 };
+  const g: GroupRow = { group, customers, uio: 0, qty_market_size: 0, amount_market_size: 0, actual_qty: 0, actual_sales: 0, market_share: null, period_market: 0, amount_per_month: 0, amount_period: 0 };
   rows.forEach((r) => {
     uioByModel.set(`${r.product}|${r.model}`, r.uio);
     g.qty_market_size += r.qty_market_size;
@@ -652,6 +654,8 @@ export function aggregateGroup(group: string, customers: number, rows: DetailRow
     g.actual_qty += r.actual_qty;
     g.actual_sales += r.actual_sales;
     g.period_market += r.period_market;
+    g.amount_per_month += r.amount_per_month;
+    g.amount_period += r.amount_period;
   });
   uioByModel.forEach((v) => (g.uio += v));
   g.market_share = g.period_market > 0 ? g.actual_sales / g.period_market : null;
@@ -683,6 +687,11 @@ export type DetailRow = {
   market_share: number | null;
   /** Market Size disesuaikan ke periode Actual (dasar penyebut Market share). */
   period_market: number;
+  /** Market size per bulan = Price × (Annual HM ÷ 12 ÷ Frekuensi × Qty per unit × UIO), tanpa pembulatan. */
+  amount_per_month: number;
+  /** Qty & Market size untuk bulan yang dipilih di filter Bulan (kosong = 12 bulan). */
+  qty_period: number;
+  amount_period: number;
 };
 
 /** Baris "Detail part" di page Summary: semua kolom diturunkan dari data
@@ -722,6 +731,7 @@ export function buildDetailRows(
   const priceOf = buildPriceResolver(priceList);
   const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
+  const monthsSelected = f.bulan.length > 0 ? new Set(f.bulan).size : 12;
 
   const actualByPart = new Map<string, ActualAgg>();
   if (scopedTx.length > 0 && refYear !== null) {
@@ -763,6 +773,9 @@ export function buildDetailRows(
       uio,
       price
     });
+    // Market size per bulan & untuk bulan terpilih. Qty dibulatkan SETELAH dikali jumlah bulan.
+    const monthlyQty = p.freq_replacement_hm > 0 ? ((annualHm / 12) / p.freq_replacement_hm) * p.qty_per_unit * uio : 0;
+    const periodQty = Math.round(monthlyQty * monthsSelected);
     const act = actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`);
     const periodMarket = amount * factor;
     out.push({
@@ -783,7 +796,10 @@ export function buildDetailRows(
       actual_qty: act?.qty ?? 0,
       actual_sales: act?.amount ?? 0,
       market_share: periodMarket > 0 ? (act?.amount ?? 0) / periodMarket : null,
-      period_market: periodMarket
+      period_market: periodMarket,
+      amount_per_month: price * monthlyQty,
+      qty_period: periodQty,
+      amount_period: price * periodQty
     });
   });
   return out;
