@@ -93,7 +93,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
     ]);
     const pssName = pick(norm, ["pssname", "pss"]);
     const custCode = pick(norm, ["custcode", "customercode", "kodecustomer"]);
-    const custType = pick(norm, ["custtype", "customertype", "tier"]);
+    const custType = pick(norm, ["custtype", "customertype", "tipecustomer"]);
     const hmDay = pick(norm, ["hmday", "hmperhari"]);
     const dayMonth = pick(norm, ["daymonth", "harikerjabulan", "dayspermonth"]);
     const monthYear = pick(norm, ["monthyear", "bulantahun", "monthsperyear"]);
