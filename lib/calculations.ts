@@ -704,6 +704,31 @@ export type DetailRow = {
  * (Product & Model dari data part, UIO dari Data UIO per Product+Model,
  * Price dari Data Harga → pricelist, Actual dari Actual Sales per part) dan
  * Qty/Market Size memakai rumus di computePartMarketSize. */
+/** Hasil hitung yang sama untuk semua customer/group — dihitung SEKALI lalu dipakai
+ * ulang saat buildDetailRows dipanggil berkali-kali (satu panggilan per group/customer). */
+export type DetailCtx = {
+  years: number[];
+  refYear: number | null;
+  factor: number;
+  priceOf: ReturnType<typeof buildPriceResolver>;
+  partsByProduct: Map<string, Part[]>;
+};
+
+export function prepareDetailCtx(parts: Part[], uioUnits: UioUnit[], priceList: PriceListEntry[], actualTx: ActualSalesTx[], f: FilterState): DetailCtx {
+  const years = resolveUioYears(f, uioUnits);
+  const cov = actualCoverage([], actualTx);
+  const refYear = referenceYear(f, uioUnits, cov);
+  const factor = periodMonths(refYear, f, cov) / 12;
+  const partsByProduct = new Map<string, Part[]>();
+  parts.forEach((p) => {
+    const k = canonicalProduct(p.product);
+    const arr = partsByProduct.get(k);
+    if (arr) arr.push(p);
+    else partsByProduct.set(k, [p]);
+  });
+  return { years, refYear, factor, priceOf: buildPriceResolver(priceList), partsByProduct };
+}
+
 export function buildDetailRows(
   parts: Part[],
   assumptions: Assumption[],
@@ -715,16 +740,14 @@ export function buildDetailRows(
   /** Opsional: himpunan kunci customer (custKey) dari filter lokal Detail part.
    * Bila diisi, UIO & Actual Sales hanya dihitung dari customer tersebut. */
   customerKeys?: Set<string> | null,
-  /** Opsional: unit & transaksi milik customerKeys yang sudah dipisah
-   * sebelumnya (supaya tidak menyaring seluruh data berulang kali). */
-  subset?: { units: UioUnit[]; tx: ActualSalesTx[]; priceGroup?: string }
+  /** Opsional: unit & transaksi milik customerKeys yang sudah dipisah sebelumnya, plus
+   * hasil prepareDetailCtx (supaya tidak menghitung ulang data global tiap panggilan). */
+  subset?: { units: UioUnit[]; tx: ActualSalesTx[]; priceGroup?: string; ctx?: DetailCtx }
 ): DetailRow[] {
   // Tahun acuan & cakupan periode selalu dari SELURUH data, bukan subset customer,
   // supaya setiap customer/group memakai tahun yang sama.
-  const years = resolveUioYears(f, uioUnits);
-  const cov = actualCoverage([], actualTx);
-  const refYear = referenceYear(f, uioUnits, cov);
-  const factor = periodMonths(refYear, f, cov) / 12;
+  const ctx = subset?.ctx ?? prepareDetailCtx(parts, uioUnits, priceList, actualTx, f);
+  const { years, refYear, factor, priceOf } = ctx;
 
   let scopedUnits = uioUnits;
   let scopedTx = actualTx;
@@ -734,11 +757,23 @@ export function buildDetailRows(
   }
   const counter = buildUnitCounter(scopedUnits, years, f, customers);
   const allCounter = customerKeys ? null : buildUnitCounter(uioUnits, [], undefined, undefined);
-  const priceOf = buildPriceResolver(priceList);
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
   const monthsSelected = f.bulan.length > 0 ? new Set(f.bulan).size : 12;
+
+  // Mode customer/group: hanya part dari product yang dimiliki customer itu (unit atau penjualan).
+  let candidateParts: Part[] = parts;
+  if (customerKeys && subset?.ctx) {
+    const prods = new Set<string>();
+    scopedUnits.forEach((u) => prods.add(canonicalProduct(u.product)));
+    scopedTx.forEach((r) => prods.add(canonicalProduct(r.product)));
+    candidateParts = [];
+    prods.forEach((k) => {
+      const arr = ctx.partsByProduct.get(k);
+      if (arr) candidateParts.push(...arr);
+    });
+  }
 
   const actualByPart = new Map<string, ActualAgg>();
   if (scopedTx.length > 0 && refYear !== null) {
@@ -755,7 +790,7 @@ export function buildDetailRows(
   }
 
   const out: DetailRow[] = [];
-  parts.forEach((p) => {
+  candidateParts.forEach((p) => {
     if (f.product.length > 0 && !setOf(f.product).has(p.product)) return;
     if (f.modelUnit.length > 0 && !setOf(f.modelUnit).has(p.model)) return;
     if (f.partNumber.length > 0 && !setOf(f.partNumber).has(p.part_number || "")) return;
