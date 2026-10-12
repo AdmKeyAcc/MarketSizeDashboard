@@ -67,15 +67,26 @@ export async function downloadUioTemplate() {
   );
 }
 
-export async function downloadPriceTemplate() {
+export async function downloadContractPriceTemplate() {
+  // Data Harga Kontrak (SCPL) — harga sudah nett. Hanya header.
   await downloadWorkbook(
-    "Data Harga",
-    [
-      { "Part Number": "TY-OIL-001", "Customer Group": "KA Nasional", Harga: 350000 },
-      { "Part Number": "TY-OIL-001", "Customer Group": "", Harga: 420000 }
-    ],
-    [18, 18, 14],
-    "template_data_harga.xlsx"
+    "Data Harga Kontrak",
+    [{ "Cust. Code": "", "Cust. Name": "", "Cust. Group": "", "Cust. Type": "", "Part Number": "", Harga: "" }],
+    [14, 28, 22, 18, 20, 16],
+    "template_data_harga_kontrak.xlsx",
+    true
+  );
+}
+
+export async function downloadNonContractPriceTemplate() {
+  // Data Harga Non Kontrak — format kolom SAMA dengan template kontrak; harga tertera,
+  // sistem otomatis dikurangi 50% saat upload. Hanya header.
+  await downloadWorkbook(
+    "Data Harga Non Kontrak",
+    [{ "Cust. Code": "", "Cust. Name": "", "Cust. Group": "", "Cust. Type": "", "Part Number": "", Harga: "" }],
+    [14, 28, 22, 18, 20, 16],
+    "template_data_harga_non_kontrak.xlsx",
+    true
   );
 }
 
