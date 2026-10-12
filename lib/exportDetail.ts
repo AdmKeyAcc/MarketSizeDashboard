@@ -20,6 +20,8 @@ export async function exportDetailToExcel(rows: DetailRow[], filterNote: string)
     "Price (Rp)": Math.round(r.price),
     "Qty Market Size": Math.round(r.qty_market_size),
     "Market Size (Rp)": Math.round(r.amount_market_size),
+    "Market Size / Bulan (Rp)": Math.round(r.amount_per_month),
+    "Market Size Periode Terpilih (Rp)": Math.round(r.amount_period),
     "Actual Qty": Math.round(r.actual_qty),
     "Actual Sales (Rp)": Math.round(r.actual_sales),
     "Market Share (%)": r.market_share === null ? "" : Math.round(r.market_share * 1000) / 10
@@ -40,6 +42,8 @@ export async function exportDetailToExcel(rows: DetailRow[], filterNote: string)
     "Price (Rp)": "TOTAL",
     "Qty Market Size": sum((r) => r.qty_market_size),
     "Market Size (Rp)": sum((r) => r.amount_market_size),
+    "Market Size / Bulan (Rp)": sum((r) => r.amount_per_month),
+    "Market Size Periode Terpilih (Rp)": sum((r) => r.amount_period),
     "Actual Qty": sum((r) => r.actual_qty),
     "Actual Sales (Rp)": sum((r) => r.actual_sales),
     "Market Share (%)": ""
@@ -49,7 +53,7 @@ export async function exportDetailToExcel(rows: DetailRow[], filterNote: string)
   ws["!cols"] = [
     { wch: 6 }, { wch: 12 }, { wch: 16 }, { wch: 28 }, { wch: 18 },
     { wch: 9 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 10 },
-    { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 12 }
+    { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 18 }, { wch: 12 }
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Detail Part");
@@ -84,6 +88,8 @@ export async function exportGroupToExcel(rows: GroupRow[], filterNote: string) {
     "UIO (Unit)": Math.round(r.uio),
     "Qty Market Size": Math.round(r.qty_market_size),
     "Market Size (Rp)": Math.round(r.amount_market_size),
+    "Market Size / Bulan (Rp)": Math.round(r.amount_per_month),
+    "Market Size Periode Terpilih (Rp)": Math.round(r.amount_period),
     "Actual Qty": Math.round(r.actual_qty),
     "Actual Sales (Rp)": Math.round(r.actual_sales),
     "Market Share (%)": r.market_share === null ? "" : Math.round(r.market_share * 1000) / 10
@@ -96,12 +102,14 @@ export async function exportGroupToExcel(rows: GroupRow[], filterNote: string) {
     "UIO (Unit)": sum((r) => r.uio),
     "Qty Market Size": sum((r) => r.qty_market_size),
     "Market Size (Rp)": sum((r) => r.amount_market_size),
+    "Market Size / Bulan (Rp)": sum((r) => r.amount_per_month),
+    "Market Size Periode Terpilih (Rp)": sum((r) => r.amount_period),
     "Actual Qty": sum((r) => r.actual_qty),
     "Actual Sales (Rp)": sum((r) => r.actual_sales),
     "Market Share (%)": ""
   });
   const ws = XLSX.utils.json_to_sheet(data);
-  ws["!cols"] = [{ wch: 6 }, { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 20 }, { wch: 14 }];
+  ws["!cols"] = [{ wch: 6 }, { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 24 }, { wch: 12 }, { wch: 20 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Per Customer Group");
   const info = XLSX.utils.aoa_to_sheet([
