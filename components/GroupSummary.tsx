@@ -29,7 +29,7 @@ const LEVEL_LABEL: Record<Level, string> = {
 };
 
 /** Satu baris tabel: metrik dari GroupRow + label sesuai tingkat baris. */
-type Row = GroupRow & { id: string; code: string; name: string; grp: string; ctype: string; product: string; model: string };
+type Row = GroupRow & { id: string; code: string; name: string; grp: string; ctype: string; ktier: string; product: string; model: string };
 type SortKey = keyof Row;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
 
@@ -51,13 +51,15 @@ const LABEL_COLS: Record<Level, ColDef[]> = {
     { key: "name", label: "Cust. Name", kind: "text", width: 28 },
     { key: "group", label: "Cust. Group", kind: "text", width: 28 },
     { key: "ctype", label: "Cust. Type", kind: "text", width: 18 },
+    { key: "ktier", label: "KA Tier", kind: "text", width: 20 },
     { key: "customers", label: "Jumlah customer", kind: "num", width: 16 }
   ],
   customer: [
     { key: "code", label: "Cust. Code", kind: "text", width: 14 },
     { key: "name", label: "Cust. Name", kind: "text", width: 32 },
     { key: "grp", label: "Cust. Group", kind: "text", width: 24 },
-    { key: "ctype", label: "Cust. Type", kind: "text", width: 18 }
+    { key: "ctype", label: "Cust. Type", kind: "text", width: 18 },
+    { key: "ktier", label: "KA Tier", kind: "text", width: 20 }
   ],
   product: [{ key: "product", label: "Product", kind: "text", width: 18 }],
   model: [
@@ -82,7 +84,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [cCode, setCCode] = useState<string[]>([]);
   const [cName, setCName] = useState<string[]>([]);
   const [cGroup, setCGroup] = useState<string[]>([]);
-  const [cType, setCType] = useState<string[]>([]);
+  const [cType, setCType] = useState<string[]>([]); // Customer Type (dari kolom Cust. Type di Data UIO)
+  const [cTier, setCTier] = useState<string[]>([]); // KA Tier (DEALER, KA BRANCH GOLD, KA NASIONAL, dst)
 
   const [level, setLevel] = useState<Level>("group");
   const [search, setSearch] = useState("");
@@ -105,22 +108,41 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     ).sort();
   }, [data.parts, fProduct, fModel]);
 
-  type CKey = "code" | "name" | "group" | "type";
+  // Customer Type berasal dari kolom "Cust. Type" di Data UIO (per unit), dipetakan ke customer lewat Group + Name.
+  const typesByKey = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    data.uioUnits.forEach((u) => {
+      const t = (u.customer_type || "").trim();
+      if (!t) return;
+      const k = custKey(u.customer_group, u.customer_name);
+      let set = m.get(k);
+      if (!set) m.set(k, (set = new Set()));
+      set.add(t);
+    });
+    return m;
+  }, [data.uioUnits]);
+  const typesOf = (c: Cust) => Array.from(typesByKey.get(custKey(c.customer_group, c.customer_name)) || []);
+
+  type CKey = "code" | "name" | "group" | "type" | "tier";
   const customerOpts = useMemo(() => {
-    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
+    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType), tier: new Set(cTier) };
     const ok = (c: Cust, skip: CKey) =>
       (skip === "code" || sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
       (skip === "name" || sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
       (skip === "group" || sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
-      (skip === "type" || sel.type.size === 0 || sel.type.has(c.tier || ""));
-    const list = (skip: CKey, pick: (c: Cust) => string | null) => uniq(customers.filter((c) => ok(c, skip)).map(pick)).sort();
+      (skip === "type" || sel.type.size === 0 || typesOf(c).some((t) => sel.type.has(t))) &&
+      (skip === "tier" || sel.tier.size === 0 || sel.tier.has(c.tier || ""));
+    const list = (skip: CKey, pick: (c: Cust) => (string | null)[]) =>
+      uniq(customers.filter((c) => ok(c, skip)).flatMap(pick)).sort();
     return {
-      code: list("code", (c) => c.customer_code),
-      name: list("name", (c) => c.customer_name),
-      group: list("group", (c) => c.customer_group),
-      type: list("type", (c) => c.tier)
+      code: list("code", (c) => [c.customer_code]),
+      name: list("name", (c) => [c.customer_name]),
+      group: list("group", (c) => [c.customer_group]),
+      type: list("type", (c) => typesOf(c)),
+      tier: list("tier", (c) => [c.tier])
     };
-  }, [customers, cCode, cName, cGroup, cType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers, typesByKey, cCode, cName, cGroup, cType, cTier]);
 
   function changeProduct(next: string[]) {
     setFProduct(next);
@@ -148,10 +170,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   };
 
   const hasFilter =
-    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cCode.length + cName.length + cGroup.length + cType.length > 0;
+    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cCode.length + cName.length + cGroup.length + cType.length + cTier.length > 0;
 
   function resetAll() {
-    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCCode, setCName, setCGroup, setCType].forEach((s) => s([]));
+    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCCode, setCName, setCGroup, setCType, setCTier].forEach((s) => s([]));
     setSearch("");
     setPage(1);
   }
@@ -167,16 +189,17 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType) };
-    const hasCust = cCode.length + cName.length + cGroup.length + cType.length > 0;
+    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType), tier: new Set(cTier) };
+    const hasCust = cCode.length + cName.length + cGroup.length + cType.length + cTier.length > 0;
     const selected = customers.filter(
       (c) =>
         (sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
         (sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
         (sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
-        (sel.type.size === 0 || sel.type.has(c.tier || ""))
+        (sel.type.size === 0 || typesOf(c).some((t) => sel.type.has(t))) &&
+        (sel.tier.size === 0 || sel.tier.has(c.tier || ""))
     );
-    const blank = { code: "", name: "", grp: "", ctype: "", product: "", model: "" };
+    const blank = { code: "", name: "", grp: "", ctype: "", ktier: "", product: "", model: "" };
     const mk = (id: string, label: string, n: number, g: GroupRow, extra: Partial<typeof blank>): Row => ({
       ...g,
       group: label,
@@ -248,7 +271,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           extra: {
             code: sum(e.members.map((c) => c.customer_code), "kode"),
             name: sum(e.members.map((c) => c.customer_name), "customer"),
-            ctype: sum(e.members.map((c) => c.tier), "tipe", 2)
+            ctype: sum(e.members.flatMap((c) => typesOf(c)), "tipe", 2),
+            ktier: sum(e.members.map((c) => c.tier), "tier", 2)
           },
           priceGroup: g === "(Tanpa group)" ? "" : g
         })
@@ -260,7 +284,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           id: k,
           label: c.customer_name || "",
           keys: new Set([k]),
-          extra: { code: c.customer_code || "", name: c.customer_name || "", grp: c.customer_group || "", ctype: c.tier || "" },
+          extra: { code: c.customer_code || "", name: c.customer_name || "", grp: c.customer_group || "", ctype: typesOf(c).join(", "), ktier: c.tier || "" },
           priceGroup: c.customer_group || ""
         });
       });
@@ -317,7 +341,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [level, customers, cCode, cName, cGroup, cType, data, calcFilters]);
+  }, [level, customers, typesByKey, cCode, cName, cGroup, cType, cTier, data, calcFilters]);
 
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS[level], ...METRIC_COLS], [level]);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
@@ -375,6 +399,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     add("Customer Name", cName);
     add("Customer Group", cGroup);
     add("Customer Type", cType);
+    add("KA Tier", cTier);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
     return parts.join(" | ");
   }
@@ -452,7 +477,14 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={cType}
             options={customerOpts.type}
             onChange={wrap(setCType)}
-            info="Klasifikasi key account customer (KA Nasional, KA Branch, NKA, Dealer, SHN, dst)."
+            info="Jenis customer dari kolom Cust. Type di Data UIO. Pilihan baru muncul setelah Data UIO di-upload dengan format terbaru."
+          />
+          <MultiSelectField
+            label="KA Tier"
+            values={cTier}
+            options={customerOpts.tier}
+            onChange={wrap(setCTier)}
+            info="Klasifikasi key account customer (KA Nasional, KA Branch Platinum/Gold, NKA, Dealer, SHN, dst)."
           />
         </div>
       </div>
