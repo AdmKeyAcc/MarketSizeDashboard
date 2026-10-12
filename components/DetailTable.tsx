@@ -24,6 +24,8 @@ const COLS: { key: SortKey; label: string; computed?: boolean; editable?: Editab
   { key: "amount_market_size", label: "Market size (Rp)", computed: true },
   { key: "actual_qty", label: "Actual qty" },
   { key: "actual_sales", label: "Actual sales (Rp)" },
+  { key: "amount_per_month", label: "Market size / bulan (Rp)", computed: true },
+  { key: "amount_period", label: "Market size periode terpilih (Rp)", computed: true },
   { key: "market_share", label: "Market share", computed: true }
 ];
 
@@ -247,6 +249,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
     return copy;
   }, [filtered, sortCol, sortDir]);
 
+  const monthsSelected = filters.bulan.length > 0 ? new Set(filters.bulan).size : 12;
   const isGroup = view === "group";
   const totalCount = isGroup ? groupSorted.length : sorted.length;
   const pages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -483,11 +486,13 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   ["uio", "UIO (unit)"],
                   ["qty_market_size", "Qty market size"],
                   ["amount_market_size", "Market size (Rp)"],
+                  ["amount_per_month", "Market size / bulan (Rp)"],
+                  ["amount_period", `Market size periode terpilih (${monthsSelected} bln) (Rp)`],
                   ["actual_qty", "Actual qty"],
                   ["actual_sales", "Actual sales (Rp)"],
                   ["market_share", "Market share"]
                 ] as [keyof GroupRow, string][]).map(([k, label]) => (
-                  <th key={k} onClick={() => onGroupSort(k)} style={{ cursor: "pointer" }} className={k === "qty_market_size" || k === "amount_market_size" || k === "market_share" ? "computed" : undefined}>
+                  <th key={k} onClick={() => onGroupSort(k)} style={{ cursor: "pointer" }} className={k === "qty_market_size" || k === "amount_market_size" || k === "amount_per_month" || k === "amount_period" || k === "market_share" ? "computed" : undefined}>
                     {label}
                     {gSortCol === k && <span className="arrow">{gSortDir === "asc" ? "▲" : "▼"}</span>}
                   </th>
@@ -502,6 +507,8 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   <td>{fmtInt(g.uio)}</td>
                   <td className="computed">{fmtInt(g.qty_market_size)}</td>
                   <td className="computed">{fmtIDRFull(g.amount_market_size)}</td>
+                  <td className="computed">{fmtIDRFull(g.amount_per_month)}</td>
+                  <td className="computed">{fmtIDRFull(g.amount_period)}</td>
                   <td>{fmtInt(g.actual_qty)}</td>
                   <td>{fmtIDRFull(g.actual_sales)}</td>
                   <td className="computed">{fmtPct(g.market_share)}</td>
@@ -514,6 +521,8 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   <td>{fmtInt(groupSorted.reduce((t, g) => t + g.uio, 0))}</td>
                   <td className="computed">{fmtInt(groupSorted.reduce((t, g) => t + g.qty_market_size, 0))}</td>
                   <td className="computed">{fmtIDRFull(groupSorted.reduce((t, g) => t + g.amount_market_size, 0))}</td>
+                  <td className="computed">{fmtIDRFull(groupSorted.reduce((t, g) => t + g.amount_per_month, 0))}</td>
+                  <td className="computed">{fmtIDRFull(groupSorted.reduce((t, g) => t + g.amount_period, 0))}</td>
                   <td>{fmtInt(groupSorted.reduce((t, g) => t + g.actual_qty, 0))}</td>
                   <td>{fmtIDRFull(groupSorted.reduce((t, g) => t + g.actual_sales, 0))}</td>
                   <td className="computed">
@@ -542,6 +551,7 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   style={{ cursor: "pointer" }}
                 >
                   {col.label}
+                  {col.key === "amount_period" && <span title={`Dihitung untuk ${monthsSelected} bulan (${filters.bulan.length ? filters.bulan.join(", ") : "semua bulan"})`}> ({monthsSelected} bln)</span>}
                   {col.editable && <span title="Kolom ini bisa diedit"> ✎</span>}
                   {sortCol === col.key && <span className="arrow">{sortDir === "asc" ? "▲" : "▼"}</span>}
                 </th>
@@ -570,6 +580,8 @@ export default function DetailTable({ state }: { state: UseDashboardState }) {
                   <td className="computed">{fmtIDRFull(row.amount_market_size)}</td>
                   <td>{fmtInt(row.actual_qty)}</td>
                   <td>{fmtIDRFull(row.actual_sales)}</td>
+                  <td className="computed">{fmtIDRFull(row.amount_per_month)}</td>
+                  <td className="computed">{fmtIDRFull(row.amount_period)}</td>
                   <td className="computed">{fmtPct(row.market_share)}</td>
                 </tr>
               );
