@@ -441,6 +441,12 @@ export function uioDetailRows(
   return Array.from(agg.values());
 }
 
+/** Unit UIO (satu baris per unit) yang lolos filter & tahun — untuk tabel detail di Dashboard. */
+export function uioScopedUnits(uioUnits: UioUnit[], years: number[], f?: FilterState, customers?: Customer[]): UioUnit[] {
+  const keys = buildUnitScopeKeys(customers, f);
+  return uioUnits.filter((u) => unitInScope(u, years, f, keys));
+}
+
 /** Kept for backward compatibility — equivalent to uioByDimension(..., "product"). */
 export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterState): UioByProductRow[] {
   return uioByDimension(uioUnits, years, "product", f).map((r) => ({ product: r.label, uio: r.uio }));
