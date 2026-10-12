@@ -172,9 +172,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           data.priceList,
           data.customers,
           data.actualSalesTx,
-          calcFilters,
+          // Harga kontrak (SCPL) berlaku per Customer Group: pakai harga group ini kalau ada.
+          g === "(Tanpa group)" ? calcFilters : { ...calcFilters, customerGroup: [g] },
           keys,
-          { units: gu, tx: gt }
+          { units: gu, tx: gt, priceGroup: g === "(Tanpa group)" ? "" : g }
         );
         const agg = aggregateGroup(g, keys.size, list);
         if (agg.uio > 0 || agg.actual_sales > 0 || agg.amount_market_size > 0) out.push(agg);
