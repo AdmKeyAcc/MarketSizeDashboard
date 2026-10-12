@@ -141,6 +141,9 @@ export type PriceListEntry = {
   part_number: string;
   customer_group: string;
   price: number;
+  /** 'contract' = SCPL (nett), 'non_contract' = umum (tertera - 50%). */
+  price_type?: "contract" | "non_contract";
+  list_price?: number | null;
 };
 
 /** Actual Sales per transaksi/part (tabel actual_sales_tx). 1 baris = penjualan
