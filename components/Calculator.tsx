@@ -15,7 +15,7 @@ import {
 } from "@/lib/calculations";
 import { exportSummaryToExcel } from "@/lib/exportSummary";
 import type { Part } from "@/lib/types";
-import DetailTable from "@/components/DetailTable";
+import GroupSummary from "@/components/GroupSummary";
 
 type SummaryState = ReturnType<typeof useCalculatorSummary>;
 
@@ -331,7 +331,7 @@ export default function Calculator({ state, summaryState }: { state: UseDashboar
     <>
       <QuickCalculator state={state} summaryState={summaryState} />
       <AddedPartsSummary summaryState={summaryState} />
-      <DetailTable state={state} />
+      <GroupSummary state={state} />
     </>
   );
 }
