@@ -13,6 +13,12 @@ export type UioUnitParsed = {
   branch: string | null;
   serial_number: string | null;
   engine_serial_number: string | null;
+  pss_name: string | null;
+  customer_code: string | null;
+  customer_type: string | null;
+  hm_day: number | null;
+  day_month: number | null;
+  month_year: number | null;
 };
 
 export type UioUnitsParseResult = {
@@ -30,6 +36,11 @@ function pick(norm: Record<string, unknown>, candidates: string[]): unknown {
     if (v !== undefined && v !== null && v !== "") return v;
   }
   return null;
+}
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
 }
 function str(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -85,6 +96,13 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
       "engineserialnumber", "engineserialnumbertr", "engineno", "engineno"
     ]);
 
+    const pssName = pick(norm, ["pssname", "pss"]);
+    const custCode = pick(norm, ["custcode", "customercode", "kodecustomer"]);
+    const custType = pick(norm, ["custtype", "customertype", "tier"]);
+    const hmDay = pick(norm, ["hmday", "hmperhari"]);
+    const dayMonth = pick(norm, ["daymonth", "harikerjabulan", "dayspermonth"]);
+    const monthYear = pick(norm, ["monthyear", "bulantahun", "monthsperyear"]);
+
     // A row needs at minimum a Product so it means something as a unit —
     // everything else can be missing and the row is still kept (Year and
     // Customer Group missing just means it won't count toward per-year or
@@ -103,7 +121,13 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
       customer_name: str(custName),
       branch: str(branch),
       serial_number: str(serial),
-      engine_serial_number: str(engineSerial)
+      engine_serial_number: str(engineSerial),
+      pss_name: str(pssName),
+      customer_code: str(custCode),
+      customer_type: str(custType),
+      hm_day: num(hmDay),
+      day_month: num(dayMonth),
+      month_year: num(monthYear)
     });
   }
 
