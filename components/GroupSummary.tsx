@@ -6,7 +6,6 @@ import {
   EMPTY_FILTERS,
   aggregateGroup,
   buildDetailRows,
-  canonicalProduct,
   custKey,
   fmtIDRFull,
   fmtInt,
@@ -20,16 +19,8 @@ import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 
 const PAGE_SIZE = 20;
 
-type Level = "group" | "customer" | "product" | "model";
-const LEVEL_LABEL: Record<Level, string> = {
-  group: "Customer Group",
-  customer: "Customer (Code, Name, Type)",
-  product: "Product",
-  model: "Model unit"
-};
-
 /** Satu baris tabel: metrik dari GroupRow + label sesuai tingkat baris. */
-type Row = GroupRow & { id: string; code: string; name: string; grp: string; ctype: string; ktier: string; product: string; model: string };
+type Row = GroupRow & { id: string; code: string; name: string; grp: string; ctype: string; ktier: string };
 type SortKey = keyof Row;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
 
@@ -43,32 +34,15 @@ const METRIC_COLS: ColDef[] = [
   { key: "actual_sales", label: "Actual sales (Rp)", kind: "num", width: 20 },
   { key: "market_share", label: "Market share", kind: "computed", width: 14 }
 ];
-const LABEL_COLS: Record<Level, ColDef[]> = {
-  // Kolom Customer Code / Name / Type selalu ada. Di tingkat Customer Group, satu group berisi banyak
-  // customer, jadi sel menampilkan nilainya kalau hanya ada satu (mis. setelah difilter), atau ringkasan jumlahnya.
-  group: [
-    { key: "code", label: "Cust. Code", kind: "text", width: 16 },
-    { key: "name", label: "Cust. Name", kind: "text", width: 28 },
-    { key: "group", label: "Cust. Group", kind: "text", width: 28 },
-    { key: "ctype", label: "Cust. Type", kind: "text", width: 18 },
-    { key: "ktier", label: "KA Tier", kind: "text", width: 20 },
-    { key: "customers", label: "Jumlah customer", kind: "num", width: 16 }
-  ],
-  customer: [
-    { key: "code", label: "Cust. Code", kind: "text", width: 14 },
-    { key: "name", label: "Cust. Name", kind: "text", width: 32 },
-    { key: "grp", label: "Cust. Group", kind: "text", width: 24 },
-    { key: "ctype", label: "Cust. Type", kind: "text", width: 18 },
-    { key: "ktier", label: "KA Tier", kind: "text", width: 20 }
-  ],
-  product: [{ key: "product", label: "Product", kind: "text", width: 18 }],
-  model: [
-    { key: "product", label: "Product", kind: "text", width: 18 },
-    { key: "model", label: "Model unit", kind: "text", width: 18 }
-  ]
-};
+const LABEL_COLS: ColDef[] = [
+  { key: "code", label: "Cust. Code", kind: "text", width: 14 },
+  { key: "name", label: "Cust. Name", kind: "text", width: 32 },
+  { key: "grp", label: "Cust. Group", kind: "text", width: 24 },
+  { key: "ctype", label: "Cust. Type", kind: "text", width: 18 },
+  { key: "ktier", label: "KA Tier", kind: "text", width: 20 }
+];
 
-/** Tab Summary: dua box terpisah — (1) Filter, (2) Summary per Customer Group.
+/** Tab Summary: dua box terpisah — (1) Filter, (2) Summary per Customer.
  * Filter di sini berdiri sendiri (tidak ikut filter di page Dashboard). */
 export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const { data } = state;
@@ -87,7 +61,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [cType, setCType] = useState<string[]>([]); // Customer Type (dari kolom Cust. Type di Data UIO)
   const [cTier, setCTier] = useState<string[]>([]); // KA Tier (DEALER, KA BRANCH GOLD, KA NASIONAL, dst)
 
-  const [level, setLevel] = useState<Level>("group");
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -190,8 +163,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType), tier: new Set(cTier) };
-    const hasCust = cCode.length + cName.length + cGroup.length + cType.length + cTier.length > 0;
-    const selected = customers.filter(
+        const selected = customers.filter(
       (c) =>
         (sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
         (sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
@@ -199,7 +171,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         (sel.type.size === 0 || typesOf(c).some((t) => sel.type.has(t))) &&
         (sel.tier.size === 0 || sel.tier.has(c.tier || ""))
     );
-    const blank = { code: "", name: "", grp: "", ctype: "", ktier: "", product: "", model: "" };
+    const blank = { code: "", name: "", grp: "", ctype: "", ktier: "" };
     const mk = (id: string, label: string, n: number, g: GroupRow, extra: Partial<typeof blank>): Row => ({
       ...g,
       group: label,
@@ -211,84 +183,19 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
 
-    // ---- Tingkat Product / Model: satu kali hitung seluruh part, lalu dikelompokkan ----
-    if (level === "product" || level === "model") {
-      setBusy(true);
-      timers.push(
-        setTimeout(() => {
-          if (cancelled) return;
-          const keys = hasCust ? new Set(selected.map((c) => custKey(c.customer_group, c.customer_name))) : null;
-          const f = { ...calcFilters, customerGroup: cGroup };
-          const list = buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, f, keys);
-          const buckets = new Map<string, { product: string; model: string; rows: typeof list }>();
-          list.forEach((r) => {
-            const product = canonicalProduct(r.product);
-            const model = level === "model" ? r.model : "";
-            const k = `${product}|${model}`;
-            const b = buckets.get(k);
-            if (b) b.rows.push(r);
-            else buckets.set(k, { product, model, rows: [r] });
-          });
-          const out: Row[] = [];
-          buckets.forEach((b, k) => {
-            const agg = aggregateGroup(b.product, 0, b.rows);
-            if (agg.uio > 0 || agg.actual_sales > 0 || agg.amount_market_size > 0)
-              out.push(mk(k, b.product, 0, agg, { product: b.product, model: b.model }));
-          });
-          setRows(out);
-          setBusy(false);
-        }, 0)
-      );
-      return () => {
-        cancelled = true;
-        timers.forEach(clearTimeout);
-      };
-    }
-
-    // ---- Tingkat Customer Group / Customer: satu panggilan per entitas, dicicil ----
+    // ---- Satu baris per customer (dicicil supaya halaman tetap responsif) ----
     type Task = { id: string; label: string; keys: Set<string>; extra: Partial<typeof blank>; priceGroup: string };
     const tasks: Task[] = [];
-    if (level === "group") {
-      const byGroup = new Map<string, { keys: Set<string>; members: Cust[] }>();
-      selected.forEach((c) => {
-        const g = c.customer_group || "(Tanpa group)";
-        let e = byGroup.get(g);
-        if (!e) byGroup.set(g, (e = { keys: new Set(), members: [] }));
-        e.keys.add(custKey(c.customer_group, c.customer_name));
-        e.members.push(c);
+    selected.forEach((c) => {
+      const k = custKey(c.customer_group, c.customer_name);
+      tasks.push({
+        id: k,
+        label: c.customer_name || "",
+        keys: new Set([k]),
+        extra: { code: c.customer_code || "", name: c.customer_name || "", grp: c.customer_group || "", ctype: typesOf(c).join(", "), ktier: c.tier || "" },
+        priceGroup: c.customer_group || ""
       });
-      // Ringkas nilai beberapa customer jadi satu sel: nilainya kalau cuma satu, selain itu "n <satuan>".
-      const sum = (vals: (string | null)[], unit: string, joinMax = 1) => {
-        const d = Array.from(new Set(vals.filter((v): v is string => !!v && v.trim() !== "")));
-        if (d.length === 0) return "";
-        return d.length <= joinMax ? d.join(", ") : `${d.length} ${unit}`;
-      };
-      byGroup.forEach((e, g) =>
-        tasks.push({
-          id: g,
-          label: g,
-          keys: e.keys,
-          extra: {
-            code: sum(e.members.map((c) => c.customer_code), "kode"),
-            name: sum(e.members.map((c) => c.customer_name), "customer"),
-            ctype: sum(e.members.flatMap((c) => typesOf(c)), "tipe", 2),
-            ktier: sum(e.members.map((c) => c.tier), "tier", 2)
-          },
-          priceGroup: g === "(Tanpa group)" ? "" : g
-        })
-      );
-    } else {
-      selected.forEach((c) => {
-        const k = custKey(c.customer_group, c.customer_name);
-        tasks.push({
-          id: k,
-          label: c.customer_name || "",
-          keys: new Set([k]),
-          extra: { code: c.customer_code || "", name: c.customer_name || "", grp: c.customer_group || "", ctype: typesOf(c).join(", "), ktier: c.tier || "" },
-          priceGroup: c.customer_group || ""
-        });
-      });
-    }
+    });
     // Pisahkan unit & transaksi per entitas SEKALI.
     const taskOfKey = new Map<string, string>();
     tasks.forEach((t) => t.keys.forEach((k) => taskOfKey.set(k, t.id)));
@@ -341,9 +248,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [level, customers, typesByKey, cCode, cName, cGroup, cType, cTier, data, calcFilters]);
+  }, [customers, typesByKey, cCode, cName, cGroup, cType, cTier, data, calcFilters]);
 
-  const cols: ColDef[] = useMemo(() => [...LABEL_COLS[level], ...METRIC_COLS], [level]);
+  const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
 
   const sorted = useMemo(() => {
@@ -388,7 +295,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   }
 
   function filterNote(): string {
-    const parts: string[] = [`Tingkat baris: ${LEVEL_LABEL[level]}`];
+    const parts: string[] = [];
     const add = (label: string, a: string[]) => a.length && parts.push(`${label}: ${a.join(", ")}`);
     add("Tahun", fTahun);
     add("Bulan", fBulan);
@@ -427,10 +334,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         });
         return o;
       };
-      const totalRow = toRow({ ...total, [String(LABEL_COLS[level][0].key)]: "TOTAL" });
-      totalRow[String(LABEL_COLS[level][0].key)] = "TOTAL";
-      if (level !== "group") delete totalRow.customers;
-      await exportSummaryTableToExcel(LEVEL_LABEL[level], ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
+      const totalRow = toRow({ ...total });
+      totalRow[String(LABEL_COLS[0].key)] = "TOTAL";
+      await exportSummaryTableToExcel("Customer", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
     } finally {
       setExporting(false);
     }
@@ -492,25 +398,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       {/* BOX 2 — Tabel summary */}
       <div className="panel">
         <div className="panel-head">
-          <h2>Summary per {LEVEL_LABEL[level]}</h2>
+          <h2>Summary per Customer</h2>
           <div className="panel-tools">
-            <label className="level-select">
-              <span>Rinci berdasarkan</span>
-              <select
-                value={level}
-                onChange={(e) => {
-                  setLevel(e.target.value as Level);
-                  setPage(1);
-                  setSearch("");
-                }}
-              >
-                {(Object.keys(LEVEL_LABEL) as Level[]).map((l) => (
-                  <option key={l} value={l}>
-                    {LEVEL_LABEL[l]}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               type="button"
               className="btn btn-ghost"
@@ -522,7 +411,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             </button>
             <input
               className="search-input"
-              placeholder={`Cari ${LEVEL_LABEL[level].toLowerCase()}…`}
+              placeholder="Cari customer…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -563,11 +452,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
                           ? ""
                           : c.key === "market_share"
                             ? fmtPct(total.market_share as number | null)
-                            : c.key === "customers"
-                              ? fmtInt(total.customers as number)
-                              : c.key === "amount_market_size" || c.key === "amount_per_month" || c.key === "amount_period" || c.key === "actual_sales"
-                                ? fmtIDRFull(total[c.key as string] as number)
-                                : fmtInt(total[c.key as string] as number)}
+                            : c.key === "amount_market_size" || c.key === "amount_per_month" || c.key === "amount_period" || c.key === "actual_sales"
+                              ? fmtIDRFull(total[c.key as string] as number)
+                              : fmtInt(total[c.key as string] as number)}
                     </td>
                   ))}
                 </tr>
