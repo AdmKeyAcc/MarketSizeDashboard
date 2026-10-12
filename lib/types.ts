@@ -126,6 +126,12 @@ export type UioUnit = {
   customer_name: string | null;
   branch: string | null;
   serial_number: string | null;
+  pss_name?: string | null;
+  customer_code?: string | null;
+  customer_type?: string | null;
+  hm_day?: number | null;
+  day_month?: number | null;
+  month_year?: number | null;
 };
 
 /** Harga per Part Number, opsional beda per Customer Group (kontrak harga
