@@ -3,11 +3,9 @@
 import { useState } from "react";
 import {
   downloadUioTemplate,
-  downloadPriceTemplate,
-  downloadMasterPartTemplate,
-  downloadActualSalesTemplate
+  downloadContractPriceTemplate,
+  downloadNonContractPriceTemplate
 } from "@/lib/downloadTemplates";
-import { parseMasterPartFile, parseActualSalesTxFile, UploadParseError } from "@/lib/parse/uploadClient";
 
 type SlotStatus = { text: string; ok: boolean } | null;
 
@@ -24,19 +22,6 @@ async function uploadFile(url: string, file: File): Promise<{ ok: boolean; messa
   }
 }
 
-const CHUNK = 3000;
-
-async function postJson(url: string, body: unknown): Promise<void> {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  let json: { error?: string } = {};
-  try {
-    json = await res.json();
-  } catch {
-    /* respons bukan JSON */
-  }
-  if (!res.ok) throw new Error(json.error || `Gagal menyimpan (kode ${res.status}).`);
-}
-
 export default function UploadModal({
   open,
   onClose,
@@ -47,9 +32,8 @@ export default function UploadModal({
   onUploaded: () => Promise<void> | void;
 }) {
   const [statusUioUnits, setStatusUioUnits] = useState<SlotStatus>(null);
-  const [statusPriceList, setStatusPriceList] = useState<SlotStatus>(null);
-  const [statusMasterPart, setStatusMasterPart] = useState<SlotStatus>(null);
-  const [statusActual, setStatusActual] = useState<SlotStatus>(null);
+  const [statusContract, setStatusContract] = useState<SlotStatus>(null);
+  const [statusNonContract, setStatusNonContract] = useState<SlotStatus>(null);
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
@@ -75,84 +59,6 @@ export default function UploadModal({
     e.target.value = "";
   }
 
-  async function handleMasterPart(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    const input = e.target;
-    if (!file) return;
-    setBusy(true);
-    setStatusMasterPart({ text: "Membaca file…", ok: true });
-    try {
-      const parsed = await parseMasterPartFile(file);
-      for (let i = 0; i < parsed.rows.length; i += CHUNK) {
-        setStatusMasterPart({
-          text: `Menyimpan… ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris`,
-          ok: true
-        });
-        await postJson("/api/upload/master-part", {
-          action: "rows",
-          rows: parsed.rows.slice(i, i + CHUNK),
-          hasHmDay: parsed.hasHmDay,
-          hasComponent: parsed.hasComponent
-        });
-      }
-      await postJson("/api/upload/master-part", { action: "finish", filename: file.name, total: parsed.rows.length });
-      const notes = [
-        parsed.skipped ? `${parsed.skipped.toLocaleString("id-ID")} baris dilewati (data wajib kosong atau tidak valid)` : "",
-        parsed.duplicates ? `${parsed.duplicates.toLocaleString("id-ID")} baris kembar digabung` : ""
-      ].filter(Boolean);
-      setStatusMasterPart({
-        text: `Berhasil: ${parsed.rows.length.toLocaleString("id-ID")} part disimpan.${notes.length ? " (" + notes.join("; ") + ".)" : ""}`,
-        ok: true
-      });
-      await onUploaded();
-    } catch (err) {
-      const msg = err instanceof UploadParseError || err instanceof Error ? err.message : "Gagal memproses file.";
-      setStatusMasterPart({ text: "Gagal: " + msg, ok: false });
-    }
-    setBusy(false);
-    input.value = "";
-  }
-
-  async function handleActualSales(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    const input = e.target;
-    if (!file) return;
-    setBusy(true);
-    setStatusActual({ text: "Membaca file…", ok: true });
-    try {
-      const parsed = await parseActualSalesTxFile(file);
-      setStatusActual({ text: "Menyiapkan periode…", ok: true });
-      await postJson("/api/upload/actual-sales-tx", { action: "start", periods: parsed.periods });
-      for (let i = 0; i < parsed.rows.length; i += CHUNK) {
-        setStatusActual({
-          text: `Menyimpan… ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris`,
-          ok: true
-        });
-        await postJson("/api/upload/actual-sales-tx", {
-          action: "rows",
-          rows: parsed.rows.slice(i, i + CHUNK),
-          filename: file.name
-        });
-      }
-      await postJson("/api/upload/actual-sales-tx", { action: "finish", filename: file.name, total: parsed.rows.length });
-      setStatusActual({
-        text: `Berhasil: ${parsed.rows.length.toLocaleString("id-ID")} transaksi untuk ${parsed.periods.length} periode (bulan-tahun) disimpan.${
-          parsed.skipped ? ` (${parsed.skipped.toLocaleString("id-ID")} baris dilewati.)` : ""
-        }`,
-        ok: true
-      });
-      await onUploaded();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Gagal memproses file.";
-      setStatusActual({
-        text: "Gagal: " + msg + " Upload ulang file yang sama aman dilakukan — data periode itu akan diganti, bukan digandakan.",
-        ok: false
-      });
-    }
-    setBusy(false);
-    input.value = "";
-  }
-
   return (
     <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -161,11 +67,9 @@ export default function UploadModal({
         </button>
         <h3>Upload data</h3>
         <p className="note">
-          Ada 4 jenis data yang bisa diupload: <b>Data UIO</b> (populasi unit), <b>Data Harga</b> (harga per Part
-          Number), <b>Master Part</b> (qty per unit &amp; frekuensi ganti per part), dan <b>Actual Sales</b> (penjualan
-          per transaksi). Keempatnya saling terhubung lewat kolom <b>Product</b>, <b>Model Unit</b>,{" "}
-          <b>Part Number</b>, dan <b>Customer Group</b>. Data disimpan di Supabase dan setiap upload bersifat{" "}
-          <b>menambah/memperbarui</b> — data yang sudah ada sebelumnya tidak hilang. File boleh .xlsx atau .csv.
+          Ada 3 jenis data yang bisa diupload: <b>Data UIO</b> (populasi unit), <b>Data Harga Kontrak (SCPL)</b>, dan{" "}
+          <b>Data Harga Non Kontrak</b>. Data disimpan di Supabase dan setiap upload bersifat <b>menambah/memperbarui</b>{" "}
+          — data yang sudah ada sebelumnya tidak hilang. File berformat .xlsx.
         </p>
 
         <div className="upload-slot">
@@ -197,11 +101,11 @@ export default function UploadModal({
         </div>
 
         <div className="upload-slot">
-          <h4>2. Data Harga per Part Number (.xlsx)</h4>
+          <h4>2. Data Harga Kontrak — SCPL (.xlsx)</h4>
           <div className="hint">
-            Kolom: <b>Part Number, Customer Group (opsional), Harga</b>. Kosongkan Customer Group untuk harga
-            umum/nasional. Kombinasi Part Number + Customer Group yang cocok akan <b>diperbarui</b>; kombinasi baru
-            digabung.
+            Kolom: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga</b>. Harga di file ini sudah{" "}
+            <b>nett</b> — dipakai apa adanya (tidak dipotong lagi). Harga kontrak berlaku per <b>Cust. Group</b>; baris
+            tanpa Cust. Group dilewati. Kombinasi Part Number + Cust. Group yang sama akan <b>diperbarui</b>.
           </div>
           <div className="upload-row">
             <input
@@ -210,52 +114,43 @@ export default function UploadModal({
               accept=".xlsx,.xls"
               disabled={busy}
               onChange={(e) =>
-                handleUpload(e, "/api/upload/price-list", setStatusPriceList, (j) =>
-                  `Berhasil: ${j.rowCount} baris harga terbaca.${j.skipped ? ` (${j.skipped} baris dilewati.)` : ""}`
+                handleUpload(e, "/api/upload/price-contract", setStatusContract, (j) =>
+                  `Berhasil: ${j.rowCount} harga kontrak disimpan.${j.duplicates ? ` (${j.duplicates} baris kembar digabung.)` : ""}${j.skipped ? ` (${j.skipped} baris dilewati.)` : ""}`
                 )
               }
             />
-            <button className="link-btn" onClick={downloadPriceTemplate}>
+            <button className="link-btn" onClick={downloadContractPriceTemplate}>
               Unduh template
             </button>
           </div>
-          {statusPriceList && <div className={"upload-status " + (statusPriceList.ok ? "ok" : "err")}>{statusPriceList.text}</div>}
+          {statusContract && <div className={"upload-status " + (statusContract.ok ? "ok" : "err")}>{statusContract.text}</div>}
         </div>
 
         <div className="upload-slot">
-          <h4>3. Master Part — qty per unit &amp; frekuensi ganti (.xlsx / .csv)</h4>
+          <h4>3. Data Harga Non Kontrak (.xlsx)</h4>
           <div className="hint">
-            1 baris = 1 part untuk 1 model unit. Kolom wajib: <b>Product, Model Unit, Part Number, Qty per Unit,
-            Frekuensi Ganti (HM)</b>. Kolom lain: <b>Part Name, Pricelist (Rp)</b> (dipakai kalau part tidak ada di
-            Data Harga), <b>HM per Hari</b> (kosong/tidak ada = 8), <b>Komponen</b>. Part yang sama (Product + Model
-            + Part Number) <b>diperbarui</b>, part baru ditambahkan, part lain tidak dihapus. Isi Product dengan nama
-            yang sama seperti di Data UIO (mis. TOYOTA, PERKINS, MF) dan Model Unit sama persis dengan Data UIO.
+            Format kolom <b>sama</b> dengan Data Harga Kontrak: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part
+            Number, Harga</b> (harga tertera/pricelist). Yang dibaca sistem hanya <b>Part Number</b> dan <b>Harga</b>;
+            harga otomatis <b>dikurangi 50%</b>, jadi harga yang dipakai &amp; tampil di tabel = 50% dari angka di file.
+            Berlaku untuk customer yang tidak punya harga kontrak. Part Number yang sama akan <b>diperbarui</b>.
           </div>
           <div className="upload-row">
-            <input type="file" className="file-input" accept=".xlsx,.xls,.csv" disabled={busy} onChange={handleMasterPart} />
-            <button className="link-btn" onClick={downloadMasterPartTemplate}>
+            <input
+              type="file"
+              className="file-input"
+              accept=".xlsx,.xls"
+              disabled={busy}
+              onChange={(e) =>
+                handleUpload(e, "/api/upload/price-non-contract", setStatusNonContract, (j) =>
+                  `Berhasil: ${j.rowCount} harga non kontrak disimpan (sudah dikurangi 50%).${j.duplicates ? ` (${j.duplicates} baris kembar digabung.)` : ""}${j.skipped ? ` (${j.skipped} baris dilewati.)` : ""}`
+                )
+              }
+            />
+            <button className="link-btn" onClick={downloadNonContractPriceTemplate}>
               Unduh template
             </button>
           </div>
-          {statusMasterPart && <div className={"upload-status " + (statusMasterPart.ok ? "ok" : "err")}>{statusMasterPart.text}</div>}
-        </div>
-
-        <div className="upload-slot">
-          <h4>4. Actual Sales — penjualan per transaksi (.xlsx / .csv)</h4>
-          <div className="hint">
-            1 baris = 1 penjualan part ke 1 customer pada 1 bulan. Kolom wajib: <b>Tahun, Bulan, Product, Part
-            Number, Qty, Amount (Rp)</b>. Kolom lain: <b>Customer Group, Customer Name</b> (supaya filter Area/Tier/Customer
-            bekerja), <b>Model Unit, Part Name</b>. Bulan boleh nama (Januari) atau angka (1–12). Upload ulang bulan
-            yang sama akan <b>mengganti</b> data bulan itu (tidak digandakan); bulan lain tidak tersentuh, jadi aman
-            diupload bulanan.
-          </div>
-          <div className="upload-row">
-            <input type="file" className="file-input" accept=".xlsx,.xls,.csv" disabled={busy} onChange={handleActualSales} />
-            <button className="link-btn" onClick={downloadActualSalesTemplate}>
-              Unduh template
-            </button>
-          </div>
-          {statusActual && <div className={"upload-status " + (statusActual.ok ? "ok" : "err")}>{statusActual.text}</div>}
+          {statusNonContract && <div className={"upload-status " + (statusNonContract.ok ? "ok" : "err")}>{statusNonContract.text}</div>}
         </div>
       </div>
     </div>
