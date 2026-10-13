@@ -27,9 +27,8 @@ type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; 
 const METRIC_COLS: ColDef[] = [
   { key: "uio", label: "UIO (unit)", kind: "num", width: 12 },
   { key: "qty_market_size", label: "Qty market size", kind: "computed", width: 16 },
-  { key: "amount_market_size", label: "Market size (Rp)", kind: "computed", width: 20 },
-  { key: "amount_per_month", label: "Market size / bulan (Rp)", kind: "computed", width: 22 },
-  { key: "amount_period", label: "Market size periode terpilih (Rp)", kind: "computed", width: 24 },
+  { key: "amount_market_size", label: "Market Size (Rp)", kind: "computed", width: 20 },
+  { key: "amount_period", label: "Market Size/m (Rp)", kind: "computed", width: 24 },
   { key: "actual_qty", label: "Actual qty", kind: "num", width: 12 },
   { key: "actual_sales", label: "Actual sales (Rp)", kind: "num", width: 20 },
   { key: "market_share", label: "Market share", kind: "computed", width: 14 }
@@ -253,9 +252,15 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
 
+  // Market Size/m = (Market Size / 12) x jumlah bulan terpilih (12 bulan kalau filter Bulan kosong).
+  const rowsM = useMemo(
+    () => rows.map((r) => ({ ...r, amount_period: (r.amount_market_size / 12) * monthsSelected })),
+    [rows, monthsSelected]
+  );
+
   const sorted = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q ? rows.filter((r) => textKeys.some((k) => String(r[k] ?? "").toLowerCase().includes(q))) : rows.slice();
+    const list = q ? rowsM.filter((r) => textKeys.some((k) => String(r[k] ?? "").toLowerCase().includes(q))) : rowsM.slice();
     const key: SortKey = cols.some((c) => c.key === sortCol) ? sortCol : "amount_market_size";
     list.sort((a, b) => {
       const av = a[key] ?? 0;
@@ -264,7 +269,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
     return list;
-  }, [rows, search, sortCol, sortDir, cols, textKeys]);
+  }, [rowsM, search, sortCol, sortDir, cols, textKeys]);
 
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages);
@@ -277,7 +282,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       uio: sum((g) => g.uio),
       qty_market_size: sum((g) => g.qty_market_size),
       amount_market_size: sum((g) => g.amount_market_size),
-      amount_per_month: sum((g) => g.amount_per_month),
       amount_period: sum((g) => g.amount_period),
       actual_qty: sum((g) => g.actual_qty),
       actual_sales: sum((g) => g.actual_sales),
@@ -314,7 +318,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   function cellText(r: Row, c: ColDef): string {
     const v = r[c.key];
     if (c.key === "market_share") return fmtPct(r.market_share);
-    if (c.key === "amount_market_size" || c.key === "amount_per_month" || c.key === "amount_period" || c.key === "actual_sales") return fmtIDRFull(v as number);
+    if (c.key === "amount_market_size" || c.key === "amount_period" || c.key === "actual_sales") return fmtIDRFull(v as number);
     if (c.kind === "text") return (v as string) || "-";
     return fmtInt(v as number);
   }
@@ -323,7 +327,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     if (exporting || sorted.length === 0) return;
     setExporting(true);
     try {
-      const periodLabel = `Market size periode terpilih (${monthsSelected} bln) (Rp)`;
+      const periodLabel = `Market Size/m (${monthsSelected} bln) (Rp)`;
       const ecols = cols.map((c) => ({ key: String(c.key), label: c.key === "amount_period" ? periodLabel : c.label, width: c.width }));
       const num = (v: unknown, pct = false) => (typeof v === "number" ? (pct ? Math.round(v * 1000) / 10 : Math.round(v)) : "");
       const toRow = (r: Record<string, unknown>) => {
@@ -370,7 +374,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = 12 bulan. Market size periode terpilih = Market size / bulan × jumlah bulan yang dipilih."
+            info="Kosong = 12 bulan. Market Size/m = (Market Size / 12) × jumlah bulan yang dipilih."
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
@@ -426,7 +430,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
               <tr>
                 {cols.map((c) => (
                   <th key={String(c.key)} onClick={() => onSort(c.key)} style={{ cursor: "pointer" }} className={c.kind === "computed" ? "computed" : undefined}>
-                    {c.key === "amount_period" ? `Market size periode terpilih (${monthsSelected} bln) (Rp)` : c.label}
+                    {c.key === "amount_period" ? `Market Size/m (${monthsSelected} bln) (Rp)` : c.label}
                     {sortCol === c.key && <span className="arrow">{sortDir === "asc" ? "▲" : "▼"}</span>}
                   </th>
                 ))}
@@ -452,7 +456,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
                           ? ""
                           : c.key === "market_share"
                             ? fmtPct(total.market_share as number | null)
-                            : c.key === "amount_market_size" || c.key === "amount_per_month" || c.key === "amount_period" || c.key === "actual_sales"
+                            : c.key === "amount_market_size" || c.key === "amount_period" || c.key === "actual_sales"
                               ? fmtIDRFull(total[c.key as string] as number)
                               : fmtInt(total[c.key as string] as number)}
                     </td>
