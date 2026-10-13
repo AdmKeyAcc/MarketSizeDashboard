@@ -11,6 +11,7 @@ import {
   MONTH_ORDER,
   CUST_BRAND_MAP
 } from "@/lib/types";
+import { monthsShare } from "@/lib/workdays";
 
 /** Every filter is multi-select (checklist): an empty array means "no
  * restriction / semua", one or more values means "match any of these" (OR
@@ -214,7 +215,7 @@ export function buildMonthly(parts: Part[], actualSales: ActualSalesRow[]): Mont
           year,
           month,
           product,
-          market_size: Math.round((totals[product] || 0) / 12),
+          market_size: Math.round((totals[product] || 0) * monthsShare([month])),
           actual_sales: match ? match.actual_sales || 0 : 0
         });
       });
@@ -555,6 +556,14 @@ function periodMonths(year: number | null, f: FilterState, cov: Map<number, Set<
   return n > 0 ? n : 12;
 }
 
+/** Bagian Market Size setahun untuk periode yang dibandingkan, dibobot hari kerja per bulan
+ * (lihat lib/workdays.ts). Bulan = yang dipilih di filter; kalau kosong, bulan yang punya Actual Sales; kalau belum ada, 12 bulan. */
+function periodFactor(year: number | null, f: FilterState, cov: Map<number, Set<string>>): number {
+  if (f.bulan.length > 0) return monthsShare(f.bulan);
+  const m = year === null ? undefined : cov.get(year);
+  return m && m.size > 0 ? monthsShare(m) : 1;
+}
+
 type TxLike = {
   month: string;
   customer_group: string | null;
@@ -718,7 +727,7 @@ export function prepareDetailCtx(parts: Part[], uioUnits: UioUnit[], priceList: 
   const years = resolveUioYears(f, uioUnits);
   const cov = actualCoverage([], actualTx);
   const refYear = referenceYear(f, uioUnits, cov);
-  const factor = periodMonths(refYear, f, cov) / 12;
+  const factor = periodFactor(refYear, f, cov);
   const partsByProduct = new Map<string, Part[]>();
   parts.forEach((p) => {
     const k = canonicalProduct(p.product);
@@ -760,7 +769,7 @@ export function buildDetailRows(
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
   const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
-  const monthsSelected = f.bulan.length > 0 ? new Set(f.bulan).size : 12;
+  const selectedShare = f.bulan.length > 0 ? monthsShare(f.bulan) : 1;
 
   // Mode customer/group: hanya part dari product yang dimiliki customer itu (unit atau penjualan).
   let candidateParts: Part[] = parts;
@@ -816,8 +825,9 @@ export function buildDetailRows(
       price
     });
     // Market size per bulan & untuk bulan terpilih. Qty dibulatkan SETELAH dikali jumlah bulan.
+    // (rata-rata per bulan = setahun ÷ 12; bulan terpilih dibobot hari kerja)
     const monthlyQty = p.freq_replacement_hm > 0 ? ((annualHm / 12) / p.freq_replacement_hm) * p.qty_per_unit * uio : 0;
-    const periodQty = Math.round(monthlyQty * monthsSelected);
+    const periodQty = Math.round(monthlyQty * 12 * selectedShare);
     const act = actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`);
     const periodMarket = amount * factor;
     out.push({
@@ -972,7 +982,7 @@ export function marketSizeByYear(
       totalQty += r.qty;
     });
     const months = periodMonths(year, f, cov);
-    const factor = months / 12;
+    const factor = periodFactor(year, f, cov);
     const a = actual.get(year);
     return {
       year,
