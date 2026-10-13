@@ -22,12 +22,14 @@ const PAGE_SIZE = 20;
 
 /** Satu baris tabel: metrik dari GroupRow + label sesuai tingkat baris. */
 type Row = GroupRow & { id: string; code: string; name: string; grp: string; ctype: string; ktier: string };
-type SortKey = keyof Row;
+type RowM = Row & { qty_period: number };
+type SortKey = keyof RowM;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
 
 const METRIC_COLS: ColDef[] = [
   { key: "uio", label: "UIO (unit)", kind: "num", width: 12 },
   { key: "qty_market_size", label: "Qty market size", kind: "computed", width: 16 },
+  { key: "qty_period", label: "Qty Market Size/m", kind: "computed", width: 20 },
   { key: "amount_market_size", label: "Market Size (Rp)", kind: "computed", width: 20 },
   { key: "amount_period", label: "Market Size/m (Rp)", kind: "computed", width: 24 },
   { key: "actual_qty", label: "Actual qty", kind: "num", width: 12 },
@@ -256,7 +258,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   // Market Size/m = Market Size setahun × bagian hari kerja bulan terpilih (12 bulan kalau filter Bulan kosong).
   const rowsM = useMemo(
-    () => rows.map((r) => ({ ...r, amount_period: r.amount_market_size * share })),
+    () => rows.map((r) => ({ ...r, qty_period: r.qty_market_size * share, amount_period: r.amount_market_size * share })),
     [rows, share]
   );
 
@@ -277,12 +279,13 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const currentPage = Math.min(page, pages);
   const pageRows = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const total = useMemo(() => {
-    const sum = (f: (g: Row) => number) => sorted.reduce((t, g) => t + f(g), 0);
+    const sum = (f: (g: RowM) => number) => sorted.reduce((t, g) => t + f(g), 0);
     const pm = sum((g) => g.period_market);
     return {
       customers: sum((g) => g.customers),
       uio: sum((g) => g.uio),
       qty_market_size: sum((g) => g.qty_market_size),
+      qty_period: sum((g) => g.qty_period),
       amount_market_size: sum((g) => g.amount_market_size),
       amount_period: sum((g) => g.amount_period),
       actual_qty: sum((g) => g.actual_qty),
@@ -317,7 +320,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     return parts.join(" | ");
   }
 
-  function cellText(r: Row, c: ColDef): string {
+  function cellText(r: RowM, c: ColDef): string {
     const v = r[c.key];
     if (c.key === "market_share") return fmtPct(r.market_share);
     if (c.key === "amount_market_size" || c.key === "amount_period" || c.key === "actual_sales") return fmtIDRFull(v as number);
@@ -330,7 +333,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     setExporting(true);
     try {
       const periodLabel = `Market Size/m (${monthsSelected} bln) (Rp)`;
-      const ecols = cols.map((c) => ({ key: String(c.key), label: c.key === "amount_period" ? periodLabel : c.label, width: c.width }));
+      const qtyPeriodLabel = `Qty Market Size/m (${monthsSelected} bln)`;
+      const ecols = cols.map((c) => ({ key: String(c.key), label: c.key === "amount_period" ? periodLabel : c.key === "qty_period" ? qtyPeriodLabel : c.label, width: c.width }));
       const num = (v: unknown, pct = false) => (typeof v === "number" ? (pct ? Math.round(v * 1000) / 10 : Math.round(v)) : "");
       const toRow = (r: Record<string, unknown>) => {
         const o: Record<string, string | number | null> = {};
@@ -376,7 +380,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = 12 bulan. Market Size/m = Market Size setahun × bagian hari kerja bulan yang dipilih (bulan berhari kerja lebih sedikit, mis. Februari, bernilai lebih kecil)."
+            info="Kosong = 12 bulan. Market Size/m dan Qty Market Size/m = nilai setahun × bagian hari kerja bulan yang dipilih (bulan berhari kerja lebih sedikit, mis. Februari, bernilai lebih kecil)."
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
@@ -432,7 +436,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
               <tr>
                 {cols.map((c) => (
                   <th key={String(c.key)} onClick={() => onSort(c.key)} style={{ cursor: "pointer" }} className={c.kind === "computed" ? "computed" : undefined}>
-                    {c.key === "amount_period" ? `Market Size/m (${monthsSelected} bln) (Rp)` : c.label}
+                    {c.key === "amount_period" ? `Market Size/m (${monthsSelected} bln) (Rp)` : c.key === "qty_period" ? `Qty Market Size/m (${monthsSelected} bln)` : c.label}
                     {sortCol === c.key && <span className="arrow">{sortDir === "asc" ? "▲" : "▼"}</span>}
                   </th>
                 ))}
