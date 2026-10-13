@@ -16,6 +16,7 @@ import {
 } from "@/lib/calculations";
 import { MultiSelectField } from "@/components/FilterBar";
 import { exportSummaryTableToExcel } from "@/lib/exportDetail";
+import { monthsShare } from "@/lib/workdays";
 
 const PAGE_SIZE = 20;
 
@@ -156,6 +157,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     [fTahun, fBulan, fProduct, fModel, fPartName]
   );
   const monthsSelected = fBulan.length > 0 ? new Set(fBulan).size : 12;
+  const share = fBulan.length > 0 ? monthsShare(fBulan) : 1;
 
   // ---- hitung sesuai tingkat baris (bertahap supaya halaman tetap responsif) ----
   const [rows, setRows] = useState<Row[]>([]);
@@ -252,10 +254,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
 
-  // Market Size/m = (Market Size / 12) x jumlah bulan terpilih (12 bulan kalau filter Bulan kosong).
+  // Market Size/m = Market Size setahun × bagian hari kerja bulan terpilih (12 bulan kalau filter Bulan kosong).
   const rowsM = useMemo(
-    () => rows.map((r) => ({ ...r, amount_period: (r.amount_market_size / 12) * monthsSelected })),
-    [rows, monthsSelected]
+    () => rows.map((r) => ({ ...r, amount_period: r.amount_market_size * share })),
+    [rows, share]
   );
 
   const sorted = useMemo(() => {
@@ -374,7 +376,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = 12 bulan. Market Size/m = (Market Size / 12) × jumlah bulan yang dipilih."
+            info="Kosong = 12 bulan. Market Size/m = Market Size setahun × bagian hari kerja bulan yang dipilih (bulan berhari kerja lebih sedikit, mis. Februari, bernilai lebih kecil)."
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
