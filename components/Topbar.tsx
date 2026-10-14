@@ -1,6 +1,7 @@
 "use client";
 
 import type { Theme } from "@/hooks/useTheme";
+import { LOGO_DATA_URI } from "@/components/logoData";
 
 export type Tab = "dashboard" | "summary" | "calculator";
 
@@ -25,7 +26,7 @@ export default function Topbar({
   return (
     <header className="topbar">
       <div className="brand">
-        <span className="brand-name">Market Size Dashboard</span>
+        <img src={LOGO_DATA_URI} width={32} height={32} alt="TRAKNUS" style={{ flexShrink: 0, objectFit: "contain" }} />
         {refreshing && <span className="spinner" aria-label="Memuat ulang" />}
       </div>
       <nav className="tabs">
@@ -51,7 +52,7 @@ export default function Topbar({
       <div className="top-actions">
         <button className="icon-btn icon-btn-labeled" onClick={onOpenUpload} aria-label="Upload data">
           <span>⭱</span>
-          <span className="btn-label">Upload</span>
+          <span className="btn-label">Upload Data</span>
         </button>
         <button className="icon-btn" onClick={cycleTheme} aria-label="Ganti tema">
           {themeIcon}
