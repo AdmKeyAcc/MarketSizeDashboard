@@ -222,12 +222,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
     <div className="filter-card-wrap">
       <div className="filter-card">
         <div className="filter-card-head">
-          <div className="filter-card-title">
-            <div>
-              <h1>Market Size Dashboard</h1>
-              <p>Dashboard market size untuk memantau perbandingan dengan actual sales.</p>
-            </div>
-          </div>
+          <div />
           <button className="link-btn" onClick={resetFilters}>
             Reset semua
           </button>
