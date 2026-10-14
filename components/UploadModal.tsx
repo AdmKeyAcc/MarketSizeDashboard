@@ -66,21 +66,10 @@ export default function UploadModal({
           ✕
         </button>
         <h3>Upload data</h3>
-        <p className="note">
-          Ada 3 jenis data yang bisa diupload: <b>Data UIO</b> (populasi unit), <b>Data Harga Kontrak (SCPL)</b>, dan{" "}
-          <b>Data Harga Non Kontrak</b>. Data disimpan di Supabase dan setiap upload bersifat <b>menambah/memperbarui</b>{" "}
-          — data yang sudah ada sebelumnya tidak hilang. File berformat .xlsx.
-        </p>
-
+        
         <div className="upload-slot">
-          <h4>1. Data UIO — populasi unit (.xlsx)</h4>
-          <div className="hint">
-            1 baris = 1 unit fisik pada tahun tertentu. Kolom (urutan sama dengan tabel Detail UIO di Dashboard): <b>Branch, Pss Name, Cust. Code, Cust. Name,
-            Cust. Group, Cust. Type, Product, Model, Serial Number, Year, HM/Day, Day/Month, Month/Year</b>. Hanya
-            Product yang wajib terisi. Unit dengan serial number yang sama akan <b>diperbarui</b>;
-            unit lain (termasuk dari upload tahun/bulan sebelumnya) tetap tersimpan — jadi tren populasi UIO dari
-            waktu ke waktu tetap bisa dilihat lewat halaman Dashboard.
-          </div>
+          <h4>1. Data UIO (.xlsx)</h4>
+        
           <div className="upload-row">
             <input
               type="file"
@@ -102,11 +91,7 @@ export default function UploadModal({
 
         <div className="upload-slot">
           <h4>2. Data Harga Kontrak — SCPL (.xlsx)</h4>
-          <div className="hint">
-            Kolom: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga</b>. Harga di file ini sudah{" "}
-            <b>nett</b> — dipakai apa adanya (tidak dipotong lagi). Harga kontrak berlaku per <b>Cust. Group</b>; baris
-            tanpa Cust. Group dilewati. Kombinasi Part Number + Cust. Group yang sama akan <b>diperbarui</b>.
-          </div>
+          
           <div className="upload-row">
             <input
               type="file"
@@ -128,12 +113,7 @@ export default function UploadModal({
 
         <div className="upload-slot">
           <h4>3. Data Harga Non Kontrak (.xlsx)</h4>
-          <div className="hint">
-            Format kolom <b>sama</b> dengan Data Harga Kontrak: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part
-            Number, Harga</b> (harga tertera/pricelist). Yang dibaca sistem hanya <b>Part Number</b> dan <b>Harga</b>;
-            harga otomatis <b>dikurangi 50%</b>, jadi harga yang dipakai &amp; tampil di tabel = 50% dari angka di file.
-            Berlaku untuk customer yang tidak punya harga kontrak. Part Number yang sama akan <b>diperbarui</b>.
-          </div>
+          
           <div className="upload-row">
             <input
               type="file"
