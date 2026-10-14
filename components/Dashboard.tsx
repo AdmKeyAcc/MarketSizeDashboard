@@ -15,7 +15,6 @@ import MarketShareChart from "@/components/MarketShareChart";
 import Calculator from "@/components/Calculator";
 import GroupSummary from "@/components/GroupSummary";
 import UploadModal from "@/components/UploadModal";
-import InfoModal from "@/components/InfoModal";
 
 export default function Dashboard({ initialData }: { initialData: DashboardData }) {
   const state = useDashboardState(initialData);
@@ -24,7 +23,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [infoOpen, setInfoOpen] = useState(false);
 
   const hasData = state.data.parts.length > 0;
 
@@ -34,7 +32,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenUpload={() => setUploadOpen(true)}
-        onOpenInfo={() => setInfoOpen(true)}
         theme={theme}
         cycleTheme={cycleTheme}
         refreshing={state.refreshing}
@@ -72,12 +69,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       </div>
 
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={state.refetch} />
-      <InfoModal
-        open={infoOpen}
-        onClose={() => setInfoOpen(false)}
-        meta={state.data.meta}
-        partsWithoutPrice={state.partsWithoutPrice}
-      />
     </div>
   );
 }
