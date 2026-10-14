@@ -91,67 +91,47 @@ export async function downloadNonContractPriceTemplate() {
 }
 
 export async function downloadMasterPartTemplate() {
+  // Master Part — hubungan part ke Product/Model + Qty per unit & Frekuensi ganti.
+  // Harga TIDAK ada di sini (harga dari upload Harga Kontrak / Non Kontrak). Hanya header.
   await downloadWorkbook(
     "Master Part",
     [
       {
-        Product: "TOYOTA",
-        "Model Unit": "8FD30",
-        "Part Name": "OIL FILTER",
-        "Part Number": "04152-YZZA1",
-        "Qty per Unit": 1,
-        "Frekuensi Ganti (HM)": 250,
-        "Pricelist (Rp)": 185000,
-        "HM per Hari": 8,
-        Komponen: "RPL"
-      },
-      {
-        Product: "PERKINS",
-        "Model Unit": "1104A-44TG2",
-        "Part Name": "FUEL FILTER",
-        "Part Number": "26560201",
-        "Qty per Unit": 1,
-        "Frekuensi Ganti (HM)": 500,
-        "Pricelist (Rp)": 260000,
-        "HM per Hari": 8,
-        Komponen: "RPL"
+        Product: "",
+        "Model Unit": "",
+        "Part Number": "",
+        "Part Name": "",
+        "Qty per Unit": "",
+        "Frekuensi Ganti (HM)": "",
+        "HM per Hari": ""
       }
     ],
-    [14, 16, 26, 18, 13, 20, 16, 12, 12],
-    "template_master_part.xlsx"
+    [14, 18, 20, 28, 13, 20, 12],
+    "template_master_part.xlsx",
+    true
   );
 }
 
 export async function downloadActualSalesTemplate() {
+  // Actual Sales per transaksi/bulan. Hanya header.
   await downloadWorkbook(
     "Actual Sales",
     [
       {
-        Tahun: 2026,
-        Bulan: "Januari",
-        "Customer Group": "KA Nasional",
-        "Customer Name": "PT Contoh Sejahtera",
-        Product: "TOYOTA",
-        "Model Unit": "8FD30",
-        "Part Number": "04152-YZZA1",
-        "Part Name": "OIL FILTER",
-        Qty: 2,
-        "Amount (Rp)": 370000
-      },
-      {
-        Tahun: 2026,
-        Bulan: "Februari",
-        "Customer Group": "OTHERS",
-        "Customer Name": "PT Contoh Makmur",
-        Product: "PERKINS",
-        "Model Unit": "1104A-44TG2",
-        "Part Number": "26560201",
-        "Part Name": "FUEL FILTER",
-        Qty: 1,
-        "Amount (Rp)": 260000
+        Tahun: "",
+        Bulan: "",
+        "Customer Group": "",
+        "Customer Name": "",
+        Product: "",
+        "Model Unit": "",
+        "Part Number": "",
+        "Part Name": "",
+        Qty: "",
+        "Amount (Rp)": ""
       }
     ],
-    [8, 12, 18, 24, 12, 16, 18, 22, 8, 14],
-    "template_actual_sales.xlsx"
+    [8, 12, 22, 28, 12, 16, 20, 26, 8, 14],
+    "template_actual_sales.xlsx",
+    true
   );
 }
