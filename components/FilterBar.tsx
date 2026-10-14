@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { FilterState } from "@/lib/calculations";
-import TraknusLogo from "@/components/TraknusLogo";
+import { LOGO_DATA_URI } from "@/components/logoData";
 
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
   tahun: "Tahun", bulan: "Bulan", area: "Area", sector: "Sector",
@@ -224,7 +224,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
       <div className="filter-card">
         <div className="filter-card-head">
           <div className="filter-card-title">
-            <TraknusLogo size={40} />
+            <img src={LOGO_DATA_URI} width={44} height={44} alt="TRAKNUS" style={{ flexShrink: 0, objectFit: "contain" }} />
             <div>
               <h1>Market Size Dashboard</h1>
               <p>Dashboard market size untuk memantau perbandingan dengan actual sales.</p>
