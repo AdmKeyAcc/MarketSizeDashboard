@@ -51,7 +51,7 @@ export default function Topbar({
       <div className="top-actions">
         <button className="icon-btn icon-btn-labeled" onClick={onOpenUpload} aria-label="Upload data">
           <span>⭱</span>
-          <span className="btn-label">Upload Data</span>
+          <span className="btn-label">Upload</span>
         </button>
         <button className="icon-btn" onClick={cycleTheme} aria-label="Ganti tema">
           {themeIcon}
