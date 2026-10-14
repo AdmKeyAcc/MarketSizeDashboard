@@ -221,15 +221,6 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
   return (
     <div className="filter-card-wrap">
       <div className="filter-card">
-        <div className="filter-card-head">
-          <div />
-          <button className="link-btn" onClick={resetFilters}>
-            Reset semua
-          </button>
-        </div>
-
-        <div className="filter-card-divider" />
-
         {chipEntries.length > 0 && (
           <div className="chips">
             {chipEntries.map(({ key, label, value, all }) => (
@@ -288,6 +279,12 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
             onChange={(v) => setFilter("partName", v)}
             info="Diambil dari kolom Description pada data part."
           />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button className="link-btn" onClick={resetFilters}>
+            Reset semua
+          </button>
         </div>
       </div>
     </div>
