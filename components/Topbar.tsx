@@ -27,6 +27,7 @@ export default function Topbar({
     <header className="topbar">
       <div className="brand">
         <img src={LOGO_DATA_URI} width={32} height={32} alt="TRAKNUS" style={{ flexShrink: 0, objectFit: "contain" }} />
+        <span className="brand-name">Market Size Dashboard</span>
         {refreshing && <span className="spinner" aria-label="Memuat ulang" />}
       </div>
       <nav className="tabs">
