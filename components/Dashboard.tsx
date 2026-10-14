@@ -68,7 +68,19 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         )}
       </div>
 
-      <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={state.refetch} />
+      <UploadModal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={state.refetch}
+        meta={state.data.meta}
+        counts={{
+          parts: state.data.parts.length,
+          uioUnits: state.data.uioUnits.length,
+          contractPrices: state.data.priceList.filter((p) => p.price_type === "contract").length,
+          nonContractPrices: state.data.priceList.filter((p) => p.price_type !== "contract").length,
+          actualSales: state.data.actualSalesTx.length
+        }}
+      />
     </div>
   );
 }
