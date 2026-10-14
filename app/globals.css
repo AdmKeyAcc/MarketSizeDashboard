@@ -200,7 +200,7 @@ table.data tfoot td { padding: 9px 10px; border-top: 1px solid var(--border-stro
 
 .note { font-size: 12px; color: var(--ink-mute); line-height: 1.6; }
 .modal-scrim { position: fixed; inset: 0; background: rgba(8, 14, 24, .45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
-.modal { background: var(--surface); border-radius: var(--radius); max-width: 560px; width: 100%; padding: 22px; box-shadow: var(--shadow); max-height: 85vh; overflow-y: auto; }
+.modal { background: var(--surface); border-radius: var(--radius); max-width: 620px; width: 100%; padding: 22px; box-shadow: var(--shadow); max-height: 85vh; overflow-y: auto; }
 .modal h3 { margin-top: 0; font-size: 16px; }
 .modal ul { padding-left: 18px; margin: 10px 0; }
 .modal li { margin-bottom: 9px; font-size: 13px; color: var(--ink-soft); line-height: 1.55; }
@@ -213,6 +213,14 @@ table.data tfoot td { padding: 9px 10px; border-top: 1px solid var(--border-stro
 .upload-status { font-size: 12px; margin-top: 6px; }
 .upload-status.ok { color: var(--green-600); }
 .upload-status.err { color: var(--red-600); }
+.upload-group-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-mute); margin: 14px 0 8px; }
+.upload-group-toggle { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; margin: 6px 0 12px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.upload-group-toggle:hover { border-color: var(--border-strong); }
+.upload-group-badge { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--red-600); }
+.upload-state { font-size: 12px; margin-bottom: 8px; }
+.upload-state.has { color: var(--green-600); }
+.upload-state.empty { color: var(--ink-mute); }
+.upload-warn { background: rgba(220, 70, 50, .08); border: 1px solid var(--red-600); color: var(--ink); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 12.5px; margin-bottom: 12px; line-height: 1.5; }
 .file-input { font-size: 12px; }
 .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border-strong); border-top-color: var(--blue-600); border-radius: var(--radius-sm); animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
