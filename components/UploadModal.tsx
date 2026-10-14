@@ -4,12 +4,26 @@ import { useState } from "react";
 import {
   downloadUioTemplate,
   downloadContractPriceTemplate,
-  downloadNonContractPriceTemplate
+  downloadNonContractPriceTemplate,
+  downloadMasterPartTemplate,
+  downloadActualSalesTemplate
 } from "@/lib/downloadTemplates";
+import { uploadMasterPart, uploadActualSales } from "@/lib/parse/uploadChunked";
+import type { DataMeta } from "@/lib/types";
 
 type SlotStatus = { text: string; ok: boolean } | null;
+type Result = { ok: boolean; message: any };
 
-async function uploadFile(url: string, file: File): Promise<{ ok: boolean; message: any }> {
+/** Ringkasan isi database, untuk menampilkan "sudah ada / belum ada" di tiap jenis data. */
+export type UploadCounts = {
+  parts: number;
+  uioUnits: number;
+  contractPrices: number;
+  nonContractPrices: number;
+  actualSales: number;
+};
+
+async function uploadFile(url: string, file: File): Promise<Result> {
   const form = new FormData();
   form.append("file", file);
   try {
@@ -22,42 +36,105 @@ async function uploadFile(url: string, file: File): Promise<{ ok: boolean; messa
   }
 }
 
+const fmt = (n: number) => n.toLocaleString("id-ID");
+
+function Slot({
+  title,
+  hint,
+  count,
+  countUnit,
+  lastFile,
+  status,
+  busy,
+  onPick,
+  onTemplate,
+  accept = ".xlsx,.xls"
+}: {
+  title: string;
+  hint: React.ReactNode;
+  count: number;
+  countUnit: string;
+  lastFile?: string | null;
+  status: SlotStatus;
+  busy: boolean;
+  onPick: (file: File) => void;
+  onTemplate: () => void;
+  accept?: string;
+}) {
+  return (
+    <div className="upload-slot">
+      <h4>{title}</h4>
+      <div className="hint">{hint}</div>
+      <div className={"upload-state " + (count > 0 ? "has" : "empty")}>
+        {count > 0
+          ? `✓ Sudah ada ${fmt(count)} ${countUnit}${lastFile ? ` · upload terakhir: ${lastFile}` : ""}`
+          : "● Belum ada data"}
+      </div>
+      <div className="upload-row">
+        <input
+          type="file"
+          className="file-input"
+          accept={accept}
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onPick(f);
+            e.target.value = "";
+          }}
+        />
+        <button className="link-btn" onClick={onTemplate}>
+          Unduh template
+        </button>
+      </div>
+      {status && <div className={"upload-status " + (status.ok ? "ok" : "err")}>{status.text}</div>}
+    </div>
+  );
+}
+
 export default function UploadModal({
   open,
   onClose,
-  onUploaded
+  onUploaded,
+  counts,
+  meta
 }: {
   open: boolean;
   onClose: () => void;
   onUploaded: () => Promise<void> | void;
+  counts: UploadCounts;
+  meta: DataMeta;
 }) {
-  const [statusUioUnits, setStatusUioUnits] = useState<SlotStatus>(null);
-  const [statusContract, setStatusContract] = useState<SlotStatus>(null);
-  const [statusNonContract, setStatusNonContract] = useState<SlotStatus>(null);
+  const [stUio, setStUio] = useState<SlotStatus>(null);
+  const [stSales, setStSales] = useState<SlotStatus>(null);
+  const [stPart, setStPart] = useState<SlotStatus>(null);
+  const [stContract, setStContract] = useState<SlotStatus>(null);
+  const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
+  const [masterOpen, setMasterOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
 
-  async function handleUpload(
-    e: React.ChangeEvent<HTMLInputElement>,
-    url: string,
-    setStatus: (s: SlotStatus) => void,
-    successMessage: (json: any) => string
-  ) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function run(setStatus: (s: SlotStatus) => void, task: () => Promise<Result>, success: (j: any) => string) {
     setBusy(true);
     setStatus({ text: "Memproses…", ok: true });
-    const result = await uploadFile(url, file);
+    const result = await task();
     if (result.ok) {
-      setStatus({ text: successMessage(result.message), ok: true });
+      setStatus({ text: success(result.message), ok: true });
       await onUploaded();
     } else {
       setStatus({ text: "Gagal: " + result.message, ok: false });
     }
     setBusy(false);
-    e.target.value = "";
   }
+
+  const skippedText = (j: any) => (j.skipped ? ` (${j.skipped} baris dilewati.)` : "");
+  const dupText = (j: any) => (j.duplicates ? ` (${j.duplicates} baris kembar digabung.)` : "");
+
+  // Data master yang wajib ada supaya market size bisa dihitung.
+  const missingMaster = [
+    counts.parts === 0 ? "Master Part" : null,
+    counts.contractPrices + counts.nonContractPrices === 0 ? "Data Harga" : null
+  ].filter(Boolean) as string[];
 
   return (
     <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -66,72 +143,145 @@ export default function UploadModal({
           ✕
         </button>
         <h3>Upload data</h3>
-        
-        <div className="upload-slot">
-          <h4>1. Data UIO (.xlsx)</h4>
-        
-          <div className="upload-row">
-            <input
-              type="file"
-              className="file-input"
-              accept=".xlsx,.xls"
-              disabled={busy}
-              onChange={(e) =>
-                handleUpload(e, "/api/upload/uio-units", setStatusUioUnits, (j) =>
-                  `Berhasil: ${j.rowCount} baris unit terbaca (sheet "${j.sheet}").${j.skipped ? ` (${j.skipped} baris dilewati.)` : ""}`
-                )
-              }
-            />
-            <button className="link-btn" onClick={downloadUioTemplate}>
-              Unduh template
-            </button>
-          </div>
-          {statusUioUnits && <div className={"upload-status " + (statusUioUnits.ok ? "ok" : "err")}>{statusUioUnits.text}</div>}
-        </div>
+        <p className="note">
+          Data disimpan di Supabase dan setiap upload bersifat <b>menambah/memperbarui</b> — data yang sudah ada tidak
+          hilang. Format file .xlsx (atau .csv). Master Customer tidak diupload lewat menu ini (diisi langsung di Supabase).
+        </p>
 
-        <div className="upload-slot">
-          <h4>2. Data Harga Kontrak — SCPL (.xlsx)</h4>
-          
-          <div className="upload-row">
-            <input
-              type="file"
-              className="file-input"
-              accept=".xlsx,.xls"
-              disabled={busy}
-              onChange={(e) =>
-                handleUpload(e, "/api/upload/price-contract", setStatusContract, (j) =>
-                  `Berhasil: ${j.rowCount} harga kontrak disimpan.${j.duplicates ? ` (${j.duplicates} baris kembar digabung.)` : ""}${j.skipped ? ` (${j.skipped} baris dilewati.)` : ""}`
-                )
-              }
-            />
-            <button className="link-btn" onClick={downloadContractPriceTemplate}>
-              Unduh template
-            </button>
+        {missingMaster.length > 0 && (
+          <div className="upload-warn">
+            ⚠ <b>{missingMaster.join(" dan ")}</b> belum ada, jadi market size belum bisa dihitung. Buka bagian{" "}
+            <b>Data master</b> di bawah dan upload dulu.
           </div>
-          {statusContract && <div className={"upload-status " + (statusContract.ok ? "ok" : "err")}>{statusContract.text}</div>}
-        </div>
+        )}
 
-        <div className="upload-slot">
-          <h4>3. Data Harga Non Kontrak (.xlsx)</h4>
-          
-          <div className="upload-row">
-            <input
-              type="file"
-              className="file-input"
-              accept=".xlsx,.xls"
-              disabled={busy}
-              onChange={(e) =>
-                handleUpload(e, "/api/upload/price-non-contract", setStatusNonContract, (j) =>
-                  `Berhasil: ${j.rowCount} harga non kontrak disimpan (sudah dikurangi 50%).${j.duplicates ? ` (${j.duplicates} baris kembar digabung.)` : ""}${j.skipped ? ` (${j.skipped} baris dilewati.)` : ""}`
+        <div className="upload-group-title">Data rutin</div>
+
+        <Slot
+          title="1. Actual Sales — penjualan aktual (tiap bulan)"
+          hint={
+            <>
+              1 baris = 1 customer × part × bulan. Kolom: <b>Tahun, Bulan, Customer Group, Customer Name, Product, Model Unit,
+              Part Number, Part Name, Qty, Amount (Rp)</b>. Wajib terisi: Tahun, Bulan, Product, Part Number, Qty, Amount.
+              Upload ulang bulan yang sama <b>mengganti</b> data bulan itu (tidak menggandakan); bulan lain tidak tersentuh.
+              Nama customer harus sama dengan di Data UIO / Master Customer supaya angkanya nyambung.
+            </>
+          }
+          count={counts.actualSales}
+          countUnit="baris transaksi"
+          lastFile={meta.actual_sales_filename}
+          status={stSales}
+          busy={busy}
+          onPick={(f) =>
+            run(setStSales, () => uploadActualSales(f, (t) => setStSales({ text: t, ok: true })), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} baris untuk ${j.periods} periode (bulan/tahun) disimpan.${skippedText(j)}`
+            )
+          }
+          onTemplate={downloadActualSalesTemplate}
+          accept=".xlsx,.xls,.csv"
+        />
+
+        <Slot
+          title="2. Data UIO — populasi unit (saat ada update populasi)"
+          hint={
+            <>
+              1 baris = 1 unit fisik pada tahun tertentu. Kolom (urutan sama dengan tabel Detail UIO di Dashboard):{" "}
+              <b>Branch, Pss Name, Cust. Code, Cust. Name, Cust. Group, Cust. Type, Product, Model, Serial Number, Year,
+              HM/Day, Day/Month, Month/Year</b>. Hanya Product yang wajib terisi. Unit dengan serial number yang sama akan{" "}
+              <b>diperbarui</b>; unit lain (termasuk dari upload tahun sebelumnya) tetap tersimpan, jadi tren populasi UIO
+              tetap bisa dilihat.
+            </>
+          }
+          count={counts.uioUnits}
+          countUnit="unit"
+          lastFile={meta.uio_units_filename}
+          status={stUio}
+          busy={busy}
+          onPick={(f) =>
+            run(setStUio, () => uploadFile("/api/upload/uio-units", f), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} baris unit terbaca (sheet "${j.sheet}").${skippedText(j)}`
+            )
+          }
+          onTemplate={downloadUioTemplate}
+        />
+
+        <button type="button" className="upload-group-toggle" onClick={() => setMasterOpen((v) => !v)}>
+          <span>{masterOpen ? "▾" : "▸"}</span> Data master — upload hanya jika ada perubahan
+          {!masterOpen && missingMaster.length > 0 && <span className="upload-group-badge">perlu diisi</span>}
+        </button>
+
+        {masterOpen && (
+          <>
+            <Slot
+              title="3. Master Part — daftar part per model (sekali di awal / saat ada part baru)"
+              hint={
+                <>
+                  Kolom: <b>Product, Model Unit, Part Number, Part Name, Qty per Unit, Frekuensi Ganti (HM), HM per Hari</b>.
+                  Wajib: Product, Model Unit, Part Number, Qty per Unit, dan Frekuensi Ganti (harus lebih dari 0). HM per Hari
+                  boleh kosong (dianggap 8). Harga tidak diisi di sini — harga dari upload Data Harga. Part yang sama
+                  (Product + Model + Part Number) <b>diperbarui</b>; part lain tidak dihapus.
+                </>
+              }
+              count={counts.parts}
+              countUnit="part"
+              lastFile={meta.kalkulator_filename}
+              status={stPart}
+              busy={busy}
+              onPick={(f) =>
+                run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true })), (j) =>
+                  `Berhasil: ${fmt(j.rowCount)} part disimpan.${dupText(j)}${skippedText(j)}`
                 )
               }
+              onTemplate={downloadMasterPartTemplate}
+          accept=".xlsx,.xls,.csv"
             />
-            <button className="link-btn" onClick={downloadNonContractPriceTemplate}>
-              Unduh template
-            </button>
-          </div>
-          {statusNonContract && <div className={"upload-status " + (statusNonContract.ok ? "ok" : "err")}>{statusNonContract.text}</div>}
-        </div>
+
+            <Slot
+              title="4. Data Harga Kontrak — SCPL (saat harga kontrak berubah)"
+              hint={
+                <>
+                  Kolom: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga</b>. Harga di file ini sudah{" "}
+                  <b>nett</b> — dipakai apa adanya (tidak dipotong lagi). Harga kontrak berlaku per <b>Cust. Group</b>; baris
+                  tanpa Cust. Group dilewati. Kombinasi Part Number + Cust. Group yang sama akan <b>diperbarui</b>.
+                </>
+              }
+              count={counts.contractPrices}
+              countUnit="harga kontrak"
+              lastFile={meta.price_list_filename}
+              status={stContract}
+              busy={busy}
+              onPick={(f) =>
+                run(setStContract, () => uploadFile("/api/upload/price-contract", f), (j) =>
+                  `Berhasil: ${fmt(j.rowCount)} harga kontrak disimpan.${dupText(j)}${skippedText(j)}`
+                )
+              }
+              onTemplate={downloadContractPriceTemplate}
+            />
+
+            <Slot
+              title="5. Data Harga Non Kontrak (saat pricelist berubah)"
+              hint={
+                <>
+                  Format kolom <b>sama</b> dengan Data Harga Kontrak: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part
+                  Number, Harga</b> (harga tertera/pricelist). Yang dibaca sistem hanya <b>Part Number</b> dan <b>Harga</b>;
+                  harga otomatis <b>dikurangi 50%</b>, jadi harga yang dipakai &amp; tampil di tabel = 50% dari angka di file.
+                  Berlaku untuk customer yang tidak punya harga kontrak. Part Number yang sama akan <b>diperbarui</b>.
+                </>
+              }
+              count={counts.nonContractPrices}
+              countUnit="harga non kontrak"
+              lastFile={meta.price_list_filename}
+              status={stNonContract}
+              busy={busy}
+              onPick={(f) =>
+                run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f), (j) =>
+                  `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (sudah dikurangi 50%).${dupText(j)}${skippedText(j)}`
+                )
+              }
+              onTemplate={downloadNonContractPriceTemplate}
+            />
+          </>
+        )}
       </div>
     </div>
   );
