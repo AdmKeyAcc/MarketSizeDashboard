@@ -229,6 +229,7 @@ export default function UploadModal({
               hint={
                 <>
                   Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.
+                </>
               }
               count={counts.contractPrices}
               countUnit="harga kontrak"
