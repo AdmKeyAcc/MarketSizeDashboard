@@ -143,11 +143,7 @@ export default function UploadModal({
           ✕
         </button>
         <h3>Upload data</h3>
-        <p className="note">
-          Data disimpan di Supabase dan setiap upload bersifat <b>menambah/memperbarui</b> — data yang sudah ada tidak
-          hilang. Format file .xlsx (atau .csv). Master Customer tidak diupload lewat menu ini (diisi langsung di Supabase).
-        </p>
-
+        
         {missingMaster.length > 0 && (
           <div className="upload-warn">
             ⚠ <b>{missingMaster.join(" dan ")}</b> belum ada, jadi market size belum bisa dihitung. Buka bagian{" "}
@@ -158,13 +154,11 @@ export default function UploadModal({
         <div className="upload-group-title">Data rutin</div>
 
         <Slot
-          title="1. Actual Sales — penjualan aktual (tiap bulan)"
+          title="1. Data Actual Sales"
           hint={
             <>
-              1 baris = 1 customer × part × bulan. Kolom: <b>Tahun, Bulan, Customer Group, Customer Name, Product, Model Unit,
-              Part Number, Part Name, Qty, Amount (Rp)</b>. Wajib terisi: Tahun, Bulan, Product, Part Number, Qty, Amount.
-              Upload ulang bulan yang sama <b>mengganti</b> data bulan itu (tidak menggandakan); bulan lain tidak tersentuh.
-              Nama customer harus sama dengan di Data UIO / Master Customer supaya angkanya nyambung.
+              Kolom: Tahun, Bulan, Customer Group, Customer Name, Product, Model Unit,
+              Part Number, Part Name, Qty, Amount (Rp).
             </>
           }
           count={counts.actualSales}
@@ -182,14 +176,11 @@ export default function UploadModal({
         />
 
         <Slot
-          title="2. Data UIO — populasi unit (saat ada update populasi)"
+          title="2. Data UIO"
           hint={
             <>
-              1 baris = 1 unit fisik pada tahun tertentu. Kolom (urutan sama dengan tabel Detail UIO di Dashboard):{" "}
-              <b>Branch, Pss Name, Cust. Code, Cust. Name, Cust. Group, Cust. Type, Product, Model, Serial Number, Year,
-              HM/Day, Day/Month, Month/Year</b>. Hanya Product yang wajib terisi. Unit dengan serial number yang sama akan{" "}
-              <b>diperbarui</b>; unit lain (termasuk dari upload tahun sebelumnya) tetap tersimpan, jadi tren populasi UIO
-              tetap bisa dilihat.
+              Kolom : Branch, Pss Name, Cust. Code, Cust. Name, Cust. Group, Cust. Type, Product, Model, Serial Number, Year,
+              HM/Day, Day/Month, Month/Year.
             </>
           }
           count={counts.uioUnits}
@@ -213,13 +204,10 @@ export default function UploadModal({
         {masterOpen && (
           <>
             <Slot
-              title="3. Master Part — daftar part per model (sekali di awal / saat ada part baru)"
+              title="3. Master Part — daftar part per model"
               hint={
                 <>
-                  Kolom: <b>Product, Model Unit, Part Number, Part Name, Qty per Unit, Frekuensi Ganti (HM), HM per Hari</b>.
-                  Wajib: Product, Model Unit, Part Number, Qty per Unit, dan Frekuensi Ganti (harus lebih dari 0). HM per Hari
-                  boleh kosong (dianggap 8). Harga tidak diisi di sini — harga dari upload Data Harga. Part yang sama
-                  (Product + Model + Part Number) <b>diperbarui</b>; part lain tidak dihapus.
+                  Kolom: Product, Model Unit, Part Number, Part Name, Qty per Unit, Frekuensi Ganti (HM), HM per Hari.
                 </>
               }
               count={counts.parts}
@@ -237,13 +225,10 @@ export default function UploadModal({
             />
 
             <Slot
-              title="4. Data Harga Kontrak — SCPL (saat harga kontrak berubah)"
+              title="4. Data Harga Kontrak — SCPL"
               hint={
                 <>
-                  Kolom: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga</b>. Harga di file ini sudah{" "}
-                  <b>nett</b> — dipakai apa adanya (tidak dipotong lagi). Harga kontrak berlaku per <b>Cust. Group</b>; baris
-                  tanpa Cust. Group dilewati. Kombinasi Part Number + Cust. Group yang sama akan <b>diperbarui</b>.
-                </>
+                  Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.
               }
               count={counts.contractPrices}
               countUnit="harga kontrak"
@@ -259,13 +244,10 @@ export default function UploadModal({
             />
 
             <Slot
-              title="5. Data Harga Non Kontrak (saat pricelist berubah)"
+              title="5. Data Harga Non Kontrak"
               hint={
                 <>
-                  Format kolom <b>sama</b> dengan Data Harga Kontrak: <b>Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part
-                  Number, Harga</b> (harga tertera/pricelist). Yang dibaca sistem hanya <b>Part Number</b> dan <b>Harga</b>;
-                  harga otomatis <b>dikurangi 50%</b>, jadi harga yang dipakai &amp; tampil di tabel = 50% dari angka di file.
-                  Berlaku untuk customer yang tidak punya harga kontrak. Part Number yang sama akan <b>diperbarui</b>.
+                  Kolom : Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.
                 </>
               }
               count={counts.nonContractPrices}
@@ -275,7 +257,7 @@ export default function UploadModal({
               busy={busy}
               onPick={(f) =>
                 run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f), (j) =>
-                  `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (sudah dikurangi 50%).${dupText(j)}${skippedText(j)}`
+                  `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (- 50%).${dupText(j)}${skippedText(j)}`
                 )
               }
               onTemplate={downloadNonContractPriceTemplate}
