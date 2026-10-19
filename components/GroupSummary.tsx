@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import {
   EMPTY_FILTERS,
@@ -24,9 +24,8 @@ const PAGE_SIZE = 20;
 const PRICE_CONTRACT = "Contract (SCPL)";
 const PRICE_NON = "Non Contract";
 
-/** Satu baris tabel = satu Customer Group atau satu Customer (pilihan "Tampilkan per"). */
-type Level = "customer" | "group";
-type Row = GroupRow & { id: string; grp: string; cname: string; branch: string; pss: string; katype: string; pkind: string; kaList: string[] };
+/** Satu baris tabel = satu Customer Group; tombol + membuka baris per Customer di bawahnya. */
+type Row = GroupRow & { id: string; grp: string; cname: string; branch: string; pss: string; katype: string; pkind: string; kaList: string[]; allNames: string };
 type RowM = Row & { qty_period: number; share_den: number };
 type SortKey = keyof RowM;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
@@ -87,7 +86,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [cKa, setCKa] = useState<string[]>([]); // KA Type (KA NASIONAL, KA BRANCH GOLD, NKA, dst)
   const [cPrice, setCPrice] = useState<string[]>([]); // Contract (SCPL) / Non Contract
 
-  const [level, setLevel] = useState<Level>("customer");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [childCache, setChildCache] = useState<Map<string, Row[]>>(new Map());
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -276,10 +276,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model/Part.
   const comparable = fBulan.length === 0 && fProduct.length === 0 && fModel.length === 0 && fPartName.length === 0;
 
-  // ---- entitas yang lolos filter customer; per Customer Group = gabungan customer yang lolos ----
-  const selected = useMemo<GInfo[]>(() => {
+  // ---- customer yang lolos filter; tiap Customer Group = gabungan customer yang lolos ----
+  const passed = useMemo<GInfo[]>(() => {
     const sel = { group: new Set(cGroup), name: new Set(cName), branch: new Set(cBranch), pss: new Set(cPss), ka: new Set(cKa), price: new Set(cPrice) };
-    const passed = custEntities.filter(
+    return custEntities.filter(
       (g) =>
         (sel.group.size === 0 || sel.group.has(g.name)) &&
         (sel.name.size === 0 || sel.name.has(g.custName)) &&
@@ -288,7 +288,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         (sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
         (sel.price.size === 0 || sel.price.has(priceKindOf(g)))
     );
-    if (level === "customer") return passed;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [custEntities, contractNameByKey, cGroup, cName, cBranch, cPss, cKa, cPrice]);
+
+  const selected = useMemo<GInfo[]>(() => {
     const merged = new Map<string, GInfo>();
     passed.forEach((g) => {
       const key = normGroup(g.name);
@@ -306,17 +309,64 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       t.units.push(...g.units);
     });
     return Array.from(merged.values());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custEntities, contractNameByKey, cGroup, cName, cBranch, cPss, cKa, cPrice, level]);
+  }, [passed]);
 
-  // ---- hitung per baris (bertahap supaya halaman tetap responsif) ----
+  // Customer per Customer Group (untuk baris yang dibuka dengan tombol +).
+  const customersByGroup = useMemo(() => {
+    const m = new Map<string, GInfo[]>();
+    passed.forEach((g) => {
+      const k = normGroup(g.name);
+      const arr = m.get(k);
+      if (arr) arr.push(g);
+      else m.set(k, [g]);
+    });
+    return m;
+  }, [passed]);
+
+  const detailCtx = useMemo(
+    () => prepareDetailCtx(data.parts, data.uioUnits, data.priceList, [], calcFilters),
+    [data.parts, data.uioUnits, data.priceList, calcFilters]
+  );
+
+  /** Hitung satu baris (Customer Group atau Customer). null = tidak ada unit & tidak ada Actual. */
+  function computeRow(g: GInfo, isCustomer: boolean): Row | null {
+    const actual = refYear !== null ? g.actual.get(refYear) || 0 : 0;
+    if (g.units.length === 0 && actual === 0) return null;
+    const nCust = g.custNames.size || 1;
+    // Tanpa unit UIO tidak ada Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
+    const list =
+      g.units.length === 0
+        ? []
+        : buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
+            units: g.units,
+            tx: [],
+            priceGroup: contractNameByKey.get(normGroup(g.name)) || g.name,
+            ctx: detailCtx
+          });
+    const agg = aggregateGroup(g.name, nCust, list);
+    const ka = kaOf(g);
+    const cname = isCustomer ? g.custName : nCust > 1 ? `${nCust.toLocaleString("id-ID")} customer` : Array.from(g.custNames)[0] || "";
+    return {
+      ...agg,
+      actual_sales: actual,
+      id: g.key,
+      grp: g.name,
+      cname,
+      branch: topList(g.branches),
+      pss: topList(g.pssNames),
+      katype: ka.join(", "),
+      kaList: ka,
+      pkind: priceKindOf(g),
+      allNames: isCustomer ? "" : Array.from(g.custNames).join(" | ").toLowerCase()
+    };
+  }
+
+  // ---- hitung baris Customer Group (bertahap supaya halaman tetap responsif) ----
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
-    const ctx = prepareDetailCtx(data.parts, data.uioUnits, data.priceList, [], calcFilters);
-
     const out: Row[] = [];
     let i = 0;
     setBusy(true);
@@ -324,35 +374,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       if (cancelled) return;
       const t0 = performance.now();
       while (i < selected.length && performance.now() - t0 < 12) {
-        const g = selected[i++];
-        const actual = refYear !== null ? g.actual.get(refYear) || 0 : 0;
-        if (g.units.length === 0 && actual === 0) continue;
-        const nCust = g.custNames.size || 1;
-        // Tanpa unit UIO tidak ada Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
-        const list =
-          g.units.length === 0
-            ? []
-            : buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
-                units: g.units,
-                tx: [],
-                priceGroup: contractNameByKey.get(normGroup(g.name)) || g.name,
-                ctx
-              });
-        const agg = aggregateGroup(g.name, nCust, list);
-        const ka = kaOf(g);
-        const cname = level === "customer" ? g.custName : nCust > 1 ? `${nCust.toLocaleString("id-ID")} customer` : Array.from(g.custNames)[0] || "";
-        out.push({
-          ...agg,
-          actual_sales: actual,
-          id: g.key,
-          grp: g.name,
-          cname,
-          branch: topList(g.branches),
-          pss: topList(g.pssNames),
-          katype: ka.join(", "),
-          kaList: ka,
-          pkind: priceKindOf(g)
-        });
+        const r = computeRow(selected[i++], false);
+        if (r) out.push(r);
       }
       if (i < selected.length) timers.push(setTimeout(step, 0));
       else {
@@ -366,7 +389,41 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       timers.forEach(clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, contractNameByKey, data, calcFilters, refYear, level]);
+  }, [selected, contractNameByKey, data, calcFilters, refYear, detailCtx]);
+
+  // Hasil hitung customer disimpan per group; dibuang kalau filter / data berubah.
+  useEffect(() => {
+    setChildCache(new Map());
+  }, [passed, contractNameByKey, data, calcFilters, refYear, detailCtx]);
+
+  // Hitung customer dari group yang dibuka (satu group per putaran supaya tidak membekukan halaman).
+  useEffect(() => {
+    const next = Array.from(expanded).find((k) => !childCache.has(k));
+    if (!next) return;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      if (cancelled) return;
+      const list = (customersByGroup.get(next) || [])
+        .map((g) => computeRow(g, true))
+        .filter((r): r is Row => r !== null)
+        .sort((a, b) => b.amount_market_size - a.amount_market_size || b.actual_sales - a.actual_sales);
+      setChildCache((prev) => new Map(prev).set(next, list));
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, childCache, customersByGroup]);
+
+  function toggleGroup(id: string) {
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
 
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
@@ -388,9 +445,21 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     [rows, share, actualFactor, comparable, actualYearHas]
   );
 
+  // Baris customer: hitungan sama seperti baris group (Market Size/m, Market share).
+  const withMetrics = (r: Row): RowM => {
+    const den = r.amount_market_size * actualFactor;
+    return {
+      ...r,
+      qty_period: r.qty_market_size * share,
+      amount_period: r.amount_market_size * share,
+      share_den: den,
+      market_share: comparable && actualYearHas && den > 0 ? r.actual_sales / den : null
+    };
+  };
+
   const sorted = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q ? rowsM.filter((r) => textKeys.some((k) => String(r[k] ?? "").toLowerCase().includes(q))) : rowsM.slice();
+    const list = q ? rowsM.filter((r) => r.allNames.includes(q) || textKeys.some((k) => String(r[k] ?? "").toLowerCase().includes(q))) : rowsM.slice();
     const key: SortKey = cols.some((c) => c.key === sortCol) ? sortCol : "amount_market_size";
     list.sort((a, b) => {
       const av = a[key] ?? 0;
@@ -442,7 +511,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     add("PSS", cPss);
     add("KA Type", cKa);
     add("Harga", cPrice);
-    parts.push(`Tampilan: per ${level === "customer" ? "Customer" : "Customer Group"}`);
     if (refYear !== null) parts.push(`Tahun acuan: ${refYear}${isYtd ? ` (Actual sampai ${ytdMonth})` : ""}`);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
     return parts.join(" | ");
@@ -481,7 +549,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       };
       const totalRow = toRow({ ...total });
       totalRow[String(LABEL_COLS[0].key)] = "TOTAL";
-      await exportSummaryTableToExcel(level === "customer" ? "Customer" : "Customer Group", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
+      await exportSummaryTableToExcel("Customer Group", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
     } finally {
       setExporting(false);
     }
@@ -556,24 +624,17 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       {/* BOX 2 — Tabel summary */}
       <div className="panel">
         <div className="panel-head">
-          <h2>Summary per {level === "customer" ? "Customer" : "Customer Group"}</h2>
+          <h2>Summary per Customer Group</h2>
           <div className="panel-tools">
-            <span className="detail-filters-info">Tampilkan per</span>
-            {(["customer", "group"] as Level[]).map((l) => (
-              <button
-                key={l}
-                type="button"
-                className="btn btn-ghost"
-                style={level === l ? { fontWeight: 700, borderColor: "var(--brand, #0f4c81)" } : undefined}
-                aria-pressed={level === l}
-                onClick={() => {
-                  setLevel(l);
-                  setPage(1);
-                }}
-              >
-                {l === "customer" ? "Customer" : "Customer Group"}
-              </button>
-            ))}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={pageRows.length === 0}
+              onClick={() => setExpanded((prev) => (pageRows.every((r) => prev.has(r.id)) ? new Set() : new Set(pageRows.map((r) => r.id))))}
+              title="Buka / tutup customer semua group di halaman ini"
+            >
+              {pageRows.length > 0 && pageRows.every((r) => expanded.has(r.id)) ? "− Tutup semua" : "+ Buka semua"}
+            </button>
             <button
               type="button"
               className="btn btn-ghost"
@@ -585,7 +646,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             </button>
             <input
               className="search-input"
-              placeholder="Cari customer, group, branch, PSS…"
+              placeholder="Cari group, customer, branch, PSS…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -619,15 +680,78 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((r) => (
-                <tr key={r.id}>
-                  {cols.map((c) => (
-                    <td key={String(c.key)} className={c.kind === "computed" ? "computed" : undefined}>
-                      {cellText(r, c)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {pageRows.map((r) => {
+                const open = expanded.has(r.id);
+                const kids = open ? childCache.get(r.id) : undefined;
+                return (
+                  <Fragment key={r.id}>
+                    <tr>
+                      {cols.map((c, i) => (
+                        <td key={String(c.key)} className={c.kind === "computed" ? "computed" : undefined}>
+                          {i === 0 ? (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => toggleGroup(r.id)}
+                                aria-expanded={open}
+                                aria-label={open ? "Tutup customer" : "Tampilkan customer"}
+                                title={open ? "Tutup customer" : "Tampilkan customer"}
+                                style={{
+                                  width: 22,
+                                  height: 22,
+                                  lineHeight: "18px",
+                                  borderRadius: 4,
+                                  border: "1px solid var(--line, #c9d1dc)",
+                                  background: "transparent",
+                                  color: "inherit",
+                                  cursor: "pointer",
+                                  fontWeight: 700,
+                                  flex: "none"
+                                }}
+                              >
+                                {open ? "−" : "+"}
+                              </button>
+                              {cellText(r, c)}
+                            </span>
+                          ) : (
+                            cellText(r, c)
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    {open && !kids && (
+                      <tr>
+                        <td colSpan={cols.length} style={{ paddingLeft: 44, color: "var(--ink-mute)" }}>
+                          Menghitung customer…
+                        </td>
+                      </tr>
+                    )}
+                    {open && kids && kids.length === 0 && (
+                      <tr>
+                        <td colSpan={cols.length} style={{ paddingLeft: 44, color: "var(--ink-mute)" }}>
+                          Tidak ada customer dengan unit UIO atau Actual Sales.
+                        </td>
+                      </tr>
+                    )}
+                    {kids?.map((k0) => {
+                      const k = withMetrics(k0);
+                      return (
+                        <tr key={`${r.id}>${k.id}`} style={{ background: "rgba(127,127,127,0.07)" }}>
+                          {cols.map((c, i) => (
+                            <td key={String(c.key)} className={c.kind === "computed" ? "computed" : undefined}>
+                              {i === 0 ? (
+                                <span style={{ paddingLeft: 30, color: "var(--ink-mute)" }}>↳</span>
+                              ) : (
+                                cellText(k, c)
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
               {sorted.length > 0 && (
                 <tr style={{ fontWeight: 600 }}>
                   {cols.map((c, i) => (
