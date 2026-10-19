@@ -78,7 +78,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           uioUnits: state.data.uioUnits.length,
           contractPrices: state.data.priceList.filter((p) => p.price_type === "contract").length,
           nonContractPrices: state.data.priceList.filter((p) => p.price_type !== "contract").length,
-          actualSales: state.data.actualSalesTx.length
+          actualSales: state.data.actualSalesYear.length
         }}
       />
     </div>
