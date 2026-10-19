@@ -5,7 +5,7 @@ import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { FilterState } from "@/lib/calculations";
 
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
-  tahun: "Tahun", bulan: "Bulan", area: "Area", sector: "Sector",
+  tahun: "Tahun", bulan: "Bulan", area: "Branch",
   customerGroup: "Customer group", customerName: "Customer name",
   pss: "PSS", tier: "KA Type", product: "Product", modelUnit: "Model unit",
   partNumber: "Part number", partName: "Part name"
@@ -237,14 +237,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
         <div className="filterbar-row">
           <MultiSelectField label="Tahun" values={filters.tahun} options={options.tahun} onChange={(v) => setFilter("tahun", v)} />
           <MultiSelectField label="Bulan" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
-          <MultiSelectField label="Area" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
-          <MultiSelectField
-            label="Sector"
-            values={filters.sector}
-            options={options.sector}
-            onChange={(v) => setFilter("sector", v)}
-            info="Sektor industri customer (Plantation, Rental, Mining, dst). Satu customer bisa punya lebih dari satu sector."
-          />
+          <MultiSelectField label="Branch" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
           <MultiSelectField
             label="Customer Group"
             values={filters.customerGroup}
