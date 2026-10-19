@@ -4,13 +4,14 @@ import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtIDR, fmtPct } from "@/lib/calculations";
 
 export default function KpiCards({ state }: { state: UseDashboardState }) {
-  const { marketSizeYearRows, filters } = state; 
+  const { marketSizeYearRows, filters } = state;
 
   // Jumlah dari semua tahun yang sedang tampil di chart (semua tahun kalau
   // filter Tahun kosong), untuk periode yang sama antara Market Size dan Actual Sales.
   const ms = marketSizeYearRows.reduce((s, r) => s + r.market_size, 0);
   const act = marketSizeYearRows.reduce((s, r) => s + r.actual_sales, 0);
-  const marketShare = ms > 0 ? act / ms : NaN;
+  const comparable = marketSizeYearRows.every((r) => r.actual_comparable !== false);
+  const marketShare = comparable && ms > 0 ? act / ms : NaN;
   const gap = ms - act;
 
   const years = marketSizeYearRows.map((r) => r.year);
@@ -31,8 +32,8 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       </div>
       <div className="kpi red">
         <div className="kpi-label">Actual sales</div>
-        <div className="kpi-value mono">{fmtIDR(act)}</div>
-        <div className="kpi-sub">{periodLabel}</div>
+        <div className="kpi-value mono">{comparable ? fmtIDR(act) : "–"}</div>
+        <div className="kpi-sub">{comparable ? periodLabel : "Actual tahunan tidak bisa dipecah per Bulan/Product/Model/Part"}</div>
       </div>
       <div className="kpi green">
         <div className="kpi-label">Market Share</div>
@@ -41,7 +42,7 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       </div>
       <div className="kpi">
         <div className="kpi-label">Gap (peluang)</div>
-        <div className="kpi-value mono">{fmtIDR(gap)}</div>
+        <div className="kpi-value mono">{comparable ? fmtIDR(gap) : "–"}</div>
         <div className="kpi-sub">Market size − actual sales</div>
       </div>
     </div>
