@@ -6,50 +6,57 @@ import {
   EMPTY_FILTERS,
   aggregateGroup,
   buildDetailRows,
-  custKey,
   fmtIDRFull,
   fmtInt,
   fmtPct,
   prepareDetailCtx,
+  resolveUioYears,
   uniq,
   type GroupRow
 } from "@/lib/calculations";
 import { MultiSelectField } from "@/components/FilterBar";
 import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 import { monthsShare } from "@/lib/workdays";
+import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type UioUnit } from "@/lib/types";
 
 const PAGE_SIZE = 20;
+const PRICE_CONTRACT = "Contract (SCPL)";
+const PRICE_NON = "Non Contract";
 
-/** Satu baris tabel: metrik dari GroupRow + label sesuai tingkat baris. */
-type Row = GroupRow & { id: string; code: string; name: string; grp: string; ctype: string; ktier: string };
-type RowM = Row & { qty_period: number };
+/** Satu baris tabel = satu Customer Group. */
+type Row = GroupRow & { id: string; grp: string; katype: string; pkind: string; kaList: string[] };
+type RowM = Row & { qty_period: number; share_den: number };
 type SortKey = keyof RowM;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
 
 const METRIC_COLS: ColDef[] = [
+  { key: "customers", label: "Customer", kind: "num", width: 12 },
   { key: "uio", label: "UIO (unit)", kind: "num", width: 12 },
   { key: "qty_market_size", label: "Qty market size", kind: "computed", width: 16 },
   { key: "qty_period", label: "Qty Market Size/m", kind: "computed", width: 20 },
   { key: "amount_market_size", label: "Market Size (Rp)", kind: "computed", width: 20 },
   { key: "amount_period", label: "Market Size/m (Rp)", kind: "computed", width: 24 },
-  { key: "actual_qty", label: "Actual qty", kind: "num", width: 12 },
   { key: "actual_sales", label: "Actual sales (Rp)", kind: "num", width: 20 },
   { key: "market_share", label: "Market share", kind: "computed", width: 14 }
 ];
 const LABEL_COLS: ColDef[] = [
-  { key: "code", label: "Cust. Code", kind: "text", width: 14 },
-  { key: "name", label: "Cust. Name", kind: "text", width: 32 },
-  { key: "grp", label: "Cust. Group", kind: "text", width: 24 },
-  { key: "ctype", label: "Cust. Type", kind: "text", width: 18 },
-  { key: "ktier", label: "KA Tier", kind: "text", width: 20 }
+  { key: "grp", label: "Customer Group", kind: "text", width: 32 },
+  { key: "katype", label: "KA Type", kind: "text", width: 24 },
+  { key: "pkind", label: "Harga", kind: "text", width: 16 }
 ];
 
-/** Tab Summary: dua box terpisah — (1) Filter, (2) Summary per Customer.
+const normGroup = (g: string | null | undefined) => (g || "").trim().toUpperCase();
+const tierRank = (t: string) => {
+  const i = CUSTOMER_TIER_OPTIONS.indexOf(t as (typeof CUSTOMER_TIER_OPTIONS)[number]);
+  return i === -1 ? 999 : i;
+};
+const byTier = (a: string, b: string) => tierRank(a) - tierRank(b) || a.localeCompare(b);
+
+/** Tab Summary: dua box terpisah — (1) Filter, (2) Summary per Customer Group.
  * Filter di sini berdiri sendiri (tidak ikut filter di page Dashboard). */
 export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const { data } = state;
   const customers = state.realCustomers;
-  type Cust = (typeof customers)[number];
 
   // ---- state filter lokal ----
   const [fTahun, setFTahun] = useState<string[]>([]);
@@ -57,11 +64,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [fProduct, setFProduct] = useState<string[]>([]);
   const [fModel, setFModel] = useState<string[]>([]);
   const [fPartName, setFPartName] = useState<string[]>([]);
-  const [cCode, setCCode] = useState<string[]>([]);
-  const [cName, setCName] = useState<string[]>([]);
   const [cGroup, setCGroup] = useState<string[]>([]);
-  const [cType, setCType] = useState<string[]>([]); // Customer Type (dari kolom Cust. Type di Data UIO)
-  const [cTier, setCTier] = useState<string[]>([]); // KA Tier (DEALER, KA BRANCH GOLD, KA NASIONAL, dst)
+  const [cKa, setCKa] = useState<string[]>([]); // KA Type (KA NASIONAL, KA BRANCH GOLD, NKA, dst)
+  const [cPrice, setCPrice] = useState<string[]>([]); // Contract (SCPL) / Non Contract
 
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
@@ -69,7 +74,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
 
-  // ---- pilihan filter (saling mengikuti) ----
+  // ---- pilihan filter produk (saling mengikuti) ----
   const productOpts = useMemo(() => uniq(data.parts.map((p) => p.product)).sort(), [data.parts]);
   const modelOpts = useMemo(() => {
     const ps = new Set(fProduct);
@@ -83,41 +88,86 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     ).sort();
   }, [data.parts, fProduct, fModel]);
 
-  // Customer Type berasal dari kolom "Cust. Type" di Data UIO (per unit), dipetakan ke customer lewat Group + Name.
-  const typesByKey = useMemo(() => {
-    const m = new Map<string, Set<string>>();
+  // ---- Daftar Customer Group: gabungan Master Customer, Data UIO, dan Actual Sales tahunan ----
+  type GInfo = {
+    key: string;
+    name: string;
+    custNames: Set<string>;
+    tiers: Set<string>; // dari Master Customer
+    kaAmount: Map<string, number>; // KA Type dari laporan Actual Sales -> total nilai
+    actual: Map<number, number>; // tahun -> Rp
+    units: UioUnit[];
+  };
+  const groups = useMemo(() => {
+    const m = new Map<string, GInfo>();
+    const get = (raw: string, fallbackName: string) => {
+      const name = (raw || fallbackName || "").trim();
+      const key = normGroup(name);
+      if (!key) return null;
+      let g = m.get(key);
+      if (!g) {
+        g = { key, name, custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), units: [] };
+        m.set(key, g);
+      }
+      return g;
+    };
+    customers.forEach((c) => {
+      const g = get(c.customer_group || "", c.customer_name || "");
+      if (!g) return;
+      if (c.customer_name) g.custNames.add(normGroup(c.customer_name));
+      if (c.tier) g.tiers.add(c.tier.trim().toUpperCase());
+    });
     data.uioUnits.forEach((u) => {
-      const t = (u.customer_type || "").trim();
-      if (!t) return;
-      const k = custKey(u.customer_group, u.customer_name);
-      let set = m.get(k);
-      if (!set) m.set(k, (set = new Set()));
-      set.add(t);
+      const g = get(u.customer_group || "", u.customer_name || "");
+      if (g) g.units.push(u);
+    });
+    data.actualSalesYear.forEach((r) => {
+      const g = get(r.customer_group, r.customer_name);
+      if (!g) return;
+      g.custNames.add(normGroup(r.customer_name));
+      g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
+      if (r.ka_type) g.kaAmount.set(r.ka_type, (g.kaAmount.get(r.ka_type) || 0) + r.amount);
+    });
+    return Array.from(m.values());
+  }, [customers, data.uioUnits, data.actualSalesYear]);
+
+  // Customer Group yang punya harga kontrak (SCPL); simpan ejaan persis di Data Harga untuk pencarian harga.
+  const contractNameByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    data.priceList.forEach((p) => {
+      if (p.price_type === "contract" && p.customer_group) m.set(normGroup(p.customer_group), p.customer_group);
     });
     return m;
-  }, [data.uioUnits]);
-  const typesOf = (c: Cust) => Array.from(typesByKey.get(custKey(c.customer_group, c.customer_name)) || []);
+  }, [data.priceList]);
 
-  type CKey = "code" | "name" | "group" | "type" | "tier";
-  const customerOpts = useMemo(() => {
-    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType), tier: new Set(cTier) };
-    const ok = (c: Cust, skip: CKey) =>
-      (skip === "code" || sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
-      (skip === "name" || sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
-      (skip === "group" || sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
-      (skip === "type" || sel.type.size === 0 || typesOf(c).some((t) => sel.type.has(t))) &&
-      (skip === "tier" || sel.tier.size === 0 || sel.tier.has(c.tier || ""));
-    const list = (skip: CKey, pick: (c: Cust) => (string | null)[]) =>
-      uniq(customers.filter((c) => ok(c, skip)).flatMap(pick)).sort();
+  const kaOf = (g: GInfo): string[] => {
+    const fromActual = Array.from(g.kaAmount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([k]) => k);
+    if (fromActual.length > 0) return fromActual.sort(byTier);
+    return Array.from(g.tiers).sort(byTier);
+  };
+  const priceKindOf = (g: GInfo) => (contractNameByKey.has(g.key) ? PRICE_CONTRACT : PRICE_NON);
+
+  type CKey = "group" | "ka" | "price";
+  const groupOpts = useMemo(() => {
+    const sel = { group: new Set(cGroup), ka: new Set(cKa), price: new Set(cPrice) };
+    const ok = (g: GInfo, skip: CKey) =>
+      (skip === "group" || sel.group.size === 0 || sel.group.has(g.name)) &&
+      (skip === "ka" || sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
+      (skip === "price" || sel.price.size === 0 || sel.price.has(priceKindOf(g)));
     return {
-      code: list("code", (c) => [c.customer_code]),
-      name: list("name", (c) => [c.customer_name]),
-      group: list("group", (c) => [c.customer_group]),
-      type: list("type", (c) => typesOf(c)),
-      tier: list("tier", (c) => [c.tier])
+      group: uniq(groups.filter((g) => ok(g, "group")).map((g) => g.name)).sort(),
+      ka: uniq(groups.filter((g) => ok(g, "ka")).flatMap((g) => kaOf(g))).sort(byTier)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, typesByKey, cCode, cName, cGroup, cType, cTier]);
+  }, [groups, contractNameByKey, cGroup, cKa, cPrice]);
+
+  const tahunOpts = useMemo(() => {
+    const ys = new Set<string>(state.options.tahun);
+    data.actualSalesYear.forEach((r) => ys.add(String(r.year)));
+    return Array.from(ys).sort();
+  }, [state.options.tahun, data.actualSalesYear]);
 
   function changeProduct(next: string[]) {
     setFProduct(next);
@@ -145,10 +195,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   };
 
   const hasFilter =
-    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cCode.length + cName.length + cGroup.length + cType.length + cTier.length > 0;
+    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cGroup.length + cKa.length + cPrice.length > 0;
 
   function resetAll() {
-    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCCode, setCName, setCGroup, setCType, setCTier].forEach((s) => s([]));
+    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCGroup, setCKa, setCPrice].forEach((s) => s([]));
     setSearch("");
     setPage(1);
   }
@@ -161,64 +211,38 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const monthsSelected = fBulan.length > 0 ? new Set(fBulan).size : 12;
   const share = fBulan.length > 0 ? monthsShare(fBulan) : 1;
 
-  // ---- hitung sesuai tingkat baris (bertahap supaya halaman tetap responsif) ----
+  // Tahun acuan: tahun terpilih (terbesar) atau tahun UIO terbaru; kalau belum ada UIO, tahun Actual Sales terbaru.
+  const refYear = useMemo(() => {
+    const ys = resolveUioYears(calcFilters, data.uioUnits);
+    if (ys.length > 0) return Math.max(...ys);
+    const ay = data.actualSalesYear.map((r) => r.year);
+    return ay.length > 0 ? Math.max(...ay) : null;
+  }, [calcFilters, data.uioUnits, data.actualSalesYear]);
+
+  // Data Actual Sales tahun terbaru biasanya YTD: Market Size pembandingnya dipotong sampai bulan yang sama.
+  const ytdYear = data.meta.actual_year_ytd_year ?? null;
+  const ytdMonth = data.meta.actual_year_ytd_month ?? null;
+  const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
+  const isYtd = refYear !== null && refYear === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
+  const actualFactor = isYtd ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1;
+  const actualYearHas = refYear !== null && data.actualSalesYear.some((r) => r.year === refYear);
+  // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model/Part.
+  const comparable = fBulan.length === 0 && fProduct.length === 0 && fModel.length === 0 && fPartName.length === 0;
+
+  // ---- hitung per Customer Group (bertahap supaya halaman tetap responsif) ----
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    const sel = { code: new Set(cCode), name: new Set(cName), group: new Set(cGroup), type: new Set(cType), tier: new Set(cTier) };
-        const selected = customers.filter(
-      (c) =>
-        (sel.code.size === 0 || sel.code.has(c.customer_code || "")) &&
-        (sel.name.size === 0 || sel.name.has(c.customer_name || "")) &&
-        (sel.group.size === 0 || sel.group.has(c.customer_group || "")) &&
-        (sel.type.size === 0 || typesOf(c).some((t) => sel.type.has(t))) &&
-        (sel.tier.size === 0 || sel.tier.has(c.tier || ""))
+    const sel = { group: new Set(cGroup), ka: new Set(cKa), price: new Set(cPrice) };
+    const selected = groups.filter(
+      (g) =>
+        (sel.group.size === 0 || sel.group.has(g.name)) &&
+        (sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
+        (sel.price.size === 0 || sel.price.has(priceKindOf(g)))
     );
-    const blank = { code: "", name: "", grp: "", ctype: "", ktier: "" };
-    const mk = (id: string, label: string, n: number, g: GroupRow, extra: Partial<typeof blank>): Row => ({
-      ...g,
-      group: label,
-      customers: n,
-      id,
-      ...blank,
-      ...extra
-    });
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
-
-    // ---- Satu baris per customer (dicicil supaya halaman tetap responsif) ----
-    type Task = { id: string; label: string; keys: Set<string>; extra: Partial<typeof blank>; priceGroup: string };
-    const tasks: Task[] = [];
-    selected.forEach((c) => {
-      const k = custKey(c.customer_group, c.customer_name);
-      tasks.push({
-        id: k,
-        label: c.customer_name || "",
-        keys: new Set([k]),
-        extra: { code: c.customer_code || "", name: c.customer_name || "", grp: c.customer_group || "", ctype: typesOf(c).join(", "), ktier: c.tier || "" },
-        priceGroup: c.customer_group || ""
-      });
-    });
-    // Pisahkan unit & transaksi per entitas SEKALI.
-    const taskOfKey = new Map<string, string>();
-    tasks.forEach((t) => t.keys.forEach((k) => taskOfKey.set(k, t.id)));
-    const unitsBy = new Map<string, typeof data.uioUnits>();
-    data.uioUnits.forEach((u) => {
-      const id = taskOfKey.get(custKey(u.customer_group, u.customer_name));
-      if (id === undefined) return;
-      const a = unitsBy.get(id);
-      if (a) a.push(u);
-      else unitsBy.set(id, [u]);
-    });
-    const txBy = new Map<string, typeof data.actualSalesTx>();
-    data.actualSalesTx.forEach((r) => {
-      const id = taskOfKey.get(custKey(r.customer_group, r.customer_name));
-      if (id === undefined) return;
-      const a = txBy.get(id);
-      if (a) a.push(r);
-      else txBy.set(id, [r]);
-    });
-    const ctx = prepareDetailCtx(data.parts, data.uioUnits, data.priceList, data.actualSalesTx, calcFilters);
+    const ctx = prepareDetailCtx(data.parts, data.uioUnits, data.priceList, [], calcFilters);
 
     const out: Row[] = [];
     let i = 0;
@@ -226,21 +250,26 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const step = () => {
       if (cancelled) return;
       const t0 = performance.now();
-      while (i < tasks.length && performance.now() - t0 < 12) {
-        const t = tasks[i++];
-        const gu = unitsBy.get(t.id) || [];
-        const gt = txBy.get(t.id) || [];
-        if (gu.length === 0 && gt.length === 0) continue;
-        const list = buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, calcFilters, t.keys, {
-          units: gu,
-          tx: gt,
-          priceGroup: t.priceGroup,
-          ctx
-        });
-        const agg = aggregateGroup(t.label, t.keys.size, list);
-        if (agg.uio > 0 || agg.actual_sales > 0 || agg.amount_market_size > 0) out.push(mk(t.id, t.label, t.keys.size, agg, t.extra));
+      while (i < selected.length && performance.now() - t0 < 12) {
+        const g = selected[i++];
+        const actual = refYear !== null ? g.actual.get(refYear) || 0 : 0;
+        if (g.units.length === 0 && actual === 0) continue;
+        const nCust = g.custNames.size || 1;
+        // Grup tanpa unit UIO tidak punya Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
+        const list =
+          g.units.length === 0
+            ? []
+            : buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
+                units: g.units,
+                tx: [],
+                priceGroup: contractNameByKey.get(g.key) || g.name,
+                ctx
+              });
+        const agg = aggregateGroup(g.name, nCust, list);
+        const ka = kaOf(g);
+        out.push({ ...agg, actual_sales: actual, id: g.key, grp: g.name, katype: ka.join(", "), kaList: ka, pkind: priceKindOf(g) });
       }
-      if (i < tasks.length) timers.push(setTimeout(step, 0));
+      if (i < selected.length) timers.push(setTimeout(step, 0));
       else {
         setRows(out);
         setBusy(false);
@@ -251,15 +280,27 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [customers, typesByKey, cCode, cName, cGroup, cType, cTier, data, calcFilters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, contractNameByKey, cGroup, cKa, cPrice, data, calcFilters, refYear]);
 
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
 
   // Market Size/m = Market Size setahun × bagian hari kerja bulan terpilih (12 bulan kalau filter Bulan kosong).
-  const rowsM = useMemo(
-    () => rows.map((r) => ({ ...r, qty_period: r.qty_market_size * share, amount_period: r.amount_market_size * share })),
-    [rows, share]
+  // Market share = Actual Sales tahun acuan ÷ Market Size periode yang sama (sampai bulan terakhir data, kalau YTD).
+  const rowsM = useMemo<RowM[]>(
+    () =>
+      rows.map((r) => {
+        const den = r.amount_market_size * actualFactor;
+        return {
+          ...r,
+          qty_period: r.qty_market_size * share,
+          amount_period: r.amount_market_size * share,
+          share_den: den,
+          market_share: comparable && actualYearHas && den > 0 ? r.actual_sales / den : null
+        };
+      }),
+    [rows, share, actualFactor, comparable, actualYearHas]
   );
 
   const sorted = useMemo(() => {
@@ -280,7 +321,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const pageRows = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const total = useMemo(() => {
     const sum = (f: (g: RowM) => number) => sorted.reduce((t, g) => t + f(g), 0);
-    const pm = sum((g) => g.period_market);
+    const den = sum((g) => g.share_den);
     return {
       customers: sum((g) => g.customers),
       uio: sum((g) => g.uio),
@@ -288,11 +329,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       qty_period: sum((g) => g.qty_period),
       amount_market_size: sum((g) => g.amount_market_size),
       amount_period: sum((g) => g.amount_period),
-      actual_qty: sum((g) => g.actual_qty),
       actual_sales: sum((g) => g.actual_sales),
-      market_share: pm > 0 ? sum((g) => g.actual_sales) / pm : null
+      market_share: comparable && actualYearHas && den > 0 ? sum((g) => g.actual_sales) / den : null
     } as Record<string, number | null>;
-  }, [sorted]);
+  }, [sorted, comparable, actualYearHas]);
 
   function onSort(key: SortKey) {
     if (sortCol === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -311,11 +351,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     add("Product", fProduct);
     add("Model unit", fModel);
     add("Part name", fPartName);
-    add("Customer Code", cCode);
-    add("Customer Name", cName);
     add("Customer Group", cGroup);
-    add("Customer Type", cType);
-    add("KA Tier", cTier);
+    add("KA Type", cKa);
+    add("Harga", cPrice);
+    if (refYear !== null) parts.push(`Tahun acuan: ${refYear}${isYtd ? ` (Actual sampai ${ytdMonth})` : ""}`);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
     return parts.join(" | ");
   }
@@ -328,13 +367,20 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     return fmtInt(v as number);
   }
 
+  const headLabel = (c: ColDef) =>
+    c.key === "amount_period"
+      ? `Market Size/m (${monthsSelected} bln) (Rp)`
+      : c.key === "qty_period"
+        ? `Qty Market Size/m (${monthsSelected} bln)`
+        : c.key === "actual_sales"
+          ? `Actual sales${refYear !== null ? ` ${refYear}` : ""} (Rp)`
+          : c.label;
+
   async function onExport() {
     if (exporting || sorted.length === 0) return;
     setExporting(true);
     try {
-      const periodLabel = `Market Size/m (${monthsSelected} bln) (Rp)`;
-      const qtyPeriodLabel = `Qty Market Size/m (${monthsSelected} bln)`;
-      const ecols = cols.map((c) => ({ key: String(c.key), label: c.key === "amount_period" ? periodLabel : c.key === "qty_period" ? qtyPeriodLabel : c.label, width: c.width }));
+      const ecols = cols.map((c) => ({ key: String(c.key), label: headLabel(c), width: c.width }));
       const num = (v: unknown, pct = false) => (typeof v === "number" ? (pct ? Math.round(v * 1000) / 10 : Math.round(v)) : "");
       const toRow = (r: Record<string, unknown>) => {
         const o: Record<string, string | number | null> = {};
@@ -346,7 +392,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       };
       const totalRow = toRow({ ...total });
       totalRow[String(LABEL_COLS[0].key)] = "TOTAL";
-      await exportSummaryTableToExcel("Customer", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
+      await exportSummaryTableToExcel("Customer Group", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
     } finally {
       setExporting(false);
     }
@@ -371,36 +417,34 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           <MultiSelectField
             label="Tahun"
             values={fTahun}
-            options={state.options.tahun}
+            options={tahunOpts}
             onChange={wrap(setFTahun)}
-            info="Kosong = tahun terbaru yang punya data."
+            info="Kosong = tahun terbaru yang punya data UIO. Actual Sales dan Market Size memakai tahun ini."
           />
           <MultiSelectField
             label="Bulan"
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = 12 bulan. Market Size/m dan Qty Market Size/m = nilai setahun × bagian hari kerja bulan yang dipilih (bulan berhari kerja lebih sedikit, mis. Februari, bernilai lebih kecil)."
+            info="Kosong = 12 bulan. Market Size/m dan Qty Market Size/m = nilai setahun × bagian hari kerja bulan yang dipilih. Actual Sales hanya tersedia per tahun, jadi Market share tidak dihitung kalau Bulan dipilih."
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
           <MultiSelectField label="Part name" values={fPartName} options={partNameOpts} onChange={wrap(setFPartName)} />
-          <MultiSelectField label="Customer Code" values={cCode} options={customerOpts.code} onChange={wrap(setCCode)} />
-          <MultiSelectField label="Customer Name" values={cName} options={customerOpts.name} onChange={wrap(setCName)} />
-          <MultiSelectField label="Customer Group" values={cGroup} options={customerOpts.group} onChange={wrap(setCGroup)} />
+          <MultiSelectField label="Customer Group" values={cGroup} options={groupOpts.group} onChange={wrap(setCGroup)} />
           <MultiSelectField
-            label="Customer Type"
-            values={cType}
-            options={customerOpts.type}
-            onChange={wrap(setCType)}
-            info="Jenis customer dari kolom Cust. Type di Data UIO. Pilihan baru muncul setelah Data UIO di-upload dengan format terbaru."
+            label="KA Type"
+            values={cKa}
+            options={groupOpts.ka}
+            onChange={wrap(setCKa)}
+            info="Key Account Type dari laporan Actual Sales (KA Nasional, KA Branch Platinum/Gold, NKA, Dealer, SHN)."
           />
           <MultiSelectField
-            label="KA Tier"
-            values={cTier}
-            options={customerOpts.tier}
-            onChange={wrap(setCTier)}
-            info="Klasifikasi key account customer (KA Nasional, KA Branch Platinum/Gold, NKA, Dealer, SHN, dst)."
+            label="Contract / Non Contract"
+            values={cPrice}
+            options={[PRICE_CONTRACT, PRICE_NON]}
+            onChange={wrap(setCPrice)}
+            info="Contract (SCPL) = Customer Group-nya punya harga di Data Harga Kontrak. Non Contract = tidak punya, memakai harga non kontrak."
           />
         </div>
       </div>
@@ -408,7 +452,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       {/* BOX 2 — Tabel summary */}
       <div className="panel">
         <div className="panel-head">
-          <h2>Summary per Customer</h2>
+          <h2>Summary per Customer Group</h2>
           <div className="panel-tools">
             <button
               type="button"
@@ -421,7 +465,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             </button>
             <input
               className="search-input"
-              placeholder="Cari customer…"
+              placeholder="Cari customer group…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -430,13 +474,25 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             />
           </div>
         </div>
+        {(refYear !== null || !comparable) && (
+          <div className="detail-filters-info" style={{ padding: "0 16px 10px" }}>
+            {refYear !== null && (
+              <>
+                Tahun acuan {refYear}
+                {isYtd ? ` · Actual Sales sampai ${ytdMonth}, jadi Market share dibandingkan dengan Market Size Januari–${ytdMonth}` : ""}.{" "}
+              </>
+            )}
+            {!actualYearHas && refYear !== null && "Belum ada Actual Sales untuk tahun ini. "}
+            {!comparable && "Market share tidak dihitung kalau filter Bulan, Product, Model, atau Part dipilih (Actual Sales berupa total setahun semua product)."}
+          </div>
+        )}
         <div className="table-scroll">
           <table className="data">
             <thead>
               <tr>
                 {cols.map((c) => (
                   <th key={String(c.key)} onClick={() => onSort(c.key)} style={{ cursor: "pointer" }} className={c.kind === "computed" ? "computed" : undefined}>
-                    {c.key === "amount_period" ? `Market Size/m (${monthsSelected} bln) (Rp)` : c.key === "qty_period" ? `Qty Market Size/m (${monthsSelected} bln)` : c.label}
+                    {headLabel(c)}
                     {sortCol === c.key && <span className="arrow">{sortDir === "asc" ? "▲" : "▼"}</span>}
                   </th>
                 ))}
