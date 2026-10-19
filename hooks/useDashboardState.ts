@@ -13,6 +13,7 @@ import {
   buildModelLookup,
   buildDetailRows,
   allowedProducts,
+  custKey,
   getRealCustomers,
   resolveUioYears,
   uioByDimension,
@@ -22,10 +23,55 @@ import {
   marketShareByYear,
   findPartsWithoutPrice
 } from "@/lib/calculations";
-import { MONTH_ORDER, type DashboardData } from "@/lib/types";
+import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
+
+/** Branch & PSS di Master Customer sering kosong, padahal Data UIO punya kolom Branch dan Pss Name per unit.
+ * Isi yang kosong dengan nilai terbanyak dari unit milik customer itu, supaya filter Branch / PSS di
+ * seluruh dashboard ada isinya dan bekerja sampai ke perhitungan Market Share. */
+function enrichCustomersFromUio(data: DashboardData): DashboardData {
+  if (data.uioUnits.length === 0 || data.customers.length === 0) return data;
+  const branch = new Map<string, Map<string, number>>();
+  const pss = new Map<string, Map<string, number>>();
+  const bump = (m: Map<string, Map<string, number>>, k: string, v: string) => {
+    if (!v) return;
+    let inner = m.get(k);
+    if (!inner) m.set(k, (inner = new Map()));
+    inner.set(v, (inner.get(v) || 0) + 1);
+  };
+  data.uioUnits.forEach((u) => {
+    const k = custKey(u.customer_group, u.customer_name);
+    bump(branch, k, (u.branch || "").trim());
+    bump(pss, k, (u.pss_name || "").trim());
+  });
+  const top = (m: Map<string, number> | undefined) => {
+    let best = "";
+    let n = 0;
+    m?.forEach((c, v) => {
+      if (c > n || (c === n && v < best)) {
+        best = v;
+        n = c;
+      }
+    });
+    return best || null;
+  };
+  let changed = false;
+  const customers: Customer[] = data.customers.map((c) => {
+    const needBranch = !(c.cabang || "").trim();
+    const needPss = !(c.pss || "").trim();
+    if (!needBranch && !needPss) return c;
+    const k = custKey(c.customer_group, c.customer_name);
+    const b = needBranch ? top(branch.get(k)) : null;
+    const p = needPss ? top(pss.get(k)) : null;
+    if (!b && !p) return c;
+    changed = true;
+    return { ...c, cabang: b ?? c.cabang, pss: p ?? c.pss };
+  });
+  return changed ? { ...data, customers } : data;
+}
 
 export function useDashboardState(initialData: DashboardData) {
-  const [data, setData] = useState<DashboardData>(initialData);
+  const [rawData, setData] = useState<DashboardData>(initialData);
+  const data = useMemo(() => enrichCustomersFromUio(rawData), [rawData]);
   const [refreshing, setRefreshing] = useState(false);
   const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
   const [marketSizeView, setMarketSizeView] = useState<"amount" | "quantity">("amount");
@@ -121,11 +167,14 @@ export function useDashboardState(initialData: DashboardData) {
     const sectorOpts = uniq(realCustomers.flatMap((c) => c.customer_sector || [])).sort();
     const pssOpts = uniq(realCustomers.map((c) => c.pss)).sort();
     const groupOpts = uniq(realCustomers.map((c) => c.customer_group)).sort();
-    // KA Type: lima nilai baku (urutan seperti laporan Actual vs Plan), selalu
-    // tampil walau datanya belum ada; nilai lain dari data ditaruh setelahnya.
-    const KA_TYPE_ORDER = ["KA NASIONAL", "KA BRANCH PLATINUM", "KA BRANCH GOLD", "NKA", "DEALER"];
-    const kaFromData = uniq([...realCustomers.map((c) => c.tier), ...data.actualSalesYear.map((r) => r.ka_type)].map((v) => (v || "").trim().toUpperCase()));
-    const tierOpts = [...KA_TYPE_ORDER, ...kaFromData.filter((v) => v && !KA_TYPE_ORDER.includes(v))];
+    const tierOpts = uniq([...realCustomers.map((c) => c.tier), ...data.actualSalesYear.map((r) => r.ka_type)]).sort((a, b) => {
+      const ia = CUSTOMER_TIER_OPTIONS.indexOf(a as (typeof CUSTOMER_TIER_OPTIONS)[number]);
+      const ib = CUSTOMER_TIER_OPTIONS.indexOf(b as (typeof CUSTOMER_TIER_OPTIONS)[number]);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
 
     let custPool = realCustomers;
     if (filters.customerGroup.length > 0) custPool = custPool.filter((c) => filters.customerGroup.includes(c.customer_group || ""));
