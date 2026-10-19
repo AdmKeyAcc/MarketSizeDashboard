@@ -7,7 +7,7 @@ import type { FilterState } from "@/lib/calculations";
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
   tahun: "Tahun", bulan: "Bulan", area: "Area", sector: "Sector",
   customerGroup: "Customer group", customerName: "Customer name",
-  pss: "PSS", tier: "KA Tier", product: "Product", modelUnit: "Model unit",
+  pss: "PSS", tier: "KA Type", product: "Product", modelUnit: "Model unit",
   partNumber: "Part number", partName: "Part name"
 };
 
@@ -258,7 +258,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
             onChange={(v) => setFilter("customerName", v)}
           />
           <MultiSelectField label="PSS" values={filters.pss} options={options.pss} onChange={(v) => setFilter("pss", v)} />
-          <MultiSelectField label="KA Tier" values={filters.tier} options={options.tier} onChange={(v) => setFilter("tier", v)} />
+          <MultiSelectField label="KA Type" values={filters.tier} options={options.tier} onChange={(v) => setFilter("tier", v)} />
           <MultiSelectField label="Product" values={filters.product} options={options.product} onChange={(v) => setFilter("product", v)} />
           <MultiSelectField
             label="Model Unit"
