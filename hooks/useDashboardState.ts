@@ -60,8 +60,9 @@ export function useDashboardState(initialData: DashboardData) {
         ms.add(r.month);
       });
     }
+    data.actualSalesYear.forEach((r) => ys.add(r.year));
     return { years: Array.from(ys).map(String), months: Array.from(ms) };
-  }, [data.actualSalesTx, data.actualSales]);
+  }, [data.actualSalesTx, data.actualSales, data.actualSalesYear]);
   const modelLookup = useMemo(() => buildModelLookup(data.uio), [data.uio]);
   const realCustomers = useMemo(() => getRealCustomers(data.customers), [data.customers]);
 
@@ -94,9 +95,11 @@ export function useDashboardState(initialData: DashboardData) {
         data.actualSales,
         data.actualSalesTx,
         filters,
-        data.customers
+        data.customers,
+        data.actualSalesYear,
+        { year: data.meta.actual_year_ytd_year ?? null, month: data.meta.actual_year_ytd_month ?? null }
       ),
-    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, data.actualSalesTx, filters, data.customers]
+    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, data.actualSalesTx, data.actualSalesYear, data.meta, filters, data.customers]
   );
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
   const partsWithoutPrice = useMemo(
@@ -118,7 +121,7 @@ export function useDashboardState(initialData: DashboardData) {
     const sectorOpts = uniq(realCustomers.flatMap((c) => c.customer_sector || [])).sort();
     const pssOpts = uniq(realCustomers.map((c) => c.pss)).sort();
     const groupOpts = uniq(realCustomers.map((c) => c.customer_group)).sort();
-    const tierOpts = uniq(realCustomers.map((c) => c.tier)).sort((a, b) => {
+    const tierOpts = uniq([...realCustomers.map((c) => c.tier), ...data.actualSalesYear.map((r) => r.ka_type)]).sort((a, b) => {
       const ia = CUSTOMER_TIER_OPTIONS.indexOf(a as (typeof CUSTOMER_TIER_OPTIONS)[number]);
       const ib = CUSTOMER_TIER_OPTIONS.indexOf(b as (typeof CUSTOMER_TIER_OPTIONS)[number]);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
@@ -179,7 +182,7 @@ export function useDashboardState(initialData: DashboardData) {
       partNumber: partNumberOpts,
       partName: partNameOpts
     };
-  }, [actualPeriods, realCustomers, data.parts, data.uioUnits, filters]);
+  }, [actualPeriods, realCustomers, data.parts, data.uioUnits, data.actualSalesYear, filters]);
 
   return {
     data,
