@@ -21,7 +21,7 @@ export const HIER_LABELS: Record<HierDim, string> = {
   kaType: "KA Type",
   group: "Customer Group",
   customer: "Customer Name",
-  area: "Area",
+  area: "Branch",
   pss: "PSS",
   product: "Product",
   model: "Model Unit"
