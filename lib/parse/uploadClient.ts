@@ -250,3 +250,110 @@ export async function parseActualSalesTxFile(file: File): Promise<ActualTxParse>
   }
   return { rows: out, skipped, periods: Array.from(periods.values()), sheet };
 }
+
+// ---------------------------------------------------------------------------
+// Actual Sales tahunan per customer — laporan "Laporan Sales" 3 tingkat
+// (KA Type > Customer Group > Customer), satu kolom nilai per tahun.
+// Tingkat dibaca dari outline (grouping) baris Excel, bukan dari nama.
+// ---------------------------------------------------------------------------
+export type ActualYearRow = {
+  year: number;
+  ka_type: string;
+  customer_group: string;
+  customer_name: string;
+  amount: number;
+};
+export type ActualYearParse = {
+  rows: ActualYearRow[];
+  years: number[];
+  groups: number;
+  customers: number;
+  /** Selisih terbesar (Rp) antara jumlah baris customer dan baris GRAND TOTAL; 0 = cocok. */
+  totalDiff: number;
+  sheet: string;
+};
+
+export async function parseActualSalesYearFile(file: File): Promise<ActualYearParse> {
+  const XLSX = await import("@e965/xlsx");
+  const buf = await file.arrayBuffer();
+  // cellStyles: true diperlukan supaya level outline baris ikut terbaca.
+  const wb = XLSX.read(buf, { type: "array", cellStyles: true });
+  let best: { name: string; aoa: unknown[][]; levels: (number | undefined)[] } | null = null;
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    if (!ws || !ws["!ref"]) continue;
+    const startRow = XLSX.utils.decode_range(ws["!ref"]).s.r;
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: true });
+    const meta = (ws["!rows"] || []) as ({ level?: number } | undefined)[];
+    const levels = aoa.map((_, i) => meta[i + startRow]?.level);
+    if (!best || aoa.length > best.aoa.length) best = { name, aoa, levels };
+  }
+  if (!best || best.aoa.length < 2) throw new UploadParseError("File kosong atau tidak terbaca.");
+
+  const header = best.aoa[0] || [];
+  const yearCols: { col: number; year: number }[] = [];
+  header.forEach((h, c) => {
+    const m = /^\s*(\d{4})\s*$/.exec(String(h ?? ""));
+    if (m && c > 0) yearCols.push({ col: c, year: Number(m[1]) });
+  });
+  if (yearCols.length === 0) {
+    throw new UploadParseError("Kolom tahun (mis. 2024, 2025, 2026) tidak ditemukan di baris judul.");
+  }
+  if (!best.levels.some((l) => (l ?? 0) > 0)) {
+    throw new UploadParseError(
+      "Tingkat KA Type / Customer Group / Customer tidak terbaca. File harus berupa laporan dengan baris yang di-group (outline) Excel, seperti file aslinya."
+    );
+  }
+
+  const rows: ActualYearRow[] = [];
+  const grand = new Map<number, number>();
+  const leafSum = new Map<number, number>();
+  const groups = new Set<string>();
+  const customers = new Set<string>();
+  let ka = "";
+  let grp = "";
+  for (let r = 1; r < best.aoa.length; r++) {
+    const row = best.aoa[r] || [];
+    const name = text(row[0]);
+    if (!name) continue;
+    const lvl = best.levels[r] ?? 0;
+    if (lvl === 0) {
+      if (name.toUpperCase() === "GRAND TOTAL") {
+        yearCols.forEach(({ col, year }) => {
+          const v = numOf(row[col]);
+          if (Number.isFinite(v)) grand.set(year, v);
+        });
+      } else {
+        ka = name.toUpperCase();
+        grp = "";
+      }
+      continue;
+    }
+    if (lvl === 1) {
+      grp = name;
+      continue;
+    }
+    if (!grp) continue; // customer tanpa grup induk: tidak bisa dipetakan
+    groups.add(grp);
+    customers.add(`${grp}|${name}`);
+    yearCols.forEach(({ col, year }) => {
+      const v = numOf(row[col]);
+      if (!Number.isFinite(v) || v === 0) return;
+      leafSum.set(year, (leafSum.get(year) || 0) + v);
+      rows.push({ year, ka_type: ka, customer_group: grp, customer_name: name, amount: v });
+    });
+  }
+  if (rows.length === 0) throw new UploadParseError("Tidak ada baris customer dengan nilai penjualan.");
+  let totalDiff = 0;
+  grand.forEach((g, y) => {
+    totalDiff = Math.max(totalDiff, Math.abs((leafSum.get(y) || 0) - g));
+  });
+  return {
+    rows,
+    years: yearCols.map((y) => y.year),
+    groups: groups.size,
+    customers: customers.size,
+    totalDiff: Math.round(totalDiff),
+    sheet: best.name
+  };
+}
