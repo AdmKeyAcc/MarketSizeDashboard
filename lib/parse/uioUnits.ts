@@ -23,6 +23,10 @@ export type UioUnitParsed = {
 export type UioUnitsParseResult = {
   rows: UioUnitParsed[];
   skipped: number;
+  /** Baris retur/pembatalan (Invoiced Quantity negatif) yang dibuang. */
+  returns: number;
+  /** Baris dengan tahun di bawah batas awal (minYear) yang dibuang. */
+  beforeMinYear: number;
   sheetName: string;
 };
 
@@ -59,7 +63,7 @@ function str(v: unknown): string | null {
  * "Populasi All Branch" — the population tab is normally the bigger one
  * and the one meant for upload).
  */
-export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
+export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: number } = {}): UioUnitsParseResult {
   let best: { name: string; rows: Record<string, unknown>[] } | null = null;
   for (const name of wb.SheetNames) {
     const ws = wb.Sheets[name];
@@ -72,6 +76,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
 
   const parsed: UioUnitParsed[] = [];
   let skipped = 0;
+  let returns = 0;
+  let beforeMinYear = 0;
   for (const r of best.rows) {
     const norm: Record<string, unknown> = {};
     Object.keys(r).forEach((k) => {
@@ -86,7 +92,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
       "customername", "custname", "name1", "newcustomername", "cn"
     ]);
     const branch = pick(norm, [
-      "branch", "cabang", "soff", "salesoffice", "branchuioconfirm", "branchuioconfirmation"
+      "branchuioconfirm", "branchuioconfirmation", "branch", "cabang", "soff", "salesoffice"
     ]);
     const serial = pick(norm, [
       "serialnumber", "unitserialnumber", "serialnumberunit", "nomorseri"
@@ -97,6 +103,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
     const hmDay = pick(norm, ["hmday", "hmperhari"]);
     const dayMonth = pick(norm, ["daymonth", "harikerjabulan", "dayspermonth"]);
     const monthYear = pick(norm, ["monthyear", "bulantahun", "monthsperyear"]);
+    const qty = num(pick(norm, ["invoicedquantity", "invoicedqty"]));
 
     // A row needs at minimum a Product so it means something as a unit —
     // everything else can be missing and the row is still kept (Year and
@@ -106,8 +113,17 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
       skipped++;
       continue;
     }
+    // Invoiced Quantity negatif = retur/pembatalan, bukan unit yang beroperasi.
+    if (qty !== null && qty < 0) {
+      returns++;
+      continue;
+    }
 
     const yearNum = year !== null ? Number(year) : NaN;
+    if (opts.minYear !== undefined && Number.isFinite(yearNum) && yearNum < opts.minYear) {
+      beforeMinYear++;
+      continue;
+    }
     parsed.push({
       year: Number.isFinite(yearNum) ? yearNum : null,
       product: str(product)?.toUpperCase() ?? null,
@@ -131,5 +147,54 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook): UioUnitsParseResult {
         "Customer Group, Branch, Serial Number) boleh sebagian kosong."
     );
   }
-  return { rows: parsed, skipped, sheetName: best.name };
+  return { rows: parsed, skipped, returns, beforeMinYear, sheetName: best.name };
+}
+
+/* ------------------------------------------------------------------ */
+/* Penyamaan nama customer dengan daftar customer resmi                */
+/* ------------------------------------------------------------------ */
+
+/** Nama customer dinormalkan (huruf besar, tanpa PT/CV/TBK, tanda baca, spasi ganda)
+ * supaya "HI-TECH INK INDONESIA, PT" dan "PT. HI TECH INK INDONESIA" dianggap sama. */
+export function normCustName(s: string | null | undefined): string {
+  return String(s || "")
+    .toUpperCase()
+    .replace(/[.,()\-]/g, " ")
+    .replace(/\b(PT|CV|TBK|UD|PD)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type CanonPair = { customer_group: string | null; customer_name: string | null };
+
+/** Samakan Customer Group + Customer Name unit dengan daftar resmi (Master Customer / laporan Actual Sales):
+ *  1) pasangan group|nama sudah persis sama → tidak diubah;
+ *  2) nama (dinormalkan) cocok dengan tepat satu customer resmi → pakai group & nama resmi;
+ *  3) selain itu dibiarkan seperti di file. */
+export function canonicalizeUnits(rows: UioUnitParsed[], canon: CanonPair[]): { rows: UioUnitParsed[]; exact: number; remapped: number; unmatched: number } {
+  const exactSet = new Set<string>();
+  const byNorm = new Map<string, { g: string; n: string } | null>();
+  canon.forEach((c) => {
+    const g = (c.customer_group || "").trim();
+    const n = (c.customer_name || "").trim();
+    if (!n) return;
+    exactSet.add(`${g.toUpperCase()}|${n.toUpperCase()}`);
+    const k = normCustName(n);
+    if (!k) return;
+    const prev = byNorm.get(k);
+    if (prev === undefined) byNorm.set(k, { g, n });
+    else if (prev && (prev.g.toUpperCase() !== g.toUpperCase() || prev.n.toUpperCase() !== n.toUpperCase())) byNorm.set(k, null); // ambigu
+  });
+  let exact = 0, remapped = 0, unmatched = 0;
+  const out = rows.map((r) => {
+    const g = (r.customer_group || "").trim();
+    const n = (r.customer_name || "").trim();
+    if (!n) { unmatched++; return r; }
+    if (exactSet.has(`${g.toUpperCase()}|${n.toUpperCase()}`)) { exact++; return r; }
+    const hit = byNorm.get(normCustName(n));
+    if (hit) { remapped++; return { ...r, customer_group: hit.g, customer_name: hit.n }; }
+    unmatched++;
+    return r;
+  });
+  return { rows: out, exact, remapped, unmatched };
 }
