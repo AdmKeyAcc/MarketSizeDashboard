@@ -305,6 +305,13 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
     );
   }
 
+  // Dua bentuk laporan: 3 tingkat (KA Type > Customer Group > Customer) atau 2 tingkat (Customer Group > Customer, tanpa KA Type).
+  let maxLevel = 0;
+  best.aoa.forEach((row, r) => {
+    if (text((row || [])[0])) maxLevel = Math.max(maxLevel, best!.levels[r] ?? 0);
+  });
+  const twoLevel = maxLevel <= 1;
+
   const rows: ActualYearRow[] = [];
   const grand = new Map<number, number>();
   const leafSum = new Map<number, number>();
@@ -323,13 +330,15 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
           const v = numOf(row[col]);
           if (Number.isFinite(v)) grand.set(year, v);
         });
+      } else if (twoLevel) {
+        grp = name;
       } else {
         ka = name.toUpperCase();
         grp = "";
       }
       continue;
     }
-    if (lvl === 1) {
+    if (lvl === 1 && !twoLevel) {
       grp = name;
       continue;
     }
