@@ -6,6 +6,7 @@ import {
   EMPTY_FILTERS,
   aggregateGroup,
   buildDetailRows,
+  custKey,
   fmtIDRFull,
   fmtInt,
   fmtPct,
@@ -23,8 +24,9 @@ const PAGE_SIZE = 20;
 const PRICE_CONTRACT = "Contract (SCPL)";
 const PRICE_NON = "Non Contract";
 
-/** Satu baris tabel = satu Customer Group. */
-type Row = GroupRow & { id: string; grp: string; katype: string; pkind: string; kaList: string[] };
+/** Satu baris tabel = satu Customer Group atau satu Customer (pilihan "Tampilkan per"). */
+type Level = "customer" | "group";
+type Row = GroupRow & { id: string; grp: string; cname: string; branch: string; pss: string; katype: string; pkind: string; kaList: string[] };
 type RowM = Row & { qty_period: number; share_den: number };
 type SortKey = keyof RowM;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
@@ -42,10 +44,24 @@ const METRIC_COLS: ColDef[] = [
 const LABEL_COLS: ColDef[] = [
   { key: "grp", label: "Customer Group", kind: "text", width: 32 },
   { key: "katype", label: "KA Type", kind: "text", width: 24 },
+  { key: "cname", label: "Customer Name", kind: "text", width: 36 },
+  { key: "branch", label: "Branch", kind: "text", width: 18 },
+  { key: "pss", label: "PSS", kind: "text", width: 22 },
   { key: "pkind", label: "Harga", kind: "text", width: 16 }
 ];
 
 const normGroup = (g: string | null | undefined) => (g || "").trim().toUpperCase();
+const normText = (v: string | null | undefined) => (v || "").trim().toUpperCase();
+/** Daftar nilai terbanyak dulu, dipotong supaya sel tabel tidak melebar. */
+const topList = (m: Map<string, number>, max = 3): string => {
+  const arr = Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (arr.length === 0) return "";
+  const head = arr.slice(0, max).map(([k]) => k).join(", ");
+  return arr.length > max ? `${head} +${arr.length - max}` : head;
+};
+const addCount = (m: Map<string, number>, k: string, n = 1) => {
+  if (k) m.set(k, (m.get(k) || 0) + n);
+};
 const tierRank = (t: string) => {
   const i = CUSTOMER_TIER_OPTIONS.indexOf(t as (typeof CUSTOMER_TIER_OPTIONS)[number]);
   return i === -1 ? 999 : i;
@@ -65,9 +81,13 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [fModel, setFModel] = useState<string[]>([]);
   const [fPartName, setFPartName] = useState<string[]>([]);
   const [cGroup, setCGroup] = useState<string[]>([]);
+  const [cName, setCName] = useState<string[]>([]); // Customer Name
+  const [cBranch, setCBranch] = useState<string[]>([]); // Branch (cabang Master Customer / branch Data UIO)
+  const [cPss, setCPss] = useState<string[]>([]); // PSS
   const [cKa, setCKa] = useState<string[]>([]); // KA Type (KA NASIONAL, KA BRANCH GOLD, NKA, dst)
   const [cPrice, setCPrice] = useState<string[]>([]); // Contract (SCPL) / Non Contract
 
+  const [level, setLevel] = useState<Level>("customer");
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -88,25 +108,41 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     ).sort();
   }, [data.parts, fProduct, fModel]);
 
-  // ---- Daftar Customer Group: gabungan Master Customer, Data UIO, dan Actual Sales tahunan ----
+  // ---- Daftar Customer: gabungan Master Customer, Data UIO, dan Actual Sales tahunan ----
+  // Dibangun per Customer (Group + Nama). Tampilan per Customer Group dibuat dengan menggabungkan customer-nya.
   type GInfo = {
     key: string;
-    name: string;
+    name: string; // Customer Group
+    custName: string; // Customer Name ("" kalau entitas gabungan group)
     custNames: Set<string>;
     tiers: Set<string>; // dari Master Customer
     kaAmount: Map<string, number>; // KA Type dari laporan Actual Sales -> total nilai
     actual: Map<number, number>; // tahun -> Rp
     units: UioUnit[];
+    branches: Map<string, number>; // Branch -> bobot (Master Customer = 1000, tiap unit UIO = 1)
+    pssNames: Map<string, number>;
   };
-  const groups = useMemo(() => {
+  const custEntities = useMemo(() => {
     const m = new Map<string, GInfo>();
-    const get = (raw: string, fallbackName: string) => {
-      const name = (raw || fallbackName || "").trim();
-      const key = normGroup(name);
-      if (!key) return null;
+    const get = (rawGroup: string, rawName: string) => {
+      const group = (rawGroup || "").trim();
+      const name = (rawName || "").trim();
+      if (!group && !name) return null;
+      const key = custKey(group || name, name);
       let g = m.get(key);
       if (!g) {
-        g = { key, name, custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), units: [] };
+        g = {
+          key,
+          name: group || name,
+          custName: name,
+          custNames: new Set(name ? [normGroup(name)] : []),
+          tiers: new Set(),
+          kaAmount: new Map(),
+          actual: new Map(),
+          units: [],
+          branches: new Map(),
+          pssNames: new Map()
+        };
         m.set(key, g);
       }
       return g;
@@ -114,17 +150,20 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     customers.forEach((c) => {
       const g = get(c.customer_group || "", c.customer_name || "");
       if (!g) return;
-      if (c.customer_name) g.custNames.add(normGroup(c.customer_name));
       if (c.tier) g.tiers.add(c.tier.trim().toUpperCase());
+      addCount(g.branches, normText(c.cabang), 1000);
+      addCount(g.pssNames, normText(c.pss), 1000);
     });
     data.uioUnits.forEach((u) => {
       const g = get(u.customer_group || "", u.customer_name || "");
-      if (g) g.units.push(u);
+      if (!g) return;
+      g.units.push(u);
+      addCount(g.branches, normText(u.branch));
+      addCount(g.pssNames, normText(u.pss_name));
     });
     data.actualSalesYear.forEach((r) => {
       const g = get(r.customer_group, r.customer_name);
       if (!g) return;
-      g.custNames.add(normGroup(r.customer_name));
       g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
       if (r.ka_type) g.kaAmount.set(r.ka_type, (g.kaAmount.get(r.ka_type) || 0) + r.amount);
     });
@@ -147,21 +186,29 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     if (fromActual.length > 0) return fromActual.sort(byTier);
     return Array.from(g.tiers).sort(byTier);
   };
-  const priceKindOf = (g: GInfo) => (contractNameByKey.has(g.key) ? PRICE_CONTRACT : PRICE_NON);
+  const priceKindOf = (g: GInfo) => (contractNameByKey.has(normGroup(g.name)) ? PRICE_CONTRACT : PRICE_NON);
+  const branchOf = (g: GInfo) => Array.from(g.branches.keys());
+  const pssOf = (g: GInfo) => Array.from(g.pssNames.keys());
 
-  type CKey = "group" | "ka" | "price";
+  type CKey = "group" | "name" | "branch" | "pss" | "ka" | "price";
   const groupOpts = useMemo(() => {
-    const sel = { group: new Set(cGroup), ka: new Set(cKa), price: new Set(cPrice) };
+    const sel = { group: new Set(cGroup), name: new Set(cName), branch: new Set(cBranch), pss: new Set(cPss), ka: new Set(cKa), price: new Set(cPrice) };
     const ok = (g: GInfo, skip: CKey) =>
       (skip === "group" || sel.group.size === 0 || sel.group.has(g.name)) &&
+      (skip === "name" || sel.name.size === 0 || sel.name.has(g.custName)) &&
+      (skip === "branch" || sel.branch.size === 0 || branchOf(g).some((b) => sel.branch.has(b))) &&
+      (skip === "pss" || sel.pss.size === 0 || pssOf(g).some((p) => sel.pss.has(p))) &&
       (skip === "ka" || sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
       (skip === "price" || sel.price.size === 0 || sel.price.has(priceKindOf(g)));
     return {
-      group: uniq(groups.filter((g) => ok(g, "group")).map((g) => g.name)).sort(),
-      ka: uniq(groups.filter((g) => ok(g, "ka")).flatMap((g) => kaOf(g))).sort(byTier)
+      group: uniq(custEntities.filter((g) => ok(g, "group")).map((g) => g.name)).sort(),
+      name: uniq(custEntities.filter((g) => ok(g, "name")).map((g) => g.custName)).sort(),
+      branch: uniq(custEntities.filter((g) => ok(g, "branch")).flatMap((g) => branchOf(g))).sort(),
+      pss: uniq(custEntities.filter((g) => ok(g, "pss")).flatMap((g) => pssOf(g))).sort(),
+      ka: uniq(custEntities.filter((g) => ok(g, "ka")).flatMap((g) => kaOf(g))).sort(byTier)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, contractNameByKey, cGroup, cKa, cPrice]);
+  }, [custEntities, contractNameByKey, cGroup, cName, cBranch, cPss, cKa, cPrice]);
 
   const tahunOpts = useMemo(() => {
     const ys = new Set<string>(state.options.tahun);
@@ -195,10 +242,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   };
 
   const hasFilter =
-    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cGroup.length + cKa.length + cPrice.length > 0;
+    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cGroup.length + cName.length + cBranch.length + cPss.length + cKa.length + cPrice.length > 0;
 
   function resetAll() {
-    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCGroup, setCKa, setCPrice].forEach((s) => s([]));
+    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCGroup, setCName, setCBranch, setCPss, setCKa, setCPrice].forEach((s) => s([]));
     setSearch("");
     setPage(1);
   }
@@ -229,17 +276,43 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model/Part.
   const comparable = fBulan.length === 0 && fProduct.length === 0 && fModel.length === 0 && fPartName.length === 0;
 
-  // ---- hitung per Customer Group (bertahap supaya halaman tetap responsif) ----
-  const [rows, setRows] = useState<Row[]>([]);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const sel = { group: new Set(cGroup), ka: new Set(cKa), price: new Set(cPrice) };
-    const selected = groups.filter(
+  // ---- entitas yang lolos filter customer; per Customer Group = gabungan customer yang lolos ----
+  const selected = useMemo<GInfo[]>(() => {
+    const sel = { group: new Set(cGroup), name: new Set(cName), branch: new Set(cBranch), pss: new Set(cPss), ka: new Set(cKa), price: new Set(cPrice) };
+    const passed = custEntities.filter(
       (g) =>
         (sel.group.size === 0 || sel.group.has(g.name)) &&
+        (sel.name.size === 0 || sel.name.has(g.custName)) &&
+        (sel.branch.size === 0 || branchOf(g).some((b) => sel.branch.has(b))) &&
+        (sel.pss.size === 0 || pssOf(g).some((p) => sel.pss.has(p))) &&
         (sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
         (sel.price.size === 0 || sel.price.has(priceKindOf(g)))
     );
+    if (level === "customer") return passed;
+    const merged = new Map<string, GInfo>();
+    passed.forEach((g) => {
+      const key = normGroup(g.name);
+      let t = merged.get(key);
+      if (!t) {
+        t = { key, name: g.name, custName: "", custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), units: [], branches: new Map(), pssNames: new Map() };
+        merged.set(key, t);
+      }
+      g.custNames.forEach((n) => t!.custNames.add(n));
+      g.tiers.forEach((x) => t!.tiers.add(x));
+      g.kaAmount.forEach((v, k) => t!.kaAmount.set(k, (t!.kaAmount.get(k) || 0) + v));
+      g.actual.forEach((v, y) => t!.actual.set(y, (t!.actual.get(y) || 0) + v));
+      g.branches.forEach((v, k) => t!.branches.set(k, (t!.branches.get(k) || 0) + v));
+      g.pssNames.forEach((v, k) => t!.pssNames.set(k, (t!.pssNames.get(k) || 0) + v));
+      t.units.push(...g.units);
+    });
+    return Array.from(merged.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [custEntities, contractNameByKey, cGroup, cName, cBranch, cPss, cKa, cPrice, level]);
+
+  // ---- hitung per baris (bertahap supaya halaman tetap responsif) ----
+  const [rows, setRows] = useState<Row[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const ctx = prepareDetailCtx(data.parts, data.uioUnits, data.priceList, [], calcFilters);
@@ -255,19 +328,31 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         const actual = refYear !== null ? g.actual.get(refYear) || 0 : 0;
         if (g.units.length === 0 && actual === 0) continue;
         const nCust = g.custNames.size || 1;
-        // Grup tanpa unit UIO tidak punya Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
+        // Tanpa unit UIO tidak ada Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
         const list =
           g.units.length === 0
             ? []
             : buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
                 units: g.units,
                 tx: [],
-                priceGroup: contractNameByKey.get(g.key) || g.name,
+                priceGroup: contractNameByKey.get(normGroup(g.name)) || g.name,
                 ctx
               });
         const agg = aggregateGroup(g.name, nCust, list);
         const ka = kaOf(g);
-        out.push({ ...agg, actual_sales: actual, id: g.key, grp: g.name, katype: ka.join(", "), kaList: ka, pkind: priceKindOf(g) });
+        const cname = level === "customer" ? g.custName : nCust > 1 ? `${nCust.toLocaleString("id-ID")} customer` : Array.from(g.custNames)[0] || "";
+        out.push({
+          ...agg,
+          actual_sales: actual,
+          id: g.key,
+          grp: g.name,
+          cname,
+          branch: topList(g.branches),
+          pss: topList(g.pssNames),
+          katype: ka.join(", "),
+          kaList: ka,
+          pkind: priceKindOf(g)
+        });
       }
       if (i < selected.length) timers.push(setTimeout(step, 0));
       else {
@@ -281,7 +366,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       timers.forEach(clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, contractNameByKey, cGroup, cKa, cPrice, data, calcFilters, refYear]);
+  }, [selected, contractNameByKey, data, calcFilters, refYear, level]);
 
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
@@ -352,8 +437,12 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     add("Model unit", fModel);
     add("Part name", fPartName);
     add("Customer Group", cGroup);
+    add("Customer Name", cName);
+    add("Branch", cBranch);
+    add("PSS", cPss);
     add("KA Type", cKa);
     add("Harga", cPrice);
+    parts.push(`Tampilan: per ${level === "customer" ? "Customer" : "Customer Group"}`);
     if (refYear !== null) parts.push(`Tahun acuan: ${refYear}${isYtd ? ` (Actual sampai ${ytdMonth})` : ""}`);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
     return parts.join(" | ");
@@ -392,7 +481,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       };
       const totalRow = toRow({ ...total });
       totalRow[String(LABEL_COLS[0].key)] = "TOTAL";
-      await exportSummaryTableToExcel("Customer Group", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
+      await exportSummaryTableToExcel(level === "customer" ? "Customer" : "Customer Group", ecols, sorted.map((r) => toRow(r as unknown as Record<string, unknown>)), totalRow, filterNote());
     } finally {
       setExporting(false);
     }
@@ -432,6 +521,21 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
           <MultiSelectField label="Part name" values={fPartName} options={partNameOpts} onChange={wrap(setFPartName)} />
           <MultiSelectField label="Customer Group" values={cGroup} options={groupOpts.group} onChange={wrap(setCGroup)} />
+          <MultiSelectField label="Customer Name" values={cName} options={groupOpts.name} onChange={wrap(setCName)} />
+          <MultiSelectField
+            label="Branch"
+            values={cBranch}
+            options={groupOpts.branch}
+            onChange={wrap(setCBranch)}
+            info="Cabang customer: dari Master Customer, atau dari kolom Branch di Data UIO kalau Master Customer belum terisi. Customer yang punya unit di cabang terpilih ikut dihitung penuh."
+          />
+          <MultiSelectField
+            label="PSS"
+            values={cPss}
+            options={groupOpts.pss}
+            onChange={wrap(setCPss)}
+            info="PSS dari Master Customer, atau dari kolom Pss Name di Data UIO kalau Master Customer belum terisi."
+          />
           <MultiSelectField
             label="KA Type"
             values={cKa}
@@ -452,8 +556,24 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       {/* BOX 2 — Tabel summary */}
       <div className="panel">
         <div className="panel-head">
-          <h2>Summary per Customer Group</h2>
+          <h2>Summary per {level === "customer" ? "Customer" : "Customer Group"}</h2>
           <div className="panel-tools">
+            <span className="detail-filters-info">Tampilkan per</span>
+            {(["customer", "group"] as Level[]).map((l) => (
+              <button
+                key={l}
+                type="button"
+                className="btn btn-ghost"
+                style={level === l ? { fontWeight: 700, borderColor: "var(--brand, #0f4c81)" } : undefined}
+                aria-pressed={level === l}
+                onClick={() => {
+                  setLevel(l);
+                  setPage(1);
+                }}
+              >
+                {l === "customer" ? "Customer" : "Customer Group"}
+              </button>
+            ))}
             <button
               type="button"
               className="btn btn-ghost"
@@ -465,7 +585,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             </button>
             <input
               className="search-input"
-              placeholder="Cari customer group…"
+              placeholder="Cari customer, group, branch, PSS…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
