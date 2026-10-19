@@ -7,6 +7,7 @@ import {
   type ActualSalesRow,
   type ActualSalesTx,
   type UioUnit,
+  type ActualSalesYear,
   type PriceListEntry,
   MONTH_ORDER,
   CUST_BRAND_MAP
@@ -513,7 +514,7 @@ export function computePartMarketSize(input: {
   return { qty, amount: input.price * qty };
 }
 
-function buildPriceResolver(priceList: PriceListEntry[]) {
+export function buildPriceResolver(priceList: PriceListEntry[]) {
   const idx = new Map<string, number>();
   priceList.forEach((p) => idx.set(`${p.part_number}|${p.customer_group || ""}`, p.price));
   return (partNumber: string | null, customerGroup: string, fallback: number): number => {
@@ -900,6 +901,42 @@ export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]
   return out;
 }
 
+/** Actual Sales dari laporan tahunan (actual_sales_year): total Rp per tahun sesuai filter
+ * Customer Group / Name / Area / PSS / Sector / KA Type. Filter Bulan, Product, Model dan Part
+ * tidak bisa diterapkan (laporan tidak punya rincian itu) — pemanggil menandainya "tidak sebanding". */
+export function actualYearTotals(rows: ActualSalesYear[], f: FilterState, customers?: Customer[]): Map<number, number> {
+  const out = new Map<number, number>();
+  const keys = buildUnitScopeKeys(customers, { ...EMPTY_FILTERS, area: f.area, pss: f.pss, sector: f.sector });
+  const groups = f.customerGroup.length > 0 ? new Set(f.customerGroup.map((g) => g.trim().toUpperCase())) : null;
+  const names = f.customerName.length > 0 ? new Set(f.customerName.map((g) => g.trim().toUpperCase())) : null;
+  const tiers = f.tier.length > 0 ? new Set(f.tier.map((g) => g.trim().toUpperCase())) : null;
+  rows.forEach((r) => {
+    if (groups && !groups.has(r.customer_group.trim().toUpperCase())) return;
+    if (names && !names.has(r.customer_name.trim().toUpperCase())) return;
+    if (tiers && !tiers.has((r.ka_type || "").trim().toUpperCase())) return;
+    if (keys.areaKeys || keys.otherKeys) {
+      const ck = custKey(r.customer_group, r.customer_name);
+      if (keys.areaKeys && !keys.areaKeys.has(ck)) return;
+      if (keys.otherKeys && !keys.otherKeys.has(ck)) return;
+    }
+    out.set(r.year, (out.get(r.year) || 0) + (r.amount || 0));
+  });
+  return out;
+}
+
+/** Bulan yang tercakup data Actual tahunan: tahun terbaru biasanya YTD (Januari–bulan terakhir), tahun lain penuh. */
+export function yearlyCoverage(rows: ActualSalesYear[], ytdYear: number | null, ytdMonth: string | null): Map<number, Set<string>> {
+  const cov = new Map<number, Set<string>>();
+  const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
+  rows.forEach((r) => {
+    if (cov.has(r.year)) return;
+    const n = r.year === ytdYear && ytdIdx >= 0 ? ytdIdx + 1 : 12;
+    cov.set(r.year, new Set(MONTH_ORDER.slice(0, n)));
+  });
+  return cov;
+}
+
+
 export type MarketSizeYearRow = {
   year: number;
   /** Market Size (Rp) untuk periode yang sama dengan Actual Sales. */
@@ -910,6 +947,8 @@ export type MarketSizeYearRow = {
   actual_qty: number;
   /** Jumlah bulan yang dibandingkan di tahun ini (12 = setahun penuh). */
   period_months: number;
+  /** false = Actual Sales tahunan tidak bisa dipecah sesuai filter (Bulan/Product/Model/Part), jadi tidak dibandingkan. */
+  actual_comparable?: boolean;
 };
 
 /** Market Size per tahun = jumlah (Price × ROUND(Annual HM ÷ Frekuensi ganti
@@ -925,10 +964,17 @@ export function marketSizeByYear(
   actualSales: ActualSalesRow[],
   actualTx: ActualSalesTx[],
   f: FilterState = EMPTY_FILTERS,
-  customers?: Customer[]
+  customers?: Customer[],
+  /** Laporan Actual Sales tahunan (kalau ada, dipakai menggantikan Actual lama/dummy). */
+  actualYear: ActualSalesYear[] = [],
+  ytd: { year: number | null; month: string | null } = { year: null, month: null }
 ): MarketSizeYearRow[] {
-  const actual = actualByYear(actualSales, actualTx, f, customers, parts);
-  const cov = actualCoverage(actualSales, actualTx);
+  const useYearly = actualYear.length > 0;
+  const yearlyOk = f.bulan.length === 0 && f.product.length === 0 && f.modelUnit.length === 0 && f.partNumber.length === 0 && f.partName.length === 0;
+  const yearlyTotals = useYearly ? actualYearTotals(actualYear, f, customers) : null;
+  const actual = useYearly ? new Map<number, ActualAgg>() : actualByYear(actualSales, actualTx, f, customers, parts);
+  if (yearlyTotals && yearlyOk) yearlyTotals.forEach((amount, y) => actual.set(y, { amount, qty: 0 }));
+  const cov = useYearly ? yearlyCoverage(actualYear, ytd.year, ytd.month) : actualCoverage(actualSales, actualTx);
   const datedYears = uioYearsAvailable(uioUnits);
   let years = Array.from(new Set([...datedYears, ...Array.from(cov.keys())])).sort((a, b) => a - b);
   if (f.tahun.length > 0) {
@@ -990,7 +1036,8 @@ export function marketSizeByYear(
       market_qty: Math.round(totalQty * factor),
       actual_sales: Math.round(a?.amount || 0),
       actual_qty: Math.round(a?.qty || 0),
-      period_months: months
+      period_months: months,
+      actual_comparable: useYearly ? yearlyOk : true
     };
   });
 }
