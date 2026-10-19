@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { DashboardData } from "@/lib/types";
 import { useDashboardState } from "@/hooks/useDashboardState";
 import { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
-import { useTheme } from "@/hooks/useTheme";
+import { useTheme } from "@/hooks/useTheme"; 
 import Topbar, { type Tab } from "@/components/Topbar";
 import FilterBar from "@/components/FilterBar";
 import KpiCards from "@/components/KpiCards";
