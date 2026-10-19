@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import "./hierarchy.css";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { fmtIDRFull, fmtInt, resolveUioYears } from "@/lib/calculations";
 import {
@@ -299,7 +300,9 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
           <>
             {!actualOk && (
               <div className="hier-note">
-                {!yearHasActual
+                {data.actualSalesYear.length === 0
+                  ? "Laporan Actual Sales tahunan belum diupload (menu ⭱ Upload → slot 1), jadi kolom Actual tidak diisi."
+                  : !yearHasActual
                   ? `Laporan Actual Sales belum punya data tahun ${refYear}, jadi kolom Actual tidak diisi.`
                   : "Laporan Actual Sales berupa total setahun per customer, jadi tidak bisa dibandingkan saat filter Bulan / Product / Model / Part dipakai — kolom Actual tidak diisi."}
               </div>
