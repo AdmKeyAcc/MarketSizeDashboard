@@ -5,11 +5,10 @@ import {
   downloadUioTemplate,
   downloadContractPriceTemplate,
   downloadNonContractPriceTemplate,
-  downloadMasterPartTemplate,
-  downloadActualSalesTemplate
+  downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
-import { uploadMasterPart, uploadActualSales } from "@/lib/parse/uploadChunked";
-import type { DataMeta } from "@/lib/types";
+import { uploadMasterPart, uploadActualSalesYear } from "@/lib/parse/uploadChunked";
+import { MONTH_ORDER, type DataMeta } from "@/lib/types";
 
 type SlotStatus = { text: string; ok: boolean } | null;
 type Result = { ok: boolean; message: any };
@@ -48,6 +47,7 @@ function Slot({
   busy,
   onPick,
   onTemplate,
+  extra,
   accept = ".xlsx,.xls"
 }: {
   title: string;
@@ -58,7 +58,8 @@ function Slot({
   status: SlotStatus;
   busy: boolean;
   onPick: (file: File) => void;
-  onTemplate: () => void;
+  onTemplate?: () => void;
+  extra?: React.ReactNode;
   accept?: string;
 }) {
   return (
@@ -70,6 +71,7 @@ function Slot({
           ? `✓ Sudah ada ${fmt(count)} ${countUnit}${lastFile ? ` · upload terakhir: ${lastFile}` : ""}`
           : "● Belum ada data"}
       </div>
+      {extra}
       <div className="upload-row">
         <input
           type="file"
@@ -82,9 +84,11 @@ function Slot({
             e.target.value = "";
           }}
         />
-        <button className="link-btn" onClick={onTemplate}>
-          Unduh template
-        </button>
+        {onTemplate && (
+          <button className="link-btn" onClick={onTemplate}>
+            Unduh template
+          </button>
+        )}
       </div>
       {status && <div className={"upload-status " + (status.ok ? "ok" : "err")}>{status.text}</div>}
     </div>
@@ -110,6 +114,8 @@ export default function UploadModal({
   const [stContract, setStContract] = useState<SlotStatus>(null);
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
   const [masterOpen, setMasterOpen] = useState(false);
+  // Data tahun terbaru di laporan Actual Sales biasanya belum setahun penuh (YTD).
+  const [ytdMonth, setYtdMonth] = useState<string>(MONTH_ORDER[new Date().getMonth()]);
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
@@ -154,25 +160,39 @@ export default function UploadModal({
         <div className="upload-group-title">Data rutin</div>
 
         <Slot
-          title="1. Data Actual Sales"
+          title="1. Actual Sales — laporan penjualan tahunan per customer"
           hint={
             <>
-              Kolom: Tahun, Bulan, Customer Group, Customer Name, Product, Model Unit,
-              Part Number, Part Name, Qty, Amount (Rp).
+              Laporan 3 tingkat <b>KA Type → Customer Group → Customer</b> dengan satu kolom nilai (Rp) per tahun (2018,
+              2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
+              apa adanya. Upload ini <b>mengganti seluruh</b> data Actual Sales sebelumnya.
             </>
           }
           count={counts.actualSales}
-          countUnit="baris transaksi"
-          lastFile={meta.actual_sales_filename}
+          countUnit="baris (customer × tahun)"
+          lastFile={meta.actual_year_filename}
           status={stSales}
           busy={busy}
+          extra={
+            <label className="upload-ytd">
+              Data tahun terbaru sampai bulan:{" "}
+              <select value={ytdMonth} onChange={(e) => setYtdMonth(e.target.value)} disabled={busy}>
+                {MONTH_ORDER.map((m) => (
+                  <option key={m} value={m}>
+                    {m === "Desember" ? "Desember (setahun penuh)" : m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          }
           onPick={(f) =>
-            run(setStSales, () => uploadActualSales(f, (t) => setStSales({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} baris untuk ${j.periods} periode (bulan/tahun) disimpan.${skippedText(j)}`
+            run(setStSales, () => uploadActualSalesYear(f, ytdMonth, (t) => setStSales({ text: t, ok: true })), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} baris (${fmt(j.customers)} customer, ${fmt(j.groups)} grup, tahun ${Math.min(...j.years)}–${j.latestYear}). Data ${j.latestYear} dianggap sampai ${ytdMonth}.${
+                j.totalDiff > 0 ? ` ⚠ Jumlah customer berbeda Rp ${fmt(j.totalDiff)} dari GRAND TOTAL.` : ""
+              }`
             )
           }
-          onTemplate={downloadActualSalesTemplate}
-          accept=".xlsx,.xls,.csv"
+          accept=".xlsx,.xls"
         />
 
         <Slot
