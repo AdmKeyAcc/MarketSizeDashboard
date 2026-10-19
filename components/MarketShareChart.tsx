@@ -12,7 +12,7 @@ ChartJS.register(CategoryScale, LinearScale, LineElement, LineController, PointE
 const FALLBACK = { ink: "#47566A", green: "#227A46", border: "#DCE2E9", surface: "#FFFFFF" };
 
 export default function MarketShareChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { marketShareYearRows } = state;
+  const { marketShareYearRows, marketSizeYearRows } = state;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -25,6 +25,7 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
     });
   }, [theme]);
 
+  const hasActual = marketSizeYearRows.some((r) => r.actual_sales > 0);
   const labels = marketShareYearRows.map((r) => String(r.year));
   const values = marketShareYearRows.map((r) => r.market_share * 100);
 
@@ -36,7 +37,13 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
           <span className="info-dot" title="Market share = Actual Sales ÷ Market Size (persentase), untuk periode yang sama.">i</span>
         </h2>
       </div>
-      {labels.length === 0 ? (
+      {labels.length > 0 && !hasActual ? (
+        <div className="empty-hint" style={{ margin: 0 }}>
+          {marketSizeYearRows.some((r) => r.actual_comparable === false)
+            ? "Actual Sales berupa total tahunan per customer, jadi Market Share tidak bisa dihitung saat filter Bulan / Product / Model / Part dipakai."
+            : "Belum ada data Actual Sales untuk filter ini, jadi Market Share belum bisa dihitung."}
+        </div>
+      ) : labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
           Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Share per tahun belum bisa dihitung.
         </div>
