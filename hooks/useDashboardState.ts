@@ -22,7 +22,7 @@ import {
   marketShareByYear,
   findPartsWithoutPrice
 } from "@/lib/calculations";
-import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type DashboardData } from "@/lib/types";
+import { MONTH_ORDER, type DashboardData } from "@/lib/types";
 
 export function useDashboardState(initialData: DashboardData) {
   const [data, setData] = useState<DashboardData>(initialData);
@@ -121,14 +121,11 @@ export function useDashboardState(initialData: DashboardData) {
     const sectorOpts = uniq(realCustomers.flatMap((c) => c.customer_sector || [])).sort();
     const pssOpts = uniq(realCustomers.map((c) => c.pss)).sort();
     const groupOpts = uniq(realCustomers.map((c) => c.customer_group)).sort();
-    const tierOpts = uniq([...realCustomers.map((c) => c.tier), ...data.actualSalesYear.map((r) => r.ka_type)]).sort((a, b) => {
-      const ia = CUSTOMER_TIER_OPTIONS.indexOf(a as (typeof CUSTOMER_TIER_OPTIONS)[number]);
-      const ib = CUSTOMER_TIER_OPTIONS.indexOf(b as (typeof CUSTOMER_TIER_OPTIONS)[number]);
-      if (ia === -1 && ib === -1) return a.localeCompare(b);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
-    });
+    // KA Type: lima nilai baku (urutan seperti laporan Actual vs Plan), selalu
+    // tampil walau datanya belum ada; nilai lain dari data ditaruh setelahnya.
+    const KA_TYPE_ORDER = ["KA NASIONAL", "KA BRANCH PLATINUM", "KA BRANCH GOLD", "NKA", "DEALER"];
+    const kaFromData = uniq([...realCustomers.map((c) => c.tier), ...data.actualSalesYear.map((r) => r.ka_type)].map((v) => (v || "").trim().toUpperCase()));
+    const tierOpts = [...KA_TYPE_ORDER, ...kaFromData.filter((v) => v && !KA_TYPE_ORDER.includes(v))];
 
     let custPool = realCustomers;
     if (filters.customerGroup.length > 0) custPool = custPool.filter((c) => filters.customerGroup.includes(c.customer_group || ""));
