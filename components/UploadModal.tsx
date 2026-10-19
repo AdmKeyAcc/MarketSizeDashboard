@@ -163,8 +163,8 @@ export default function UploadModal({
           title="1. Actual Sales — laporan penjualan tahunan per customer"
           hint={
             <>
-              Laporan 3 tingkat <b>KA Type → Customer Group → Customer</b> dengan satu kolom nilai (Rp) per tahun (2018,
-              2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
+              Laporan 2 tingkat <b>Customer Group → Customer</b> (atau 3 tingkat dengan <b>KA Type</b> di atasnya) dengan satu
+              kolom nilai (Rp) per tahun (2018, 2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
               apa adanya. Upload ini <b>mengganti seluruh</b> data Actual Sales sebelumnya.
             </>
           }
