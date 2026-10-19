@@ -51,13 +51,13 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         {activeTab === "dashboard" ? (
           <section className="view">
             <KpiCards state={state} />
+            <UioChart state={state} theme={theme} />
+            <UioDetailTable state={state} />
             <div className="charts-row2">
               <MarketSizeChart state={state} theme={theme} />
               <MarketShareChart state={state} theme={theme} />
             </div>
             <HierarchyTable state={state} />
-            <UioChart state={state} theme={theme} />
-            <UioDetailTable state={state} />
           </section>
         ) : activeTab === "summary" ? (
           <section className="view">
