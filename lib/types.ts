@@ -160,7 +160,21 @@ export type ActualSalesTx = {
   amount: number;
 };
 
+/** Actual Sales tahunan per customer (tabel actual_sales_year), dari laporan 3 tingkat
+ * KA Type -> Customer Group -> Customer. Tanpa bulan / product / part. */
+export type ActualSalesYear = {
+  year: number;
+  ka_type: string | null;
+  customer_group: string;
+  customer_name: string;
+  amount: number;
+};
+
 export type DataMeta = {
+  /** Data tahun terbaru di Actual Sales tahunan baru sampai bulan ini (null = setahun penuh). */
+  actual_year_ytd_year?: number | null;
+  actual_year_ytd_month?: string | null;
+  actual_year_filename?: string | null;
   kalkulator_updated_at: string | null;
   kalkulator_filename: string | null;
   customers_updated_at: string | null;
@@ -181,6 +195,8 @@ export type DashboardData = {
   actualSales: ActualSalesRow[];
   /** Actual Sales per transaksi/part; kosong kalau tabel actual_sales_tx belum diisi. */
   actualSalesTx: ActualSalesTx[];
+  /** Actual Sales tahunan per customer; kosong kalau belum di-upload. */
+  actualSalesYear: ActualSalesYear[];
   uioUnits: UioUnit[];
   priceList: PriceListEntry[];
   meta: DataMeta;
