@@ -7,7 +7,7 @@ import {
   downloadNonContractPriceTemplate,
   downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
-import { uploadMasterPart, uploadActualSalesYear } from "@/lib/parse/uploadChunked";
+import { uploadMasterPart, uploadActualSalesYear, uploadUioUnits } from "@/lib/parse/uploadChunked";
 import { MONTH_ORDER, type DataMeta } from "@/lib/types";
 
 type SlotStatus = { text: string; ok: boolean } | null;
@@ -209,8 +209,10 @@ export default function UploadModal({
           status={stUio}
           busy={busy}
           onPick={(f) =>
-            run(setStUio, () => uploadFile("/api/upload/uio-units", f), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} baris unit terbaca (sheet "${j.sheet}").${skippedText(j)}`
+            run(setStUio, () => uploadUioUnits(f, (t) => setStUio({ text: t, ok: true })), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} unit disimpan (sheet "${j.sheet}"). Nama customer: ${fmt(j.exact)} sudah cocok, ${fmt(j.remapped)} disamakan dengan Master Customer, ${fmt(j.unmatched)} tidak ditemukan di master.${
+                j.returns ? ` ${fmt(j.returns)} baris retur dibuang.` : ""
+              }${j.beforeMinYear ? ` ${fmt(j.beforeMinYear)} unit sebelum ${j.minYear} dilewati.` : ""}${skippedText(j)} Upload ini mengganti seluruh Data UIO sebelumnya.`
             )
           }
           onTemplate={downloadUioTemplate}
