@@ -6,6 +6,8 @@
 import { parseMasterPartFile, parseActualSalesTxFile, parseActualSalesYearFile, UploadParseError } from "@/lib/parse/uploadClient";
 
 const CHUNK = 2000;
+/** Data UIO dibaca mulai tahun ini saja (populasi sebelum 2018 diabaikan). */
+const UIO_MIN_YEAR = 2018;
 
 type Result = { ok: boolean; message: any };
 
@@ -88,6 +90,56 @@ export async function uploadActualSalesYear(
         years: parsed.years,
         latestYear,
         totalDiff: parsed.totalDiff
+      }
+    };
+  } catch (err) {
+    return { ok: false, message: errMessage(err) };
+  }
+}
+
+/**
+ * Upload Data UIO: file dibaca di browser (bisa puluhan ribu baris / belasan MB, melewati batas request Vercel),
+ * nama customer disamakan dengan Master Customer, lalu dikirim per potongan. Mengganti seluruh isi Data UIO.
+ */
+export async function uploadUioUnits(file: File, onProgress?: (text: string) => void): Promise<Result> {
+  try {
+    onProgress?.("Membaca file (bisa beberapa puluh detik)…");
+    const XLSX = await import("@e965/xlsx");
+    const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR });
+
+    onProgress?.("Menyamakan nama customer dengan Master Customer…");
+    const { supabaseBrowser } = await import("@/lib/supabase/client");
+    const canon: { customer_group: string | null; customer_name: string | null }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabaseBrowser.from("customers").select("customer_group, customer_name").range(from, from + 999);
+      if (error) throw new Error("Gagal membaca Master Customer: " + error.message);
+      canon.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    const mapped = canonicalizeUnits(parsed.rows, canon);
+
+    const url = "/api/upload/uio-units-chunk";
+    await post(url, { action: "start", replace: true });
+    for (let i = 0; i < mapped.rows.length; i += CHUNK) {
+      onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
+      await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name });
+    }
+    await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName });
+    return {
+      ok: true,
+      message: {
+        rowCount: mapped.rows.length,
+        skipped: parsed.skipped,
+        returns: parsed.returns,
+        beforeMinYear: parsed.beforeMinYear,
+        minYear: UIO_MIN_YEAR,
+        sheet: parsed.sheetName,
+        exact: mapped.exact,
+        remapped: mapped.remapped,
+        unmatched: mapped.unmatched
       }
     };
   } catch (err) {
