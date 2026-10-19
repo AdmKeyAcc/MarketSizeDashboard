@@ -322,7 +322,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
             )}
             {actualOk && noPath && (
               <div className="hier-note">
-                Actual Sales hanya tersedia sampai level customer (Area, PSS, KA Type, Group, Customer). Level Product / Model hanya menampilkan Market Size.
+                Actual Sales hanya tersedia sampai level customer (Branch, PSS, KA Type, Group, Customer). Level Product / Model hanya menampilkan Market Size.
               </div>
             )}
             <div className="ht-scroll" style={{ fontSize: `${(14 * zoom) / 100}px` }}>
