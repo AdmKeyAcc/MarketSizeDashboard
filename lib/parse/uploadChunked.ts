@@ -67,7 +67,6 @@ export async function uploadActualSales(file: File, onProgress?: (text: string) 
 
 export async function uploadActualSalesYear(
   file: File,
-  ytdMonth: string,
   onProgress?: (text: string) => void
 ): Promise<Result> {
   try {
@@ -92,6 +91,11 @@ export async function uploadActualSalesYear(
     }
     const url = "/api/upload/actual-sales-year";
     const latestYear = Math.max(...parsed.years);
+    // Bulan data tahun terbaru dibaca otomatis: tanggal di nama file (mis. Laporan_Sales_2026-10-20.xlsx), kalau tidak ada pakai tanggal hari ini.
+    const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    const dm = /(\d{4})[-_.](\d{2})[-_.](\d{2})/.exec(file.name);
+    const ref = dm ? { y: Number(dm[1]), m: Number(dm[2]) - 1 } : { y: new Date().getFullYear(), m: new Date().getMonth() };
+    const ytdMonth = latestYear < ref.y ? "Desember" : BULAN[Math.min(Math.max(ref.m, 0), 11)];
     await post(url, { action: "start" });
     for (let i = 0; i < parsed.rows.length; i += CHUNK) {
       onProgress?.(`Mengirim ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris…`);
@@ -108,6 +112,7 @@ export async function uploadActualSalesYear(
         products: parsed.products,
         years: parsed.years,
         latestYear,
+        ytdMonth,
         totalDiff: parsed.totalDiff
       }
     };
