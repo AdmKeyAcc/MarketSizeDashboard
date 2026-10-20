@@ -259,6 +259,8 @@ export async function parseActualSalesTxFile(file: File): Promise<ActualTxParse>
 export type ActualYearRow = {
   year: number;
   ka_type: string;
+  /** Product (canonical) — hanya ada kalau laporan yang diupload per Product. */
+  product?: string;
   customer_group: string;
   customer_name: string;
   amount: number;
@@ -268,6 +270,9 @@ export type ActualYearParse = {
   years: number[];
   groups: number;
   customers: number;
+  /** "product" = laporan Product > Customer Group > Customer; "ka" = laporan KA Type (atau 2 tingkat). */
+  kind: "ka" | "product";
+  products: number;
   /** Selisih terbesar (Rp) antara jumlah baris customer dan baris GRAND TOTAL; 0 = cocok. */
   totalDiff: number;
   sheet: string;
@@ -311,6 +316,19 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
     if (text((row || [])[0])) maxLevel = Math.max(maxLevel, best!.levels[r] ?? 0);
   });
   const twoLevel = maxLevel <= 1;
+  // Tingkat teratas berisi KA Type atau Product? Kalau semua nama tingkat teratas adalah KA Type yang dikenal → laporan KA.
+  const KA_NAMES = new Set(["KA NASIONAL", "KA BRANCH PLATINUM", "KA BRANCH GOLD", "NKA", "DEALER", "SHN"]);
+  const topNames: string[] = [];
+  if (!twoLevel) {
+    best.aoa.forEach((row, r) => {
+      if (r === 0) return; // baris judul
+      const nm = text((row || [])[0]);
+      if (nm && (best!.levels[r] ?? 0) === 0 && nm.toUpperCase() !== "GRAND TOTAL") topNames.push(nm.toUpperCase());
+    });
+  }
+  const kind: "ka" | "product" = !twoLevel && topNames.length > 0 && !topNames.every((n) => KA_NAMES.has(n)) ? "product" : "ka";
+  const productSet = new Set<string>();
+  let top = "";
 
   const rows: ActualYearRow[] = [];
   const grand = new Map<number, number>();
@@ -333,7 +351,8 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
       } else if (twoLevel) {
         grp = name;
       } else {
-        ka = name.toUpperCase();
+        if (kind === "product") top = canonicalProduct(name);
+        else ka = name.toUpperCase();
         grp = "";
       }
       continue;
@@ -349,7 +368,12 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
       const v = numOf(row[col]);
       if (!Number.isFinite(v) || v === 0) return;
       leafSum.set(year, (leafSum.get(year) || 0) + v);
-      rows.push({ year, ka_type: ka, customer_group: grp, customer_name: name, amount: v });
+      if (kind === "product") {
+        productSet.add(top);
+        rows.push({ year, ka_type: "", product: top, customer_group: grp, customer_name: name, amount: v });
+      } else {
+        rows.push({ year, ka_type: ka, customer_group: grp, customer_name: name, amount: v });
+      }
     });
   }
   if (rows.length === 0) throw new UploadParseError("Tidak ada baris customer dengan nilai penjualan.");
@@ -362,6 +386,8 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
     years: yearCols.map((y) => y.year),
     groups: groups.size,
     customers: customers.size,
+    kind,
+    products: productSet.size,
     totalDiff: Math.round(totalDiff),
     sheet: best.name
   };
