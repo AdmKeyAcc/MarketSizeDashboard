@@ -163,7 +163,8 @@ export default function UploadModal({
           title="1. Actual Sales — laporan penjualan tahunan per customer"
           hint={
             <>
-              Laporan 2 tingkat <b>Customer Group → Customer</b> (atau 3 tingkat dengan <b>KA Type</b> di atasnya) dengan satu
+              Laporan 3 tingkat <b>Product → Customer Group → Customer</b> (disarankan, supaya Actual bisa difilter per Product),
+              atau <b>KA Type → Customer Group → Customer</b>, atau 2 tingkat <b>Customer Group → Customer</b>, dengan satu
               kolom nilai (Rp) per tahun (2018, 2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
               apa adanya. Upload ini <b>mengganti seluruh</b> data Actual Sales sebelumnya.
             </>
@@ -187,7 +188,7 @@ export default function UploadModal({
           }
           onPick={(f) =>
             run(setStSales, () => uploadActualSalesYear(f, ytdMonth, (t) => setStSales({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} baris (${fmt(j.customers)} customer, ${fmt(j.groups)} grup, tahun ${Math.min(...j.years)}–${j.latestYear}). Data ${j.latestYear} dianggap sampai ${ytdMonth}.${
+              `Berhasil: ${fmt(j.rowCount)} baris (${fmt(j.customers)} customer, ${fmt(j.groups)} grup${j.kind === "product" ? `, ${fmt(j.products)} product` : ""}, tahun ${Math.min(...j.years)}–${j.latestYear}). Data ${j.latestYear} dianggap sampai ${ytdMonth}.${
                 j.totalDiff > 0 ? ` ⚠ Jumlah customer berbeda Rp ${fmt(j.totalDiff)} dari GRAND TOTAL.` : ""
               }`
             )
