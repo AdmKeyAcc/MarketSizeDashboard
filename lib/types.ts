@@ -165,6 +165,8 @@ export type ActualSalesTx = {
 export type ActualSalesYear = {
   year: number;
   ka_type: string | null;
+  /** Product (canonical) kalau laporan yang diupload per Product; null untuk laporan lama tanpa Product. */
+  product?: string | null;
   customer_group: string;
   customer_name: string;
   amount: number;
