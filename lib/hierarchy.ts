@@ -21,7 +21,7 @@ export const HIER_LABELS: Record<HierDim, string> = {
   kaType: "KA Type",
   group: "Customer Group",
   customer: "Customer Name",
-  area: "Branch",
+  area: "Area",
   pss: "PSS",
   product: "Product",
   model: "Model Unit"
@@ -30,6 +30,8 @@ export const HIER_LABELS: Record<HierDim, string> = {
 /** Dimensi yang melekat pada customer. Actual Sales (laporan per customer) hanya bisa
  * ditampilkan di level yang seluruh jalurnya terdiri dari dimensi seperti ini. */
 export const CUSTOMER_DIMS: HierDim[] = ["kaType", "group", "customer", "area", "pss"];
+/** Actual Sales juga bisa ditampilkan per Product (laporan Actual per Product), tapi tidak per Model. */
+export const isActualDim = (d: HierDim) => d === "product" || CUSTOMER_DIMS.includes(d);
 export const isCustomerDim = (d: HierDim) => CUSTOMER_DIMS.includes(d);
 
 const NO_GROUP = "(Tanpa Group)";
@@ -51,6 +53,8 @@ export type CustInfo = {
   sectors: string[];
   /** Actual Sales per tahun (Rp), dari laporan tahunan. */
   actual: Map<number, number>;
+  /** Actual Sales per Product (canonical; "" = laporan tanpa Product) lalu per tahun. */
+  actualByProduct: Map<string, Map<number, number>>;
   units: UioUnit[];
   /** Ejaan Customer Group di Data Harga (harga kontrak) kalau group ini punya harga kontrak. */
   priceGroup: string;
@@ -85,7 +89,7 @@ export function buildCustomerIndex(
     let c = m.get(key);
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", sectors: [], actual: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", sectors: [], actual: new Map(), actualByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
       m.set(key, c);
     }
     return c;
@@ -111,6 +115,10 @@ export function buildCustomerIndex(
     const c = get(r.customer_group, r.customer_name);
     if (!c) return;
     c.actual.set(r.year, (c.actual.get(r.year) || 0) + r.amount);
+    const pk = canonicalProduct(r.product);
+    let bp = c.actualByProduct.get(pk);
+    if (!bp) c.actualByProduct.set(pk, (bp = new Map()));
+    bp.set(r.year, (bp.get(r.year) || 0) + r.amount);
     if (r.ka_type) {
       let k = kaAmount.get(c.key);
       if (!k) kaAmount.set(c.key, (k = new Map()));
@@ -280,7 +288,7 @@ export function buildTree(
     const id = (parent ? parent.id + "¦" : "") + dim + ":" + label;
     let n = store.get(id);
     if (!n) {
-      const canActual = actualOk && (parent ? parent.canActual : true) && isCustomerDim(dim);
+      const canActual = actualOk && (parent ? parent.canActual : true) && isActualDim(dim);
       n = { id, label, dim, depth, ms: 0, qty: 0, uio: 0, actual: canActual ? 0 : null, canActual, children: [] };
       store.set(id, n);
       if (parent) parent.children.push(n);
@@ -288,12 +296,24 @@ export function buildTree(
     return n;
   };
   const all = new Map<string, TreeNode>();
+  const prodSet = filters.product.length > 0 ? new Set(filters.product.map((p) => canonicalProduct(p))) : null;
   let totalMs = 0, totalQty = 0, totalUio = 0, totalActual = 0, nCust = 0;
 
   custs.forEach((c) => {
     if (!customerPasses(c, filters)) return;
     const facts = factsOf(c.key) || [];
-    const actual = actualOk ? c.actual.get(year) || 0 : 0;
+    // Actual customer ini per Product (hanya Product yang dipilih di filter kalau ada).
+    const actualParts: [string, number][] = [];
+    let actual = 0;
+    if (actualOk) {
+      c.actualByProduct.forEach((byYear, pk) => {
+        if (prodSet && !prodSet.has(pk)) return;
+        const v = byYear.get(year) || 0;
+        if (v === 0) return;
+        actualParts.push([pk, v]);
+        actual += v;
+      });
+    }
     if (facts.length === 0 && actual === 0) return;
     nCust++;
     totalActual += actual;
@@ -310,17 +330,17 @@ export function buildTree(
         parent = n;
       });
     });
-    if (actual !== 0) {
+    actualParts.forEach(([pk, amount]) => {
       let parent: TreeNode | null = null;
       for (let i = 0; i < levels.length; i++) {
         const dim = levels[i];
-        if (!isCustomerDim(dim)) break;
-        const n = nodeOf(all, parent, dim, dimValue(dim, c), i);
-        n.actual = (n.actual || 0) + actual;
+        if (!isActualDim(dim)) break;
+        const n = nodeOf(all, parent, dim, dimValue(dim, c, pk ? { product: pk, model: "", ms: 0, qty: 0, uio: 0 } : undefined), i);
+        n.actual = (n.actual || 0) + amount;
         if (!parent) roots.set(n.id, n);
         parent = n;
       }
-    }
+    });
   });
   return {
     roots: Array.from(roots.values()),
