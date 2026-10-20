@@ -73,6 +73,23 @@ export async function uploadActualSalesYear(
   try {
     onProgress?.("Membaca file…");
     const parsed = await parseActualSalesYearFile(file);
+    if (parsed.kind === "product") {
+      // Laporan per Product tidak punya KA Type: isi dari Master Customer (customers.tier) per Customer Group + Customer.
+      onProgress?.("Mengisi KA Type dari Master Customer…");
+      const { supabaseBrowser } = await import("@/lib/supabase/client");
+      const tierOf = new Map<string, string>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabaseBrowser.from("customers").select("customer_group, customer_name, tier").range(from, from + 999);
+        if (error) throw new Error("Gagal membaca Master Customer: " + error.message);
+        (data || []).forEach((c: { customer_group: string | null; customer_name: string | null; tier: string | null }) => {
+          if (c.tier) tierOf.set(`${(c.customer_group || "").trim().toUpperCase()}|${(c.customer_name || "").trim().toUpperCase()}`, c.tier.trim().toUpperCase());
+        });
+        if (!data || data.length < 1000) break;
+      }
+      parsed.rows.forEach((r) => {
+        r.ka_type = tierOf.get(`${r.customer_group.trim().toUpperCase()}|${r.customer_name.trim().toUpperCase()}`) || "";
+      });
+    }
     const url = "/api/upload/actual-sales-year";
     const latestYear = Math.max(...parsed.years);
     await post(url, { action: "start" });
@@ -87,6 +104,8 @@ export async function uploadActualSalesYear(
         rowCount: parsed.rows.length,
         groups: parsed.groups,
         customers: parsed.customers,
+        kind: parsed.kind,
+        products: parsed.products,
         years: parsed.years,
         latestYear,
         totalDiff: parsed.totalDiff
