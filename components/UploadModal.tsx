@@ -8,7 +8,7 @@ import {
   downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
 import { uploadMasterPart, uploadActualSalesYear, uploadUioUnits } from "@/lib/parse/uploadChunked";
-import { MONTH_ORDER, type DataMeta } from "@/lib/types";
+import type { DataMeta } from "@/lib/types";
 
 type SlotStatus = { text: string; ok: boolean } | null;
 type Result = { ok: boolean; message: any };
@@ -115,7 +115,6 @@ export default function UploadModal({
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
   const [masterOpen, setMasterOpen] = useState(false);
   // Data tahun terbaru di laporan Actual Sales biasanya belum setahun penuh (YTD).
-  const [ytdMonth, setYtdMonth] = useState<string>(MONTH_ORDER[new Date().getMonth()]);
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
@@ -174,21 +173,9 @@ export default function UploadModal({
           lastFile={meta.actual_year_filename}
           status={stSales}
           busy={busy}
-          extra={
-            <label className="upload-ytd">
-              Data tahun terbaru sampai bulan:{" "}
-              <select value={ytdMonth} onChange={(e) => setYtdMonth(e.target.value)} disabled={busy}>
-                {MONTH_ORDER.map((m) => (
-                  <option key={m} value={m}>
-                    {m === "Desember" ? "Desember (setahun penuh)" : m}
-                  </option>
-                ))}
-              </select>
-            </label>
-          }
           onPick={(f) =>
-            run(setStSales, () => uploadActualSalesYear(f, ytdMonth, (t) => setStSales({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} baris (${fmt(j.customers)} customer, ${fmt(j.groups)} grup${j.kind === "product" ? `, ${fmt(j.products)} product` : ""}, tahun ${Math.min(...j.years)}–${j.latestYear}). Data ${j.latestYear} dianggap sampai ${ytdMonth}.${
+            run(setStSales, () => uploadActualSalesYear(f, (t) => setStSales({ text: t, ok: true })), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} baris (${fmt(j.customers)} customer, ${fmt(j.groups)} grup${j.kind === "product" ? `, ${fmt(j.products)} product` : ""}, tahun ${Math.min(...j.years)}–${j.latestYear}). Data ${j.latestYear} dianggap sampai ${j.ytdMonth} (dibaca otomatis dari tanggal di nama file / tanggal upload).${
                 j.totalDiff > 0 ? ` ⚠ Jumlah customer berbeda Rp ${fmt(j.totalDiff)} dari GRAND TOTAL.` : ""
               }`
             )
