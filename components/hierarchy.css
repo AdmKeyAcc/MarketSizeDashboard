@@ -69,9 +69,9 @@
 .ht-bar { width: 64px; height: 7px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
 .ht-bar > div { height: 100%; border-radius: 4px; background: var(--blue-600); }
 .ht-na { display: block; text-align: right; color: var(--ink-mute); }
-.ht-table tfoot td { position: sticky; bottom: 0; z-index: 2; padding: 17px 18px; background: var(--surface-3); border-top: 2px solid var(--border-strong); border-bottom: none; font-weight: 800; }
+.ht-table tfoot td { position: sticky; bottom: 0; z-index: 2; padding: 17px 18px; background-color: var(--surface-3); box-shadow: 0 -6px 10px -6px rgba(0, 0, 0, .18); border-top: 2px solid var(--border-strong); border-bottom: none; font-weight: 800; }
 .ht-table tfoot td.c-name { text-transform: uppercase; letter-spacing: .03em; }
-.ht-table tfoot td.c-ms { background: rgba(46, 113, 184, .16); }
-.ht-table tfoot td.c-act { background: rgba(34, 122, 70, .16); }
+.ht-table tfoot td.c-ms { background: linear-gradient(rgba(46, 113, 184, .16), rgba(46, 113, 184, .16)), var(--surface-3); }
+.ht-table tfoot td.c-act { background: linear-gradient(rgba(34, 122, 70, .16), rgba(34, 122, 70, .16)), var(--surface-3); }
 .ht-more td { background: var(--surface-2); }
 @media (max-width: 760px) { .hc-card { padding: 14px; } .hc-zoom input[type="range"] { width: 80px; } }
