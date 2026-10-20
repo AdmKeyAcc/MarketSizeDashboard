@@ -44,11 +44,11 @@
 
 .ht-scroll { overflow: auto; max-height: 540px; margin-top: 8px; }
 .ht-table { width: 100%; min-width: 900px; border-collapse: separate; border-spacing: 0; font-size: 13px; }
-.ht-table th { position: sticky; top: 0; z-index: 2; padding: 10px 14px; background: var(--surface-2); border-bottom: 2px solid var(--border-strong); font-size: .88em; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.ht-table th { position: sticky; top: 0; z-index: 2; padding: 10px 14px; background-color: var(--surface-2); box-shadow: 0 6px 8px -6px rgba(0, 0, 0, .18); border-bottom: 2px solid var(--border-strong); font-size: .88em; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
 .ht-table th.c-name { text-align: left; }
 .ht-table th.c-uio, .ht-table th.c-ms, .ht-table th.c-act, .ht-table th.c-var, .ht-table th.c-share { text-align: center; }
-.ht-table th.c-ms { background: rgba(46, 113, 184, .12); }
-.ht-table th.c-act { background: rgba(34, 122, 70, .12); }
+.ht-table th.c-ms { background: linear-gradient(rgba(46, 113, 184, .14), rgba(46, 113, 184, .14)), var(--surface-2); }
+.ht-table th.c-act { background: linear-gradient(rgba(34, 122, 70, .14), rgba(34, 122, 70, .14)), var(--surface-2); }
 .ht-table td { padding: 8px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ht-table .c-uio { text-align: right; color: var(--ink-mute); width: 90px; }
 .ht-table .c-ms, .ht-table .c-act, .ht-table .c-var { text-align: right; }
