@@ -6,6 +6,7 @@ import {
   EMPTY_FILTERS,
   aggregateGroup,
   buildDetailRows,
+  canonicalProduct,
   custKey,
   fmtIDRFull,
   fmtInt,
@@ -161,14 +162,17 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       addCount(g.branches, normText(u.branch));
       addCount(g.pssNames, normText(u.pss_name));
     });
+    const prodSet = fProduct.length > 0 ? new Set(fProduct.map((p) => canonicalProduct(p))) : null;
     data.actualSalesYear.forEach((r) => {
       const g = get(r.customer_group, r.customer_name);
       if (!g) return;
-      g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
       if (r.ka_type) g.kaAmount.set(r.ka_type, (g.kaAmount.get(r.ka_type) || 0) + r.amount);
+      // Filter Product: Actual hanya dari Product yang dipilih.
+      if (prodSet && !prodSet.has(canonicalProduct(r.product))) return;
+      g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
     });
     return Array.from(m.values());
-  }, [customers, data.uioUnits, data.actualSalesYear]);
+  }, [customers, data.uioUnits, data.actualSalesYear, fProduct]);
 
   // Customer Group yang punya harga kontrak (SCPL); simpan ejaan persis di Data Harga untuk pencarian harga.
   const contractNameByKey = useMemo(() => {
@@ -274,7 +278,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const actualFactor = isYtd ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1;
   const actualYearHas = refYear !== null && data.actualSalesYear.some((r) => r.year === refYear);
   // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model/Part.
-  const comparable = fBulan.length === 0 && fProduct.length === 0 && fModel.length === 0 && fPartName.length === 0;
+  const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
+  const comparable = fBulan.length === 0 && (fProduct.length === 0 || actualHasProduct) && fModel.length === 0 && fPartName.length === 0;
 
   // ---- customer yang lolos filter; tiap Customer Group = gabungan customer yang lolos ----
   const passed = useMemo<GInfo[]>(() => {
@@ -664,7 +669,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
               </>
             )}
             {!actualYearHas && refYear !== null && "Belum ada Actual Sales untuk tahun ini. "}
-            {!comparable && "Market share tidak dihitung kalau filter Bulan, Product, Model, atau Part dipilih (Actual Sales berupa total setahun semua product)."}
+            {!comparable &&
+              (actualHasProduct
+                ? "Market share tidak dihitung kalau filter Bulan, Model, atau Part dipilih (Actual Sales hanya tersedia per tahun per Product)."
+                : "Market share tidak dihitung kalau filter Bulan, Product, Model, atau Part dipilih (Actual Sales belum per Product — upload laporan Actual Sales per Product).")}
           </div>
         )}
         <div className="table-scroll">
