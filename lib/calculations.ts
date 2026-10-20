@@ -67,7 +67,10 @@ export const UIO_PRODUCT_ALIAS: Record<string, string> = {
   CNC: "CANYCOM",
   FGW: "FG WILSON",
   IRN: "IR",
-  LBT: "LINK-BELT"
+  LBT: "LINK-BELT",
+  // nama product di Laporan Sales -> kode product di Master Part / Data UIO
+  "MASSEY FERGUSON": "MF",
+  "GARDNER DENVER": "GD"
 };
 
 const canonProductCache = new Map<string, string>();
@@ -906,6 +909,7 @@ export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]
  * tidak bisa diterapkan (laporan tidak punya rincian itu) — pemanggil menandainya "tidak sebanding". */
 export function actualYearTotals(rows: ActualSalesYear[], f: FilterState, customers?: Customer[]): Map<number, number> {
   const out = new Map<number, number>();
+  const prods = f.product.length > 0 ? new Set(f.product.map((p) => canonicalProduct(p))) : null;
   const keys = buildUnitScopeKeys(customers, { ...EMPTY_FILTERS, area: f.area, pss: f.pss, sector: f.sector });
   const groups = f.customerGroup.length > 0 ? new Set(f.customerGroup.map((g) => g.trim().toUpperCase())) : null;
   const names = f.customerName.length > 0 ? new Set(f.customerName.map((g) => g.trim().toUpperCase())) : null;
@@ -914,6 +918,7 @@ export function actualYearTotals(rows: ActualSalesYear[], f: FilterState, custom
     if (groups && !groups.has(r.customer_group.trim().toUpperCase())) return;
     if (names && !names.has(r.customer_name.trim().toUpperCase())) return;
     if (tiers && !tiers.has((r.ka_type || "").trim().toUpperCase())) return;
+    if (prods && !prods.has(canonicalProduct(r.product))) return;
     if (keys.areaKeys || keys.otherKeys) {
       const ck = custKey(r.customer_group, r.customer_name);
       if (keys.areaKeys && !keys.areaKeys.has(ck)) return;
@@ -970,7 +975,9 @@ export function marketSizeByYear(
   ytd: { year: number | null; month: string | null } = { year: null, month: null }
 ): MarketSizeYearRow[] {
   const useYearly = actualYear.length > 0;
-  const yearlyOk = f.bulan.length === 0 && f.product.length === 0 && f.modelUnit.length === 0 && f.partNumber.length === 0 && f.partName.length === 0;
+  // Filter Product bisa diterapkan kalau laporan Actual diupload per Product; Bulan/Model/Part tetap tidak bisa.
+  const actualHasProduct = actualYear.some((r) => !!r.product);
+  const yearlyOk = f.bulan.length === 0 && (f.product.length === 0 || actualHasProduct) && f.modelUnit.length === 0 && f.partNumber.length === 0 && f.partName.length === 0;
   const yearlyTotals = useYearly ? actualYearTotals(actualYear, f, customers) : null;
   const actual = useYearly ? new Map<number, ActualAgg>() : actualByYear(actualSales, actualTx, f, customers, parts);
   if (yearlyTotals && yearlyOk) yearlyTotals.forEach((amount, y) => actual.set(y, { amount, qty: 0 }));
