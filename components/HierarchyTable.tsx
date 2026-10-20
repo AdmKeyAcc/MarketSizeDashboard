@@ -66,7 +66,8 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
   const isYtd = refYear !== null && refYear === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
   const yearHasActual = refYear !== null && data.actualSalesYear.some((r) => r.year === refYear);
-  const comparable = filters.bulan.length === 0 && filters.product.length === 0 && filters.modelUnit.length === 0 && filters.partNumber.length === 0 && filters.partName.length === 0;
+  const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
+  const comparable = filters.bulan.length === 0 && (filters.product.length === 0 || actualHasProduct) && filters.modelUnit.length === 0 && filters.partNumber.length === 0 && filters.partName.length === 0;
   const actualOk = yearHasActual && comparable;
   const factor = filters.bulan.length > 0 ? monthsShare(filters.bulan) : isYtd && yearHasActual ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1;
   const periodLabel =
@@ -322,7 +323,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
             )}
             {actualOk && noPath && (
               <div className="hier-note">
-                Actual Sales hanya tersedia sampai level customer (Branch, PSS, KA Type, Group, Customer). Level Product / Model hanya menampilkan Market Size.
+                Actual Sales hanya tersedia sampai level customer (Area, PSS, KA Type, Group, Customer). Level Product / Model hanya menampilkan Market Size.
               </div>
             )}
             <div className="ht-scroll" style={{ fontSize: `${(14 * zoom) / 100}px` }}>
