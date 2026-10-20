@@ -96,7 +96,7 @@ async function fetchActualSalesYear(supabase: SupabaseClient): Promise<ActualSal
       starts.slice(i, i + CONCURRENCY).map(async (from, k) => {
         const { data, error } = await supabase
           .from("actual_sales_year")
-          .select("year, ka_type, customer_group, customer_name, amount")
+          .select("year, ka_type, product, customer_group, customer_name, amount")
           .order("id", { ascending: true })
           .range(from, from + PAGE_SIZE - 1);
         if (error) throw new Error(`actual_sales_year: ${error.message}`);
