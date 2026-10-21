@@ -1,32 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import "./hierarchy.css";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import { resolveUioYears } from "@/lib/calculations";
 import {
   HIER_DIMS,
   HIER_LABELS,
-  buildCustomerIndex,
   buildTree,
-  computeCustomerFacts,
-  isCustomerDim,
-  makeFactDeps,
+  isActualDim,
+  mergeYearTrees,
   sortTree,
-  type Fact,
   type HierDim,
   type SortKey,
-  type TreeNode
+  type TreeNodeM,
+  type YearVals
 } from "@/lib/hierarchy";
 import { MONTH_ORDER } from "@/lib/types";
 import { monthsShare } from "@/lib/workdays";
 
 const MAX_LEVELS = 6;
+/** Jumlah tahun yang ditampilkan berdampingan (tahun acuan + tahun-tahun sebelumnya). */
+const WINDOW = 3;
 const CHILD_CAP = 200;
 const NONE = "";
 const DEFAULT_LEVELS: (HierDim | "")[] = ["kaType", "group", "customer", "", "", ""];
 
-type FlatRow = { node: TreeNode; hasKids: boolean } | { more: number; parent: string; depth: number };
+type FlatRow = { node: TreeNodeM; hasKids: boolean } | { more: number; parent: string; depth: number };
 
 const pct = (v: number | null) => (v === null || !Number.isFinite(v) ? "–" : `${(v * 100).toLocaleString("id-ID", { maximumFractionDigits: 1 })}%`);
 const num = (v: number | null) => (v === null || !Number.isFinite(v) ? "–" : Math.round(v).toLocaleString("id-ID"));
@@ -53,88 +53,54 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
     return out;
   }, [levels]);
 
-  // ---- tahun acuan & periode ----
+  // ---- tahun acuan & jendela 3 tahun (tahun acuan + 2 tahun sebelumnya) ----
   const refYear = useMemo(() => {
     const ys = resolveUioYears(filters, data.uioUnits);
     if (ys.length > 0) return Math.max(...ys);
     const ay = data.actualSalesYear.map((r) => r.year);
     return ay.length > 0 ? Math.max(...ay) : null;
   }, [filters, data.uioUnits, data.actualSalesYear]);
+  const years = useMemo(
+    () => (refYear === null ? [] : state.factYears.filter((y) => y <= refYear && y >= refYear - (WINDOW - 1))),
+    [refYear, state.factYears]
+  );
 
   const ytdYear = data.meta.actual_year_ytd_year ?? null;
   const ytdMonth = data.meta.actual_year_ytd_month ?? null;
   const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
-  const isYtd = refYear !== null && refYear === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
-  const yearHasActual = refYear !== null && data.actualSalesYear.some((r) => r.year === refYear);
+  const isYtdYear = (y: number) => y === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
+  const actualYears = useMemo(() => new Set(data.actualSalesYear.map((r) => r.year)), [data.actualSalesYear]);
   const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
   const comparable = filters.bulan.length === 0 && (filters.product.length === 0 || actualHasProduct) && filters.modelUnit.length === 0 && filters.partNumber.length === 0 && filters.partName.length === 0;
-  const actualOk = yearHasActual && comparable;
-  const factor = filters.bulan.length > 0 ? monthsShare(filters.bulan) : isYtd && yearHasActual ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1;
+  const actualOkOf = (y: number) => actualYears.has(y) && comparable;
+  const factorOf = (y: number) => (filters.bulan.length > 0 ? monthsShare(filters.bulan) : isYtdYear(y) && actualYears.has(y) ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1);
+  const yearLabel = (y: number) => (filters.bulan.length > 0 ? `${y} · ${filters.bulan.length} bln` : isYtdYear(y) && actualYears.has(y) ? `${y} · Jan–${(ytdMonth || "").slice(0, 3)}` : String(y));
+  const yearHasActual = refYear !== null && actualYears.has(refYear);
+  const actualOk = refYear !== null && actualOkOf(refYear);
   const periodLabel =
-    filters.bulan.length > 0
-      ? filters.bulan.join(", ")
-      : isYtd && yearHasActual
-      ? `Januari–${ytdMonth}`
-      : "setahun penuh";
+    filters.bulan.length > 0 ? filters.bulan.join(", ") : refYear !== null && isYtdYear(refYear) && yearHasActual ? `Januari–${ytdMonth}` : "setahun penuh";
 
-  // ---- customer & fakta Market Size (dihitung bertahap supaya halaman tetap responsif) ----
-  const custs = useMemo(
-    () => buildCustomerIndex(state.realCustomers, data.uioUnits, data.actualSalesYear, data.priceList),
-    [state.realCustomers, data.uioUnits, data.actualSalesYear, data.priceList]
-  );
-  const [facts, setFacts] = useState<Map<string, Fact[]>>(new Map());
-  const [progress, setProgress] = useState<number | null>(null);
+  // ---- Market Size per customer & tahun datang dari mesin hitung bersama (juga dipakai chart & KPI) ----
+  const custs = state.custIndex;
+  const facts = state.yearFacts;
+  const progress = state.factsProgress;
 
-  useEffect(() => {
-    if (refYear === null || data.parts.length === 0) {
-      setFacts(new Map());
-      setProgress(null);
-      return;
-    }
-    const deps = makeFactDeps(data.parts, data.assumptions, data.priceList, refYear, filters);
-    const withUnits = custs.filter((c) => c.units.length > 0);
-    const out = new Map<string, Fact[]>();
-    let i = 0;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    setProgress(0);
-    const step = () => {
-      if (cancelled) return;
-      const t0 = performance.now();
-      while (i < withUnits.length && performance.now() - t0 < 12) {
-        const c = withUnits[i++];
-        out.set(c.key, computeCustomerFacts(c, deps));
-      }
-      if (i < withUnits.length) {
-        setProgress(i / withUnits.length);
-        timer = setTimeout(step, 0);
-      } else {
-        setFacts(out);
-        setProgress(null);
-      }
-    };
-    timer = setTimeout(step, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // Hanya filter produk yang memengaruhi fakta; filter customer diterapkan saat membangun pohon.
+  const tree = useMemo(() => {
+    if (refYear === null || activeLevels.length === 0 || years.length === 0) return null;
+    const items = years.map((y) => ({
+      year: y,
+      actualOk: actualOkOf(y),
+      tree: buildTree(custs, (k) => facts.get(y)?.get(k), activeLevels, filters, y, factorOf(y), actualOkOf(y))
+    }));
+    return mergeYearTrees(items, refYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custs, data.parts, data.assumptions, data.priceList, refYear, filters.product, filters.modelUnit, filters.partNumber, filters.partName]);
-
-  const tree = useMemo(
-    () =>
-      refYear === null || activeLevels.length === 0
-        ? null
-        : buildTree(custs, (k) => facts.get(k), activeLevels, filters, refYear, factor, actualOk),
-    [custs, facts, activeLevels, filters, refYear, factor, actualOk]
-  );
+  }, [custs, facts, activeLevels, filters, refYear, years, actualYears, ytdYear, ytdMonth]);
 
   // ---- baris yang tampil ----
   const rows = useMemo<FlatRow[]>(() => {
     if (!tree) return [];
     const out: FlatRow[] = [];
-    const walk = (nodes: TreeNode[]) => {
+    const walk = (nodes: TreeNodeM[]) => {
       const sorted = sortTree(nodes, sortKey, sortDir);
       const cap = sorted.length > CHILD_CAP && !showAll.has(sorted[0].id.replace(/[^¦]*$/, "")) ? CHILD_CAP : sorted.length;
       sorted.slice(0, cap).forEach((n) => {
@@ -168,7 +134,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   function expandAll() {
     if (!tree) return;
     const ids = new Set<string>();
-    const walk = (ns: TreeNode[]) => ns.forEach((n) => {
+    const walk = (ns: TreeNodeM[]) => ns.forEach((n) => {
       if (n.children.length > 0) {
         ids.add(n.id);
         walk(n.children);
@@ -181,40 +147,56 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   async function download() {
     if (!tree) return;
     const XLSX = await import("@e965/xlsx");
-    const aoa: (string | number | null)[][] = [
-      [`HIERARKI (${activeLevels.map((l) => HIER_LABELS[l]).join(" > ")}) — tahun ${refYear}, periode ${periodLabel}`, "UIO (unit)", "Market Size (Rp)", "Actual (Rp)", "Variance (Rp)", "Market Share"]
-    ];
-    const push = (n: TreeNode) => {
-      const a = n.actual;
-      aoa.push([
-        "    ".repeat(n.depth) + n.label,
-        Math.round(n.uio),
-        Math.round(n.ms),
-        a === null ? null : Math.round(a),
-        a === null ? null : Math.round(a - n.ms),
-        a === null || n.ms <= 0 ? null : a / n.ms
-      ]);
+    const head: string[] = [`HIERARKI (${activeLevels.map((l) => HIER_LABELS[l]).join(" > ")})`, `UIO ${refYear} (unit)`];
+    years.forEach((y) => head.push(`Market Size ${yearLabel(y)} (Rp)`, `Actual ${yearLabel(y)} (Rp)`, `Market Share ${yearLabel(y)}`));
+    head.push(`Variance ${refYear} (Rp)`);
+    const aoa: (string | number | null)[][] = [head];
+    const cells = (v: Record<number, YearVals> | undefined, uio: number, label: string) => {
+      const row: (string | number | null)[] = [label, Math.round(uio)];
+      years.forEach((y) => {
+        const q = v?.[y];
+        const a = q ? q.actual : null;
+        row.push(q ? Math.round(q.ms) : 0, a === null ? null : Math.round(a), a === null || !q || q.ms <= 0 ? null : a / q.ms);
+      });
+      const m = v?.[refYear as number];
+      row.push(m && m.actual !== null ? Math.round(m.actual - m.ms) : null);
+      return row;
+    };
+    const push = (n: TreeNodeM) => {
+      aoa.push(cells(n.yr, n.uio, "    ".repeat(n.depth) + n.label));
       sortTree(n.children, sortKey, sortDir).forEach(push);
     };
-    aoa.push([
-      "TOTAL",
-      Math.round(tree.totalUio),
-      Math.round(tree.totalMs),
-      tree.totalActual === null ? null : Math.round(tree.totalActual),
-      tree.totalActual === null ? null : Math.round(tree.totalActual - tree.totalMs),
-      tree.totalActual === null || tree.totalMs <= 0 ? null : tree.totalActual / tree.totalMs
-    ]);
+    aoa.push(cells(tree.totals, (tree.totals[tree.mainYear]?.uio ?? 0), "TOTAL"));
     sortTree(tree.roots, sortKey, sortDir).forEach(push);
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 56 }, { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 14 }];
+    ws["!cols"] = [{ wch: 56 }, { wch: 12 }, ...years.flatMap(() => [{ wch: 20 }, { wch: 20 }, { wch: 14 }]), { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Market Size vs Actual");
     XLSX.writeFile(wb, `Market_Size_vs_Actual_${refYear}.xlsx`);
   }
 
-  const noPath = !activeLevels.every(isCustomerDim);
-  const totalVar = tree && tree.totalActual !== null ? tree.totalActual - tree.totalMs : null;
-  const totalShare = tree && tree.totalActual !== null && tree.totalMs > 0 ? tree.totalActual / tree.totalMs : null;
+  const noPath = !activeLevels.every(isActualDim);
+  const COLS = 3 + years.length * 3;
+  const yvCells = (yr: Record<number, YearVals> | undefined, uio: number) => {
+    const m = refYear !== null ? yr?.[refYear] : undefined;
+    const v = m && m.actual !== null ? m.actual - m.ms : null;
+    return (
+      <>
+        <td className="c-uio">{num(uio)}</td>
+        {years.map((y, k) => {
+          const q = yr?.[y];
+          const a = q ? q.actual : null;
+          const share = a !== null && q && q.ms > 0 ? a / q.ms : null;
+          return [
+            <td key={`m${y}`} className={`c-ms${k === 0 ? " yg" : " yg"}`}>{num(q ? q.ms : 0)}</td>,
+            <td key={`a${y}`} className="c-act">{num(a)}</td>,
+            <td key={`s${y}`} className="c-share"><ShareBar v={share} /></td>
+          ];
+        })}
+        <td className={`c-var yg${varCls(v)}`}>{signed(v)}</td>
+      </>
+    );
+  };
 
   const SORTS: { key: SortKey; label: string }[] = [
     { key: "name", label: "Nama" },
@@ -285,16 +267,16 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
       <div className="ht-card">
         <div className="ht-sub">
           <span>
-            Market Size vs Actual Sales{refYear !== null ? ` — ${refYear}` : ""}
+            Market Size vs Actual Sales{years.length > 1 ? ` — ${years[0]}–${refYear}` : refYear !== null ? ` — ${refYear}` : ""}
             <span
               className="info-dot"
-              title={`Market Size menggantikan Plan. Market Size ${refYear ?? ""} = populasi UIO (unit sampai tahun ${refYear ?? ""}) × kebutuhan part per tahun × harga. Actual = laporan penjualan tahun ${refYear ?? ""}. Variance = Actual − Market Size. Market Share = Actual ÷ Market Size periode yang sama.`}
+              title={`Market Size per tahun ditampilkan berdampingan untuk ${WINDOW} tahun terakhir sampai tahun acuan ${refYear ?? ""}. Market Size tiap tahun = populasi UIO (unit sampai tahun itu) × kebutuhan part per tahun × harga. Actual = laporan penjualan tahun yang sama. Market Share = Actual ÷ Market Size. Variance = Actual − Market Size (tahun acuan). Semua filter berlaku sama untuk tabel, chart, dan KPI.`}
             >
               i
             </span>
           </span>
           <span>
-            Periode {periodLabel}
+            Periode {periodLabel} (tahun acuan {refYear})
             {tree ? ` · ${tree.customers.toLocaleString("id-ID")} customer` : ""}
           </span>
         </div>
@@ -318,24 +300,31 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                   ? "Laporan Actual Sales tahunan belum diupload (menu ⭱ Upload → slot 1), jadi kolom Actual tidak diisi."
                   : !yearHasActual
                   ? `Laporan Actual Sales belum punya data tahun ${refYear}, jadi kolom Actual tidak diisi.`
-                  : "Laporan Actual Sales berupa total setahun per customer, jadi tidak bisa dibandingkan saat filter Bulan / Product / Model / Part dipakai — kolom Actual tidak diisi."}
+                  : "Laporan Actual Sales berupa total setahun per customer, jadi tidak bisa dibandingkan saat filter Bulan / Model / Part dipakai (atau Product, kalau laporan belum per Product) — kolom Actual tidak diisi."}
               </div>
             )}
             {actualOk && noPath && (
               <div className="hier-note">
-                Actual Sales hanya tersedia sampai level customer (Area, PSS, KA Type, Group, Customer). Level Product / Model hanya menampilkan Market Size.
+                Actual Sales tersedia sampai level Product (Branch, PSS, KA Type, Group, Customer, Product). Level Model hanya menampilkan Market Size.
               </div>
             )}
             <div className="ht-scroll" style={{ fontSize: `${(14 * zoom) / 100}px` }}>
               <table className="ht-table">
                 <thead>
-                  <tr>
-                    <th className="c-name">Hierarki</th>
-                    <th className="c-uio">UIO</th>
-                    <th className="c-ms">Market Size</th>
-                    <th className="c-act">Actual</th>
-                    <th className="c-var">Variance</th>
-                    <th className="c-share">Market Share %</th>
+                  <tr className="th-top">
+                    <th className="c-name" rowSpan={2}>Hierarki</th>
+                    <th className="c-uio" rowSpan={2}>UIO {refYear}</th>
+                    {years.map((y) => (
+                      <th key={y} className={`c-yr yg${y === refYear ? " cur" : ""}`} colSpan={3}>{yearLabel(y)}</th>
+                    ))}
+                    <th className="c-var yg" rowSpan={2}>Variance {refYear}</th>
+                  </tr>
+                  <tr className="th-sub">
+                    {years.map((y) => [
+                      <th key={`m${y}`} className="c-ms yg">Market Size</th>,
+                      <th key={`a${y}`} className="c-act">Actual</th>,
+                      <th key={`s${y}`} className="c-share">Share %</th>
+                    ])}
                   </tr>
                 </thead>
                 <tbody>
@@ -343,7 +332,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                     if ("more" in r) {
                       return (
                         <tr key={`more-${r.parent}-${i}`} className="ht-more">
-                          <td colSpan={6} style={{ paddingLeft: 16 + r.depth * 24 }}>
+                          <td colSpan={COLS} style={{ paddingLeft: 16 + r.depth * 24 }}>
                             <button className="link-btn" onClick={() => setShowAll((p) => new Set(p).add(r.parent))}>
                               + {r.more.toLocaleString("id-ID")} baris lainnya — tampilkan semua
                             </button>
@@ -352,9 +341,6 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                       );
                     }
                     const n = r.node;
-                    const a = n.actual;
-                    const v = a === null ? null : a - n.ms;
-                    const share = a !== null && n.ms > 0 ? a / n.ms : null;
                     const open = expanded.has(n.id);
                     return (
                       <tr key={n.id} className={`ht-row d${Math.min(n.depth, 3)}`}>
@@ -368,17 +354,13 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                           )}
                           <span className="ht-label" title={`${HIER_LABELS[n.dim]}: ${n.label}`}>{n.label}</span>
                         </td>
-                        <td className="c-uio">{num(n.uio)}</td>
-                        <td className="c-ms">{num(n.ms)}</td>
-                        <td className="c-act">{num(a)}</td>
-                        <td className={`c-var${varCls(v)}`}>{signed(v)}</td>
-                        <td className="c-share"><ShareBar v={share} /></td>
+                        {yvCells(n.yr, n.uio)}
                       </tr>
                     );
                   })}
                   {rows.length === 0 && progress === null && (
                     <tr>
-                      <td colSpan={6} className="ht-empty">Tidak ada data untuk kombinasi filter ini.</td>
+                      <td colSpan={COLS} className="ht-empty">Tidak ada data untuk kombinasi filter ini.</td>
                     </tr>
                   )}
                 </tbody>
@@ -386,11 +368,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                   <tfoot>
                     <tr>
                       <td className="c-name">Grand Total</td>
-                      <td className="c-uio">{num(tree.totalUio)}</td>
-                      <td className="c-ms">{num(tree.totalMs)}</td>
-                      <td className="c-act">{num(tree.totalActual)}</td>
-                      <td className={`c-var${varCls(totalVar)}`}>{signed(totalVar)}</td>
-                      <td className="c-share"><ShareBar v={totalShare} /></td>
+                      {yvCells(tree.totals, (tree.totals[tree.mainYear]?.uio ?? 0))}
                     </tr>
                   </tfoot>
                 )}
