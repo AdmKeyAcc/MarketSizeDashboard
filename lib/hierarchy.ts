@@ -5,7 +5,8 @@ import {
   computePartMarketSize,
   custKey,
   normModel,
-  type FilterState
+  type FilterState,
+  type MarketSizeYearRow
 } from "@/lib/calculations";
 import type { ActualSalesYear, Assumption, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { CUSTOMER_TIER_OPTIONS } from "@/lib/types";
@@ -21,7 +22,7 @@ export const HIER_LABELS: Record<HierDim, string> = {
   kaType: "KA Type",
   group: "Customer Group",
   customer: "Customer Name",
-  area: "Area",
+  area: "Branch",
   pss: "PSS",
   product: "Product",
   model: "Model Unit"
@@ -354,14 +355,107 @@ export function buildTree(
 
 export type SortKey = "name" | "ms" | "actual";
 
-export function sortTree(nodes: TreeNode[], key: SortKey, dir: "asc" | "desc"): TreeNode[] {
+export function sortTree<T extends { label: string; ms: number; actual: number | null }>(nodes: T[], key: SortKey, dir: "asc" | "desc"): T[] {
   const mul = dir === "asc" ? 1 : -1;
-  const val = (n: TreeNode) => (key === "ms" ? n.ms : key === "actual" ? n.actual ?? -Infinity : 0);
+  const val = (n: T) => (key === "ms" ? n.ms : key === "actual" ? n.actual ?? -Infinity : 0);
   const sorted = nodes.slice().sort((a, b) => {
     if (key === "name") return mul * a.label.localeCompare(b.label, "id");
     return mul * (val(a) - val(b)) || a.label.localeCompare(b.label, "id");
   });
   return sorted;
+}
+
+/* ------------------------------------------------------------------ */
+/* Beberapa tahun berdampingan                                         */
+/* ------------------------------------------------------------------ */
+
+export type YearVals = { ms: number; qty: number; uio: number; actual: number | null };
+export type TreeNodeM = Omit<TreeNode, "children"> & {
+  children: TreeNodeM[];
+  /** Nilai tiap tahun. Field ms / actual / uio di node = tahun acuan (terbaru). */
+  yr: Record<number, YearVals>;
+};
+export type TreeResultM = {
+  roots: TreeNodeM[];
+  years: number[];
+  mainYear: number;
+  totals: Record<number, YearVals>;
+  customers: number;
+};
+
+/** Gabungkan pohon beberapa tahun (struktur sama, nilai per tahun) jadi satu pohon: tiap node membawa nilai semua tahun. */
+export function mergeYearTrees(items: { year: number; tree: TreeResult; actualOk: boolean }[], mainYear: number): TreeResultM {
+  const byId = new Map<string, TreeNodeM>();
+  const roots = new Map<string, TreeNodeM>();
+  const totals: Record<number, YearVals> = {};
+  let customers = 0;
+  items.forEach(({ year, tree }) => {
+    totals[year] = { ms: tree.totalMs, qty: tree.totalQty, uio: tree.totalUio, actual: tree.totalActual };
+    customers = Math.max(customers, tree.customers);
+    const visit = (n: TreeNode, parent: TreeNodeM | null) => {
+      let m = byId.get(n.id);
+      if (!m) {
+        m = { id: n.id, label: n.label, dim: n.dim, depth: n.depth, ms: 0, qty: 0, uio: 0, actual: n.canActual ? 0 : null, canActual: n.canActual, children: [], yr: {} };
+        byId.set(n.id, m);
+        if (parent) parent.children.push(m);
+        else roots.set(m.id, m);
+      }
+      if (n.canActual) m.canActual = true;
+      m.yr[year] = { ms: n.ms, qty: n.qty, uio: n.uio, actual: n.actual };
+      if (year === mainYear) {
+        m.ms = n.ms; m.qty = n.qty; m.uio = n.uio; m.actual = n.actual;
+      }
+      n.children.forEach((ch) => visit(ch, m));
+    };
+    tree.roots.forEach((r) => visit(r, null));
+  });
+  byId.forEach((m) => {
+    items.forEach(({ year, actualOk }) => {
+      if (!m.yr[year]) m.yr[year] = { ms: 0, qty: 0, uio: 0, actual: actualOk && m.canActual ? 0 : null };
+    });
+    const mv = m.yr[mainYear];
+    if (mv) { m.ms = mv.ms; m.qty = mv.qty; m.uio = mv.uio; m.actual = mv.actual; }
+  });
+  return { roots: Array.from(roots.values()), years: items.map((i) => i.year), mainYear, totals, customers };
+}
+
+/** Baris Market Size per tahun (untuk chart & KPI) dari mesin hitung yang sama dengan tabel hierarki,
+ * jadi semua filter (Branch, PSS, KA Type, Group, Customer, Product, Model, Part, ...) berlaku sama di tabel dan chart. */
+export function marketRowsFromFacts(
+  custs: CustInfo[],
+  factsByYear: Map<number, Map<string, Fact[]>>,
+  years: number[],
+  filters: FilterState,
+  opts: { factorOf: (year: number) => number; monthsOf: (year: number) => number; actualComparable: boolean }
+): MarketSizeYearRow[] {
+  const prodSet = filters.product.length > 0 ? new Set(filters.product.map((p) => canonicalProduct(p))) : null;
+  const passed = custs.filter((c) => customerPasses(c, filters));
+  return years.map((year) => {
+    const facts = factsByYear.get(year);
+    const factor = opts.factorOf(year);
+    let ms = 0, qty = 0, actual = 0;
+    passed.forEach((c) => {
+      (facts?.get(c.key) || []).forEach((f) => {
+        ms += f.ms * factor;
+        qty += f.qty * factor;
+      });
+      if (opts.actualComparable) {
+        c.actualByProduct.forEach((byYear, pk) => {
+          if (prodSet && !prodSet.has(pk)) return;
+          actual += byYear.get(year) || 0;
+        });
+      }
+    });
+    return {
+      year,
+      market_size: Math.round(ms),
+      market_qty: Math.round(qty),
+      actual_sales: Math.round(actual),
+      actual_qty: 0,
+      period_months: opts.monthsOf(year),
+      actual_comparable: opts.actualComparable
+    };
+  });
 }
 
 export { EMPTY_FILTERS };
