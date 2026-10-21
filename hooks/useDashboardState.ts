@@ -192,20 +192,82 @@ export function useDashboardState(initialData: DashboardData) {
   );
   // ---- cascading filter option lists (no "Semua" sentinel anymore — an
   // empty selection in the checklist itself means "no restriction") ----
+  // Ringkasan per customer untuk cascading filter: tahun UIO paling awal per product, dan tahun Actual per product.
+  const cascadeInfo = useMemo(() => {
+    type Info = { c: Customer; prodMin: Map<string, number>; actProd: Map<string, Set<number>> };
+    const m = new Map<string, Info>();
+    realCustomers.forEach((c) => {
+      m.set(custKey(c.customer_group, c.customer_name), { c, prodMin: new Map(), actProd: new Map() });
+    });
+    data.uioUnits.forEach((u) => {
+      const inf = m.get(custKey(u.customer_group, u.customer_name));
+      if (!inf || u.year === null) return;
+      const p = canonicalProduct(u.product);
+      const cur = inf.prodMin.get(p);
+      if (cur === undefined || u.year < cur) inf.prodMin.set(p, u.year);
+    });
+    data.actualSalesYear.forEach((r) => {
+      const inf = m.get(custKey(r.customer_group, r.customer_name));
+      if (!inf) return;
+      const p = r.product ? canonicalProduct(r.product) : "";
+      let st = inf.actProd.get(p);
+      if (!st) inf.actProd.set(p, (st = new Set()));
+      st.add(r.year);
+    });
+    return Array.from(m.values());
+  }, [realCustomers, data.uioUnits, data.actualSalesYear]);
+
+  // ---- cascading filter option lists: setiap pilihan hanya menampilkan nilai yang MASIH punya data
+  // dengan filter lain yang sedang aktif (supaya tidak bisa memilih kombinasi yang pasti kosong).
   const options = useMemo(() => {
     const years = actualPeriods.years;
     const uioYearsAll = uniq(data.uioUnits.map((u) => u.year)).filter((y): y is number => y !== null).sort((a, b) => a - b);
     const allYears = uniq([...years, ...uioYearsAll.map(String)]).sort();
     const monthOpts = actualPeriods.months.slice().sort((a, b) => monthIndex(a) - monthIndex(b));
-    const areaOpts = uniq(realCustomers.map((c) => c.cabang))
+
+    type Info = (typeof cascadeInfo)[number];
+    const up = (a: string[]) => new Set(a.map((x) => x.trim().toUpperCase()));
+    const selYears = filters.tahun.map((y) => parseInt(y, 10)).filter((n) => Number.isFinite(n));
+    const selProducts = filters.product;
+    const hasDataFor = (inf: Info, ys: number[] | null, ps: string[] | null) => {
+      if (!ys && !ps) return true;
+      const prods = ps ?? Array.from(new Set([...inf.prodMin.keys(), ...inf.actProd.keys()]));
+      return prods.some((p) => {
+        const pc = canonicalProduct(p);
+        const mn = inf.prodMin.get(pc);
+        const act = inf.actProd.get(pc);
+        const actAll = inf.actProd.get("");
+        if (!ys) return mn !== undefined || !!act;
+        return ys.some((y) => (mn !== undefined && mn <= y) || !!act?.has(y) || (!ps && !!actAll?.has(y)));
+      });
+    };
+    type Dim = "tahun" | "area" | "sector" | "pss" | "customerGroup" | "customerName" | "tier" | "product";
+    const pass = (inf: Info, ex: Dim): boolean => {
+      const c = inf.c;
+      if (ex !== "customerGroup" && filters.customerGroup.length > 0 && !up(filters.customerGroup).has((c.customer_group || "").trim().toUpperCase())) return false;
+      if (ex !== "customerName" && filters.customerName.length > 0 && !up(filters.customerName).has((c.customer_name || "").trim().toUpperCase())) return false;
+      if (ex !== "area" && filters.area.length > 0 && !up(filters.area).has((c.cabang || "").trim().toUpperCase())) return false;
+      if (ex !== "pss" && filters.pss.length > 0 && !up(filters.pss).has((c.pss || "").trim().toUpperCase())) return false;
+      if (ex !== "tier" && filters.tier.length > 0 && !up(filters.tier).has((c.tier || "").trim().toUpperCase())) return false;
+      if (ex !== "sector" && filters.sector.length > 0 && !(c.customer_sector || []).some((x) => up(filters.sector).has(x.trim().toUpperCase()))) return false;
+      const ys = ex !== "tahun" && selYears.length > 0 ? selYears : null;
+      const ps = ex !== "product" && selProducts.length > 0 ? selProducts : null;
+      return hasDataFor(inf, ys, ps);
+    };
+    const pool = (ex: Dim) => cascadeInfo.filter((inf) => pass(inf, ex));
+
+    const areaOpts = uniq(pool("area").map((i) => i.c.cabang))
       .filter((a) => !EXCLUDED_AREAS.includes(a.trim().toUpperCase()))
       .sort();
-    // Sector customer — satu customer bisa punya lebih dari satu, jadi
-    // di-flatten dulu sebelum di-uniq.
-    const sectorOpts = uniq(realCustomers.flatMap((c) => c.customer_sector || [])).sort();
-    const pssOpts = uniq(realCustomers.map((c) => c.pss)).sort();
-    const groupOpts = uniq(realCustomers.map((c) => c.customer_group)).sort();
-    const tierOpts = uniq([...realCustomers.map((c) => c.tier), ...data.actualSalesYear.map((r) => r.ka_type)]).sort((a, b) => {
+    const sectorOpts = uniq(pool("sector").flatMap((i) => i.c.customer_sector || [])).sort();
+    const pssOpts = uniq(pool("pss").map((i) => i.c.pss)).sort();
+    const groupOpts = uniq(pool("customerGroup").map((i) => i.c.customer_group)).sort();
+    // uniq() wajib: nama customer yang sama bisa ada di lebih dari satu Customer Group.
+    const customerNameOpts = uniq(pool("customerName").map((i) => i.c.customer_name as string)).sort();
+    const tierOpts = uniq([
+      ...pool("tier").map((i) => i.c.tier),
+      ...data.actualSalesYear.map((r) => r.ka_type).filter(() => filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length + filters.sector.length === 0 && selYears.length === 0 && selProducts.length === 0)
+    ]).sort((a, b) => {
       const ia = CUSTOMER_TIER_OPTIONS.indexOf(a as (typeof CUSTOMER_TIER_OPTIONS)[number]);
       const ib = CUSTOMER_TIER_OPTIONS.indexOf(b as (typeof CUSTOMER_TIER_OPTIONS)[number]);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
@@ -214,38 +276,36 @@ export function useDashboardState(initialData: DashboardData) {
       return ia - ib;
     });
 
-    let custPool = realCustomers;
-    if (filters.customerGroup.length > 0) custPool = custPool.filter((c) => filters.customerGroup.includes(c.customer_group || ""));
-    if (filters.area.length > 0) custPool = custPool.filter((c) => filters.area.includes(c.cabang || ""));
-    if (filters.sector.length > 0)
-      custPool = custPool.filter((c) => (c.customer_sector || []).some((s) => filters.sector.includes(s)));
-    if (filters.tier.length > 0) custPool = custPool.filter((c) => filters.tier.includes(c.tier || ""));
-    // uniq() is required here: the same Customer Name can legitimately exist
-    // under more than one Customer Group (the DB's natural key is the
-    // group+name pair, not the name alone), so without deduping this list
-    // can contain the same name twice — which then breaks React's list
-    // rendering (duplicate option keys).
-    const customerNameOpts = uniq(custPool.map((c) => c.customer_name as string)).sort();
+    // Tahun: hanya tahun yang punya data untuk customer/product yang sedang dipilih.
+    const cascadeActive =
+      filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length + filters.sector.length + filters.tier.length + selProducts.length > 0;
+    const yearPool = pool("tahun");
+    const yearOpts = cascadeActive
+      ? allYears.filter((y) => yearPool.some((inf) => hasDataFor(inf, [parseInt(y, 10)], selProducts.length > 0 ? selProducts : null)))
+      : allYears;
 
     const allowed = allowedProducts(filters);
-    // Product & Model Unit diambil dari data part DAN dari Data UIO (populasi
-    // unit) — kalau cuma dari part, model yang hanya ada di Data UIO tidak
-    // pernah muncul di filter.
     let prods = uniq([...data.parts.map((p) => p.product), ...data.uioUnits.map((u) => canonicalProduct(u.product))]).sort();
     if (allowed) prods = prods.filter((p) => allowed.includes(p));
+    if (cascadeActive || selYears.length > 0) {
+      const pp = pool("product");
+      prods = prods.filter((p) => pp.some((inf) => hasDataFor(inf, selYears.length > 0 ? selYears : null, [p])));
+    }
 
     let modelPool = data.parts;
     if (allowed) modelPool = modelPool.filter((p) => allowed.includes(p.product));
     if (filters.product.length > 0) modelPool = modelPool.filter((p) => filters.product.includes(p.product));
+    const maxSelYear = selYears.length > 0 ? Math.max(...selYears) : null;
+    const okKeys = cascadeActive || selYears.length > 0 ? new Set(pool("product").map((i) => custKey(i.c.customer_group, i.c.customer_name))) : null;
     const unitModels = data.uioUnits
       .filter(
         (u) =>
-          filters.product.length === 0 ||
-          filters.product.includes(canonicalProduct(u.product)) ||
-          filters.product.includes(u.product || "")
+          (filters.product.length === 0 || filters.product.includes(canonicalProduct(u.product)) || filters.product.includes(u.product || "")) &&
+          (!okKeys || okKeys.has(custKey(u.customer_group, u.customer_name))) &&
+          (maxSelYear === null || (u.year !== null && u.year <= maxSelYear))
       )
       .map((u) => u.model);
-    const modelOpts = uniq([...modelPool.map((p) => p.model), ...unitModels]).sort();
+    const modelOpts = okKeys ? uniq(unitModels).sort() : uniq([...modelPool.map((p) => p.model), ...unitModels]).sort();
 
     let partPool = modelPool;
     if (filters.modelUnit.length > 0) partPool = partPool.filter((p) => filters.modelUnit.includes(p.model));
@@ -253,7 +313,7 @@ export function useDashboardState(initialData: DashboardData) {
     const partNameOpts = uniq(partPool.map((p) => p.part_name)).sort();
 
     return {
-      tahun: allYears.length ? allYears : ["2026"],
+      tahun: yearOpts.length ? yearOpts : allYears.length ? allYears : ["2026"],
       bulan: monthOpts.length ? monthOpts : (MONTH_ORDER as unknown as string[]),
       area: areaOpts,
       sector: sectorOpts,
@@ -266,7 +326,7 @@ export function useDashboardState(initialData: DashboardData) {
       partNumber: partNumberOpts,
       partName: partNameOpts
     };
-  }, [actualPeriods, realCustomers, data.parts, data.uioUnits, data.actualSalesYear, filters]);
+  }, [actualPeriods, cascadeInfo, data.parts, data.uioUnits, data.actualSalesYear, filters]);
 
   return {
     data,
