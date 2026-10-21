@@ -75,3 +75,11 @@
 .ht-table tfoot td.c-act { background: linear-gradient(rgba(34, 122, 70, .16), rgba(34, 122, 70, .16)), var(--surface-3); }
 .ht-more td { background: var(--surface-2); }
 @media (max-width: 760px) { .hc-card { padding: 14px; } .hc-zoom input[type="range"] { width: 80px; } }
+
+/* ---- header 2 baris: grup per tahun ---- */
+.ht-table thead tr.th-top th { height: 38px; }
+.ht-table thead tr.th-sub th { top: 38px; height: 32px; padding: 6px 14px; font-size: .8em; }
+.ht-table thead th.c-yr { text-align: center; border-bottom: 1px solid var(--border-strong); }
+.ht-table thead th.c-yr.cur { color: var(--accent, var(--ink)); }
+.ht-table th.yg, .ht-table td.yg { border-left: 1px solid var(--border-strong); }
+.ht-table { min-width: 1250px; }
