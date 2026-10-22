@@ -101,6 +101,11 @@ export type CalcSummaryItem = {
   qtyMarketSize: number;
   contractPrice: number;
   amountMarketSize: number;
+  /** Konteks perhitungan (opsional — item lama di localStorage tidak punya). */
+  year?: number | null;
+  customerGroup?: string;
+  customerName?: string;
+  priceSource?: string;
 };
 
 /** Satu baris histori: direkam otomatis setiap kali upload kalkulator
