@@ -7,8 +7,7 @@ import type { FilterState } from "@/lib/calculations";
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
   tahun: "Tahun", bulan: "Bulan", area: "Branch",
   customerGroup: "Customer group", customerName: "Customer name",
-  pss: "PSS", tier: "KA Type", product: "Product", modelUnit: "Model unit",
-  partNumber: "Part number", partName: "Part name"
+  pss: "PSS", tier: "KA Type", product: "Product", modelUnit: "Model unit"
 };
 
 const MULTI_KEYS = Object.keys(CHIP_LABELS) as (keyof FilterState)[];
@@ -258,19 +257,6 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
             values={filters.modelUnit}
             options={options.modelUnit}
             onChange={(v) => setFilter("modelUnit", v)}
-          />
-          <MultiSelectField
-            label="Part Number"
-            values={filters.partNumber}
-            options={options.partNumber}
-            onChange={(v) => setFilter("partNumber", v)}
-          />
-          <MultiSelectField
-            label="Part Name"
-            values={filters.partName}
-            options={options.partName}
-            onChange={(v) => setFilter("partName", v)}
-            info="Diambil dari kolom Description pada data part."
           />
         </div>
 
