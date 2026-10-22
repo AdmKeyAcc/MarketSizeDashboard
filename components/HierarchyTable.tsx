@@ -308,8 +308,8 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                 Actual Sales tersedia sampai level Product (Branch, PSS, KA Type, Group, Customer, Product). Level Model hanya menampilkan Market Size.
               </div>
             )}
-            <div className="ht-scroll" style={{ fontSize: `${(14 * zoom) / 100}px` }}>
-              <table className="ht-table">
+            <div className="ht-scroll">
+              <table className="ht-table" style={{ zoom: zoom / 100 }}>
                 <thead>
                   <tr className="th-top">
                     <th className="c-name" rowSpan={2}>Hierarki</th>
