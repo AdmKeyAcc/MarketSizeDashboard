@@ -158,10 +158,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   return (
     <div className="panel">
       <h2>Kalkulator cepat — satu part</h2>
-      <div className="calc-note">
-        Rumus sama dengan Dashboard &amp; Summary: UIO = unit sampai tahun terpilih, Qty = ROUND(Annual HM ÷ Frekuensi × Qty/unit × UIO), Amount = Harga × Qty.
-        UIO dan harga terisi otomatis dari Data UIO &amp; Data Harga, dan masih bisa diubah manual.
-      </div>
       <div className="calc-row">
         <div className="calc-field">
           <label>Product</label>
