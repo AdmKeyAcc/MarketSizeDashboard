@@ -660,15 +660,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             />
           </div>
         </div>
-        {(refYear !== null || !comparable) && (
+        {((refYear !== null && !actualYearHas) || !comparable) && (
           <div className="detail-filters-info" style={{ padding: "0 16px 10px" }}>
-            {refYear !== null && (
-              <>
-                Tahun acuan {refYear}
-                {isYtd ? ` · Actual Sales sampai ${ytdMonth}, jadi Market share dibandingkan dengan Market Size Januari–${ytdMonth}` : ""}.{" "}
-              </>
-            )}
-            {!actualYearHas && refYear !== null && "Belum ada Actual Sales untuk tahun ini. "}
+            {refYear !== null && !actualYearHas && "Belum ada Actual Sales untuk tahun ini. "}
             {!comparable &&
               (actualHasProduct
                 ? "Market share tidak dihitung kalau filter Bulan, Model, atau Part dipilih (Actual Sales hanya tersedia per tahun per Product)."
