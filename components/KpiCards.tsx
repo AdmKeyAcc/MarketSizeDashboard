@@ -14,6 +14,17 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
   const marketShare = comparable && ms > 0 ? act / ms : NaN;
   const gap = ms - act;
 
+  // Filter yang membuat Actual tidak bisa dibandingkan (laporan Actual hanya sampai level Customer × Product, setahun penuh).
+  const blockers: string[] = [];
+  if (filters.bulan.length > 0) blockers.push("Bulan");
+  if (filters.modelUnit.length > 0) blockers.push("Model Unit");
+  if (filters.partNumber.length > 0) blockers.push("Part Number");
+  if (filters.partName.length > 0) blockers.push("Part Name");
+  const whyNot =
+    blockers.length > 0
+      ? `Actual tidak tersedia per ${blockers.join(" / ")} (laporan Actual sampai level Customer × Product, setahun). Kosongkan filter tsb untuk melihat Actual.`
+      : "Laporan Actual Sales belum diupload / belum punya data tahun ini.";
+
   const years = marketSizeYearRows.map((r) => r.year);
   const yearLabel =
     years.length === 0
@@ -33,17 +44,17 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       <div className="kpi red">
         <div className="kpi-label">Actual sales</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(act) : "–"}</div>
-        <div className="kpi-sub">{comparable ? periodLabel : "Actual tahunan tidak bisa dipecah per Bulan/Product/Model/Part"}</div>
+        <div className="kpi-sub">{comparable ? periodLabel : whyNot}</div>
       </div>
       <div className="kpi green">
         <div className="kpi-label">Market Share</div>
         <div className="kpi-value mono">{fmtPct(marketShare)}</div>
-        <div className="kpi-sub">Actual sales ÷ market size</div>
+        <div className="kpi-sub">{comparable ? "Actual sales ÷ market size" : "Perlu Actual yang sebanding"}</div>
       </div>
       <div className="kpi">
         <div className="kpi-label">Gap (peluang)</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(gap) : "–"}</div>
-        <div className="kpi-sub">Market size − actual sales</div>
+        <div className="kpi-sub">{comparable ? "Market size − actual sales" : "Perlu Actual yang sebanding"}</div>
       </div>
     </div>
   );
