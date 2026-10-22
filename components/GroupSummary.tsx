@@ -79,7 +79,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [fBulan, setFBulan] = useState<string[]>([]);
   const [fProduct, setFProduct] = useState<string[]>([]);
   const [fModel, setFModel] = useState<string[]>([]);
-  const [fPartName, setFPartName] = useState<string[]>([]);
   const [cGroup, setCGroup] = useState<string[]>([]);
   const [cName, setCName] = useState<string[]>([]); // Customer Name
   const [cBranch, setCBranch] = useState<string[]>([]); // Branch (cabang Master Customer / branch Data UIO)
@@ -101,13 +100,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const ps = new Set(fProduct);
     return uniq(data.parts.filter((p) => ps.size === 0 || ps.has(p.product)).map((p) => p.model)).sort();
   }, [data.parts, fProduct]);
-  const partNameOpts = useMemo(() => {
-    const ps = new Set(fProduct);
-    const ms = new Set(fModel);
-    return uniq(
-      data.parts.filter((p) => (ps.size === 0 || ps.has(p.product)) && (ms.size === 0 || ms.has(p.model))).map((p) => p.part_name)
-    ).sort();
-  }, [data.parts, fProduct, fModel]);
 
   // ---- Daftar Customer: gabungan Master Customer, Data UIO, dan Actual Sales tahunan ----
   // Dibangun per Customer (Group + Nama). Tampilan per Customer Group dibuat dengan menggabungkan customer-nya.
@@ -225,19 +217,11 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const ps = new Set(next);
     const avail = data.parts.filter((p) => ps.size === 0 || ps.has(p.product));
     const models = new Set(avail.map((p) => p.model));
-    const names = new Set(avail.map((p) => p.part_name));
     setFModel((m) => m.filter((x) => models.has(x)));
-    setFPartName((n) => n.filter((x) => names.has(x)));
     setPage(1);
   }
   function changeModel(next: string[]) {
     setFModel(next);
-    const ps = new Set(fProduct);
-    const ms = new Set(next);
-    const names = new Set(
-      data.parts.filter((p) => (ps.size === 0 || ps.has(p.product)) && (ms.size === 0 || ms.has(p.model))).map((p) => p.part_name)
-    );
-    setFPartName((n) => n.filter((x) => names.has(x)));
     setPage(1);
   }
   const wrap = (set: (v: string[]) => void) => (v: string[]) => {
@@ -246,18 +230,18 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   };
 
   const hasFilter =
-    fTahun.length + fBulan.length + fProduct.length + fModel.length + fPartName.length + cGroup.length + cName.length + cBranch.length + cPss.length + cKa.length + cPrice.length > 0;
+    fTahun.length + fBulan.length + fProduct.length + fModel.length + cGroup.length + cName.length + cBranch.length + cPss.length + cKa.length + cPrice.length > 0;
 
   function resetAll() {
-    [setFTahun, setFBulan, setFProduct, setFModel, setFPartName, setCGroup, setCName, setCBranch, setCPss, setCKa, setCPrice].forEach((s) => s([]));
+    [setFTahun, setFBulan, setFProduct, setFModel, setCGroup, setCName, setCBranch, setCPss, setCKa, setCPrice].forEach((s) => s([]));
     setSearch("");
     setPage(1);
   }
 
   // Filter yang dipakai untuk menghitung: HANYA yang ada di box filter ini.
   const calcFilters = useMemo(
-    () => ({ ...EMPTY_FILTERS, tahun: fTahun, bulan: fBulan, product: fProduct, modelUnit: fModel, partName: fPartName }),
-    [fTahun, fBulan, fProduct, fModel, fPartName]
+    () => ({ ...EMPTY_FILTERS, tahun: fTahun, bulan: fBulan, product: fProduct, modelUnit: fModel }),
+    [fTahun, fBulan, fProduct, fModel]
   );
   const monthsSelected = fBulan.length > 0 ? new Set(fBulan).size : 12;
   const share = fBulan.length > 0 ? monthsShare(fBulan) : 1;
@@ -277,9 +261,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const isYtd = refYear !== null && refYear === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
   const actualFactor = isYtd ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1;
   const actualYearHas = refYear !== null && data.actualSalesYear.some((r) => r.year === refYear);
-  // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model/Part.
+  // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model.
   const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
-  const comparable = fBulan.length === 0 && (fProduct.length === 0 || actualHasProduct) && fModel.length === 0 && fPartName.length === 0;
+  const comparable = fBulan.length === 0 && (fProduct.length === 0 || actualHasProduct) && fModel.length === 0;
 
   // ---- customer yang lolos filter; tiap Customer Group = gabungan customer yang lolos ----
   const passed = useMemo<GInfo[]>(() => {
@@ -509,7 +493,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     add("Bulan", fBulan);
     add("Product", fProduct);
     add("Model unit", fModel);
-    add("Part name", fPartName);
     add("Customer Group", cGroup);
     add("Customer Name", cName);
     add("Branch", cBranch);
@@ -592,7 +575,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
-          <MultiSelectField label="Part name" values={fPartName} options={partNameOpts} onChange={wrap(setFPartName)} />
           <MultiSelectField label="Customer Group" values={cGroup} options={groupOpts.group} onChange={wrap(setCGroup)} />
           <MultiSelectField label="Customer Name" values={cName} options={groupOpts.name} onChange={wrap(setCName)} />
           <MultiSelectField
@@ -665,8 +647,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             {refYear !== null && !actualYearHas && "Belum ada Actual Sales untuk tahun ini. "}
             {!comparable &&
               (actualHasProduct
-                ? "Market share tidak dihitung kalau filter Bulan, Model, atau Part dipilih (Actual Sales hanya tersedia per tahun per Product)."
-                : "Market share tidak dihitung kalau filter Bulan, Product, Model, atau Part dipilih (Actual Sales belum per Product — upload laporan Actual Sales per Product).")}
+                ? "Market share tidak dihitung kalau filter Bulan atau Model dipilih (Actual Sales hanya tersedia per tahun per Product)."
+                : "Market share tidak dihitung kalau filter Bulan, Product, atau Model dipilih (Actual Sales belum per Product — upload laporan Actual Sales per Product).")}
           </div>
         )}
         <div className="table-scroll">
