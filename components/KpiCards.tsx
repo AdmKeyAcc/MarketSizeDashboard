@@ -18,8 +18,6 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
   const blockers: string[] = [];
   if (filters.bulan.length > 0) blockers.push("Bulan");
   if (filters.modelUnit.length > 0) blockers.push("Model Unit");
-  if (filters.partNumber.length > 0) blockers.push("Part Number");
-  if (filters.partName.length > 0) blockers.push("Part Name");
   const whyNot =
     blockers.length > 0
       ? `Actual tidak tersedia per ${blockers.join(" / ")} (laporan Actual sampai level Customer × Product, setahun). Kosongkan filter tsb untuk melihat Actual.`
