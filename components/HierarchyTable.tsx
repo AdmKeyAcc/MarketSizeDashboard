@@ -145,34 +145,9 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   }
 
   async function download() {
-    if (!tree) return;
-    const XLSX = await import("@e965/xlsx");
-    const head: string[] = [`HIERARKI (${activeLevels.map((l) => HIER_LABELS[l]).join(" > ")})`, `UIO ${refYear} (unit)`];
-    years.forEach((y) => head.push(`Market Size ${yearLabel(y)} (Rp)`, `Actual ${yearLabel(y)} (Rp)`, `Market Share ${yearLabel(y)}`));
-    head.push(`Variance ${refYear} (Rp)`);
-    const aoa: (string | number | null)[][] = [head];
-    const cells = (v: Record<number, YearVals> | undefined, uio: number, label: string) => {
-      const row: (string | number | null)[] = [label, Math.round(uio)];
-      years.forEach((y) => {
-        const q = v?.[y];
-        const a = q ? q.actual : null;
-        row.push(q ? Math.round(q.ms) : 0, a === null ? null : Math.round(a), a === null || !q || q.ms <= 0 ? null : a / q.ms);
-      });
-      const m = v?.[refYear as number];
-      row.push(m && m.actual !== null ? Math.round(m.actual - m.ms) : null);
-      return row;
-    };
-    const push = (n: TreeNodeM) => {
-      aoa.push(cells(n.yr, n.uio, "    ".repeat(n.depth) + n.label));
-      sortTree(n.children, sortKey, sortDir).forEach(push);
-    };
-    aoa.push(cells(tree.totals, (tree.totals[tree.mainYear]?.uio ?? 0), "TOTAL"));
-    sortTree(tree.roots, sortKey, sortDir).forEach(push);
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 56 }, { wch: 12 }, ...years.flatMap(() => [{ wch: 20 }, { wch: 20 }, { wch: 14 }]), { wch: 20 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Market Size vs Actual");
-    XLSX.writeFile(wb, `Market_Size_vs_Actual_${refYear}.xlsx`);
+    if (!tree || refYear === null) return;
+    const { downloadHierarchyXlsx } = await import("@/lib/downloadHierarchy");
+    await downloadHierarchyXlsx({ tree, years, refYear, yearLabel, levels: activeLevels, sortKey, sortDir, expanded, filters, periodLabel });
   }
 
   const noPath = !activeLevels.every(isActualDim);
