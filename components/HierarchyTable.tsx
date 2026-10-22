@@ -8,7 +8,6 @@ import {
   HIER_DIMS,
   HIER_LABELS,
   buildTree,
-  isActualDim,
   mergeYearTrees,
   sortTree,
   type HierDim,
@@ -150,7 +149,6 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
     await downloadHierarchyXlsx({ tree, years, refYear, yearLabel, levels: activeLevels, sortKey, sortDir, expanded, filters, periodLabel });
   }
 
-  const noPath = !activeLevels.every(isActualDim);
   const COLS = 3 + years.length * 3;
   const yvCells = (yr: Record<number, YearVals> | undefined, uio: number) => {
     const m = refYear !== null ? yr?.[refYear] : undefined;
@@ -276,11 +274,6 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
                   : !yearHasActual
                   ? `Laporan Actual Sales belum punya data tahun ${refYear}, jadi kolom Actual tidak diisi.`
                   : "Laporan Actual Sales berupa total setahun per customer, jadi tidak bisa dibandingkan saat filter Bulan / Model / Part dipakai (atau Product, kalau laporan belum per Product) — kolom Actual tidak diisi."}
-              </div>
-            )}
-            {actualOk && noPath && (
-              <div className="hier-note">
-                Actual Sales tersedia sampai level Product (Branch, PSS, KA Type, Group, Customer, Product). Level Model hanya menampilkan Market Size.
               </div>
             )}
             <div className="ht-scroll">
