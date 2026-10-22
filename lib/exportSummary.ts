@@ -9,6 +9,9 @@ function toRow(it: CalcSummaryItem, i: number): ExportRow {
     No: i + 1,
     Product: it.product,
     "Model Unit": it.model,
+    "Tahun UIO": it.year ?? "",
+    "Customer Group": it.customerGroup || "Semua",
+    "Customer": it.customerName || "Semua",
     "Part Name": it.partName,
     "Part Number": it.partNumber || "",
     "Qty / Unit": it.qtyPerUnit,
@@ -16,10 +19,11 @@ function toRow(it: CalcSummaryItem, i: number): ExportRow {
     "Frekuensi Ganti (HM)": it.freqReplacementHm,
     "HM / Hari": it.hmDay,
     "UIO (Unit)": it.uio,
-    "Diskon (%)": Math.round(it.discount * 100),
+    "Diskon Efektif (%)": Math.round(it.discount * 100),
     "Annual HM": Math.round(it.annualHm),
     "Qty Market Size": Math.round(it.qtyMarketSize),
-    "Contract Price (Rp)": Math.round(it.contractPrice),
+    "Harga Dipakai (Rp)": Math.round(it.contractPrice),
+    "Sumber Harga": it.priceSource || "",
     "Amount Market Size (Rp)": Math.round(it.amountMarketSize),
     "Ditambahkan": new Date(it.addedAt).toLocaleString("id-ID")
   };
@@ -37,6 +41,9 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
     No: "",
     Product: "",
     "Model Unit": "",
+    "Tahun UIO": "",
+    "Customer Group": "",
+    "Customer": "",
     "Part Name": "",
     "Part Number": "",
     "Qty / Unit": "",
@@ -44,19 +51,20 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
     "Frekuensi Ganti (HM)": "",
     "HM / Hari": "",
     "UIO (Unit)": "",
-    "Diskon (%)": "",
+    "Diskon Efektif (%)": "",
     "Annual HM": "",
     "Qty Market Size": "",
-    "Contract Price (Rp)": "TOTAL",
+    "Harga Dipakai (Rp)": "",
+    "Sumber Harga": "TOTAL",
     "Amount Market Size (Rp)": Math.round(total),
     "Ditambahkan": ""
   });
 
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 4 }, { wch: 12 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 30 },
-    { wch: 9 }, { wch: 16 }, { wch: 12 }, { wch: 9 }, { wch: 10 },
-    { wch: 9 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 18 }
+    { wch: 4 }, { wch: 12 }, { wch: 16 }, { wch: 9 }, { wch: 22 }, { wch: 26 }, { wch: 28 }, { wch: 16 },
+    { wch: 9 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 9 }, { wch: 12 }, { wch: 12 }, { wch: 16 },
+    { wch: 22 }, { wch: 18 }, { wch: 18 }
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Summary Kalkulator");
