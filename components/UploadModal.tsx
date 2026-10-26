@@ -7,7 +7,7 @@ import {
   downloadNonContractPriceTemplate,
   downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
-import { uploadMasterPart, uploadActualSalesYear, uploadUioUnits } from "@/lib/parse/uploadChunked";
+import { uploadMasterPart, uploadUioUnits } from "@/lib/parse/uploadChunked";
 import { syncActualSales } from "@/lib/syncActual";
 import type { DataMeta } from "@/lib/types";
 
@@ -110,13 +110,11 @@ export default function UploadModal({
   meta: DataMeta;
 }) {
   const [stUio, setStUio] = useState<SlotStatus>(null);
-  const [stSales, setStSales] = useState<SlotStatus>(null);
   const [stPart, setStPart] = useState<SlotStatus>(null);
   const [stContract, setStContract] = useState<SlotStatus>(null);
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
   const [stSync, setStSync] = useState<SlotStatus>(null);
   const [masterOpen, setMasterOpen] = useState(false);
-  // Data tahun terbaru di laporan Actual Sales biasanya belum setahun penuh (YTD).
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
@@ -137,11 +135,15 @@ export default function UploadModal({
   const skippedText = (j: any) => (j.skipped ? ` (${j.skipped} baris dilewati.)` : "");
   const dupText = (j: any) => (j.duplicates ? ` (${j.duplicates} baris kembar digabung.)` : "");
 
-  // Data master yang wajib ada supaya market size bisa dihitung.
-  const missingMaster = [
-    counts.parts === 0 ? "Master Part" : null,
-    counts.contractPrices + counts.nonContractPrices === 0 ? "Data Harga" : null
+  // Data yang wajib ada supaya market size bisa dihitung.
+  const missing = [
+    counts.uioUnits === 0 ? "Data UIO" : null,
+    counts.contractPrices + counts.nonContractPrices === 0 ? "Data Harga" : null,
+    counts.parts === 0 ? "Master Part" : null
   ].filter(Boolean) as string[];
+
+  const syncedAt = meta.actual_year_synced_at ? new Date(meta.actual_year_synced_at) : null;
+  const dataUntil = meta.actual_year_max_date ? new Date(meta.actual_year_max_date) : null;
 
   return (
     <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -150,83 +152,26 @@ export default function UploadModal({
           ✕
         </button>
         <h3>Upload data</h3>
-        
-        {missingMaster.length > 0 && (
+
+        {missing.length > 0 && (
           <div className="upload-warn">
-            ⚠ <b>{missingMaster.join(" dan ")}</b> belum ada, jadi market size belum bisa dihitung. Buka bagian{" "}
-            <b>Data master</b> di bawah dan upload dulu.
+            ⚠ <b>{missing.join(", ")}</b> belum ada, jadi market size belum bisa dihitung.
+            {counts.parts === 0 && (
+              <>
+                {" "}Master Part ada di bagian <b>Data master</b> di bawah.
+              </>
+            )}
           </div>
         )}
 
-        <div className="upload-group-title">Data rutin</div>
-
-        <div className="upload-slot">
-          <h4>Actual Sales — otomatis dari web Sales</h4>
-          <div className="hint">
-            Diambil langsung dari data penjualan di web Sales (sumber SAP yang sama dengan Laporan Sales), di luar cabang
-            yang dikecualikan (tabel <code>actual_branch_exclusions</code>). Berjalan otomatis tiap jam; tombol di bawah untuk
-            sinkron saat ini juga. Isi ulang per tahun, jadi aman diulang.
-          </div>
-          <div className={"upload-state " + (meta.actual_year_synced_at ? "has" : "empty")}>
-            {meta.actual_year_synced_at
-              ? `✓ Sinkron terakhir ${new Date(meta.actual_year_synced_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
-                `${meta.actual_year_max_date ? ` · data sampai ${new Date(meta.actual_year_max_date).toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}` +
-                `${meta.actual_tx_count ? ` · ${fmt(meta.actual_tx_count)} baris per part/bulan` : ""}`
-              : "● Belum pernah sinkron — Actual Sales masih dari upload file"}
-          </div>
-          <div className="upload-row">
-            <button
-              type="button"
-              className="link-btn"
-              disabled={busy}
-              onClick={() => run(setStSync, () => syncActualSales("recent", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
-            >
-              ⟳ Sinkron sekarang (tahun berjalan)
-            </button>
-            <button
-              type="button"
-              className="link-btn"
-              disabled={busy}
-              onClick={() => run(setStSync, () => syncActualSales("all", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
-            >
-              Sinkron ulang semua tahun (beberapa menit)
-            </button>
-          </div>
-          {stSync && <div className={"upload-status " + (stSync.ok ? "ok" : "err")}>{stSync.text}</div>}
-        </div>
+        <div className="upload-group-title">Data utama</div>
 
         <Slot
-          title="1. Actual Sales — upload Laporan Sales manual (cadangan)"
+          title="1. Data UIO"
           hint={
             <>
-              Laporan 3 tingkat <b>Product → Customer Group → Customer</b> (disarankan, supaya Actual bisa difilter per Product),
-              atau <b>KA Type → Customer Group → Customer</b>, atau 2 tingkat <b>Customer Group → Customer</b>, dengan satu
-              kolom nilai (Rp) per tahun (2018, 2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
-              apa adanya. Upload ini hanya <b>mengganti tahun-tahun yang ada di file</b>; data tahun lain yang sudah tersimpan tidak terhapus.
-              Pakai hanya kalau sinkron otomatis bermasalah — sinkron berikutnya akan menimpa tahun yang sama.
-            </>
-          }
-          count={counts.actualSales}
-          countUnit="baris (customer × tahun)"
-          lastFile={meta.actual_year_filename}
-          status={stSales}
-          busy={busy}
-          onPick={(f) =>
-            run(setStSales, () => uploadActualSalesYear(f, (t) => setStSales({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} baris (${fmt(j.customers)} customer, ${fmt(j.groups)} grup${j.kind === "product" ? `, ${fmt(j.products)} product` : ""}, tahun ${Math.min(...j.years)}–${j.latestYear}). Data ${j.latestYear} dianggap sampai ${j.ytdMonth} (dibaca otomatis dari tanggal di nama file / tanggal upload).${
-                j.totalDiff > 0 ? ` ⚠ Jumlah customer berbeda Rp ${fmt(j.totalDiff)} dari GRAND TOTAL.` : ""
-              }`
-            )
-          }
-          accept=".xlsx,.xls"
-        />
-
-        <Slot
-          title="2. Data UIO"
-          hint={
-            <>
-              Kolom : Branch, Pss Name, Cust. Code, Cust. Name, Cust. Group, Cust. Type, Product, Model, Serial Number, Year,
-              HM/Day, Day/Month, Month/Year.
+              Kolom: Branch, Pss Name, Cust. Code, Cust. Name, Cust. Group, Cust. Type, Product, Model, Serial Number, Year,
+              HM/Day, Day/Month, Month/Year. Upload ini mengganti seluruh Data UIO sebelumnya.
             </>
           }
           count={counts.uioUnits}
@@ -244,75 +189,101 @@ export default function UploadModal({
           onTemplate={downloadUioTemplate}
         />
 
+        <Slot
+          title="2. Data Harga Kontrak (SCPL)"
+          hint={<>Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.</>}
+          count={counts.contractPrices}
+          countUnit="harga kontrak"
+          lastFile={meta.price_list_filename}
+          status={stContract}
+          busy={busy}
+          onPick={(f) =>
+            run(setStContract, () => uploadFile("/api/upload/price-contract", f), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} harga kontrak disimpan.${dupText(j)}${skippedText(j)}`
+            )
+          }
+          onTemplate={downloadContractPriceTemplate}
+        />
+
+        <Slot
+          title="3. Data Harga Non Kontrak"
+          hint={<>Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.</>}
+          count={counts.nonContractPrices}
+          countUnit="harga non kontrak"
+          lastFile={meta.price_list_filename}
+          status={stNonContract}
+          busy={busy}
+          onPick={(f) =>
+            run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (- ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%).${dupText(j)}${skippedText(j)}`
+            )
+          }
+          onTemplate={downloadNonContractPriceTemplate}
+        />
+
         <button type="button" className="upload-group-toggle" onClick={() => setMasterOpen((v) => !v)}>
           <span>{masterOpen ? "▾" : "▸"}</span> Data master — upload hanya jika ada perubahan
-          {!masterOpen && missingMaster.length > 0 && <span className="upload-group-badge">perlu diisi</span>}
+          {!masterOpen && counts.parts === 0 && <span className="upload-group-badge">perlu diisi</span>}
         </button>
 
         {masterOpen && (
-          <>
-            <Slot
-              title="3. Master Part — daftar part per model"
-              hint={
-                <>
-                  Kolom: Product, Model Unit, Part Number, Part Name, Qty per Unit, Frekuensi Ganti (HM), HM per Hari.
-                </>
-              }
-              count={counts.parts}
-              countUnit="part"
-              lastFile={meta.kalkulator_filename}
-              status={stPart}
-              busy={busy}
-              onPick={(f) =>
-                run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true })), (j) =>
-                  `Berhasil: ${fmt(j.rowCount)} part disimpan.${dupText(j)}${skippedText(j)}`
-                )
-              }
-              onTemplate={downloadMasterPartTemplate}
-          accept=".xlsx,.xls,.csv"
-            />
-
-            <Slot
-              title="4. Data Harga Kontrak — SCPL"
-              hint={
-                <>
-                  Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.
-                </>
-              }
-              count={counts.contractPrices}
-              countUnit="harga kontrak"
-              lastFile={meta.price_list_filename}
-              status={stContract}
-              busy={busy}
-              onPick={(f) =>
-                run(setStContract, () => uploadFile("/api/upload/price-contract", f), (j) =>
-                  `Berhasil: ${fmt(j.rowCount)} harga kontrak disimpan.${dupText(j)}${skippedText(j)}`
-                )
-              }
-              onTemplate={downloadContractPriceTemplate}
-            />
-
-            <Slot
-              title="5. Data Harga Non Kontrak"
-              hint={
-                <>
-                  Kolom : Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.
-                </>
-              }
-              count={counts.nonContractPrices}
-              countUnit="harga non kontrak"
-              lastFile={meta.price_list_filename}
-              status={stNonContract}
-              busy={busy}
-              onPick={(f) =>
-                run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f), (j) =>
-                  `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (- ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%).${dupText(j)}${skippedText(j)}`
-                )
-              }
-              onTemplate={downloadNonContractPriceTemplate}
-            />
-          </>
+          <Slot
+            title="Master Part — daftar part per model"
+            hint={
+              <>
+                Kolom: Product, Model Unit, Part Number, Part Name, Qty per Unit, Frekuensi Ganti (HM), HM per Hari. Part yang sama
+                diperbarui, part baru ditambahkan, part lain tidak dihapus.
+              </>
+            }
+            count={counts.parts}
+            countUnit="part"
+            lastFile={meta.kalkulator_filename}
+            status={stPart}
+            busy={busy}
+            onPick={(f) =>
+              run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true })), (j) =>
+                `Berhasil: ${fmt(j.rowCount)} part disimpan.${dupText(j)}${skippedText(j)}`
+              )
+            }
+            onTemplate={downloadMasterPartTemplate}
+            accept=".xlsx,.xls,.csv"
+          />
         )}
+
+        <div className="upload-group-title">Otomatis — tidak perlu upload</div>
+
+        <div className="upload-slot">
+          <h4>Actual Sales — tersinkron dari web Sales</h4>
+          <div className="hint">
+            Diambil otomatis tiap jam dari data penjualan di web Sales. Admin cukup menginput di web Sales.
+          </div>
+          <div className={"upload-state " + (syncedAt ? "has" : "empty")}>
+            {syncedAt
+              ? `✓ Sinkron terakhir ${syncedAt.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
+                `${dataUntil ? ` · data sampai ${dataUntil.toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}`
+              : "● Belum pernah sinkron"}
+          </div>
+          <div className="upload-row">
+            <button
+              type="button"
+              className="link-btn"
+              disabled={busy}
+              onClick={() => run(setStSync, () => syncActualSales("recent", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+            >
+              ⟳ Sinkron sekarang
+            </button>
+            <button
+              type="button"
+              className="link-btn"
+              disabled={busy}
+              title="Mengisi ulang semua tahun sejak 2018 (beberapa menit). Perlu hanya jika data lama di web Sales dikoreksi."
+              onClick={() => run(setStSync, () => syncActualSales("all", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+            >
+              Sinkron ulang semua tahun
+            </button>
+          </div>
+          {stSync && <div className={"upload-status " + (stSync.ok ? "ok" : "err")}>{stSync.text}</div>}
+        </div>
       </div>
     </div>
   );
