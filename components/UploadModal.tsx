@@ -38,6 +38,76 @@ async function uploadFile(url: string, file: File): Promise<Result> {
 
 const fmt = (n: number) => n.toLocaleString("id-ID");
 
+type ClearTarget = "uio_units" | "price_contract" | "price_non_contract" | "parts";
+
+async function clearData(target: ClearTarget, pin: string): Promise<Result> {
+  try {
+    const res = await fetch("/api/data/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, pin })
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, message: json.error || "Gagal menghapus data." };
+    return { ok: true, message: json };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message || "Gagal terhubung ke server." };
+  }
+}
+
+/** Tombol "Hapus data" dengan konfirmasi + PIN admin, ditampilkan di bawah slot yang sudah berisi data. */
+function ClearControl({ count, countUnit, busy, onClear }: { count: number; countUnit: string; busy: boolean; onClear: (pin: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  if (count === 0) return null;
+  if (!open) {
+    return (
+      <button type="button" className="link-btn danger" disabled={busy} onClick={() => setOpen(true)}>
+        Hapus data
+      </button>
+    );
+  }
+  return (
+    <div className="clear-confirm">
+      <div>
+        Hapus <b>semua {fmt(count)} {countUnit}</b>? Tidak bisa dibatalkan — untuk mengembalikan, upload ulang filenya.
+      </div>
+      <div className="upload-row">
+        <input
+          type="password"
+          className="pin-input"
+          placeholder="PIN admin"
+          value={pin}
+          autoFocus
+          onChange={(e) => setPin(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && pin) {
+              onClear(pin);
+              setOpen(false);
+              setPin("");
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="danger-btn"
+          disabled={busy || !pin}
+          onClick={() => {
+            onClear(pin);
+            setOpen(false);
+            setPin("");
+          }}
+        >
+          Ya, hapus
+        </button>
+        <button type="button" className="link-btn" onClick={() => { setOpen(false); setPin(""); }}>
+          Batal
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Slot({
   title,
   hint,
@@ -48,6 +118,7 @@ function Slot({
   busy,
   onPick,
   onTemplate,
+  onClear,
   extra,
   accept = ".xlsx,.xls"
 }: {
@@ -60,6 +131,8 @@ function Slot({
   busy: boolean;
   onPick: (file: File) => void;
   onTemplate?: () => void;
+  /** Kalau diisi, muncul tombol "Hapus data" (dengan konfirmasi + PIN). */
+  onClear?: (pin: string) => void;
   extra?: React.ReactNode;
   accept?: string;
 }) {
@@ -90,6 +163,7 @@ function Slot({
             Unduh template
           </button>
         )}
+        {onClear && <ClearControl count={count} countUnit={countUnit} busy={busy} onClear={onClear} />}
       </div>
       {status && <div className={"upload-status " + (status.ok ? "ok" : "err")}>{status.text}</div>}
     </div>
@@ -187,6 +261,7 @@ export default function UploadModal({
             )
           }
           onTemplate={downloadUioTemplate}
+          onClear={(pin) => run(setStUio, () => clearData("uio_units", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
         <Slot
@@ -203,6 +278,7 @@ export default function UploadModal({
             )
           }
           onTemplate={downloadContractPriceTemplate}
+          onClear={(pin) => run(setStContract, () => clearData("price_contract", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
         <Slot
@@ -219,6 +295,7 @@ export default function UploadModal({
             )
           }
           onTemplate={downloadNonContractPriceTemplate}
+          onClear={(pin) => run(setStNonContract, () => clearData("price_non_contract", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
         <button type="button" className="upload-group-toggle" onClick={() => setMasterOpen((v) => !v)}>
@@ -246,6 +323,7 @@ export default function UploadModal({
               )
             }
             onTemplate={downloadMasterPartTemplate}
+          onClear={(pin) => run(setStPart, () => clearData("parts", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
             accept=".xlsx,.xls,.csv"
           />
         )}
