@@ -52,6 +52,13 @@ async function fetchAll<T>(
 /** Jumlah baris Actual per part (actual_sales_tx). Isinya sengaja TIDAK dimuat ke dashboard:
  * hasil sinkron dari web Sales bisa ratusan ribu baris (sejak 2018) dan belum ditampilkan di mana pun.
  * Kalau nanti tampilan Part butuh, ambil per tahun/customer sesuai filter, bukan semuanya. */
+/** Tabel lama yang sudah tidak dipakai (uio_master, actual_sales). Boleh sudah dihapus dari
+ * database: kalau tabelnya tidak ada atau gagal dibaca, dianggap kosong. */
+async function fetchLegacy<T>(supabase: SupabaseClient, table: string): Promise<T[]> {
+  const { data, error } = await supabase.from(table).select("*").limit(1000);
+  return error ? [] : ((data ?? []) as T[]);
+}
+
 async function countActualSalesTx(supabase: SupabaseClient): Promise<number> {
   const head = await supabase.from("actual_sales_tx").select("id", { count: "exact", head: true });
   return head.error ? 0 : head.count || 0;
@@ -135,10 +142,10 @@ export async function fetchReferences(supabase: SupabaseClient): Promise<Referen
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
   const [parts, uio, assumptions, customers, actualSales, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
-    fetchAll<UioMaster>(supabase, "uio_master"),
+    fetchLegacy<UioMaster>(supabase, "uio_master"),
     fetchAll<Assumption>(supabase, "assumptions", "product"),
     fetchAll<Customer>(supabase, "customers"),
-    fetchAll<ActualSalesRow>(supabase, "actual_sales"),
+    fetchLegacy<ActualSalesRow>(supabase, "actual_sales"),
     countActualSalesTx(supabase),
     fetchActualSalesYear(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),

@@ -3,7 +3,7 @@
  * lalu dikirim ke server dalam potongan kecil supaya tidak melewati batas ukuran
  * request di Vercel. Mengembalikan { ok, message } seperti uploadFile di UploadModal.
  */
-import { parseMasterPartFile, parseActualSalesTxFile, parseActualSalesYearFile, UploadParseError } from "@/lib/parse/uploadClient";
+import { parseMasterPartFile, parseActualSalesYearFile, UploadParseError } from "@/lib/parse/uploadClient";
 
 const CHUNK = 2000;
 /** Data UIO dibaca mulai tahun ini saja (populasi sebelum 2018 diabaikan). */
@@ -40,26 +40,6 @@ export async function uploadMasterPart(file: File, onProgress?: (text: string) =
     }
     await post(url, { action: "finish", filename: file.name, total: parsed.rows.length });
     return { ok: true, message: { rowCount: parsed.rows.length, skipped: parsed.skipped, duplicates: parsed.duplicates, sheet: parsed.sheet } };
-  } catch (err) {
-    return { ok: false, message: errMessage(err) };
-  }
-}
-
-export async function uploadActualSales(file: File, onProgress?: (text: string) => void): Promise<Result> {
-  try {
-    onProgress?.("Membaca file…");
-    const parsed = await parseActualSalesTxFile(file);
-    const url = "/api/upload/actual-sales-tx";
-    await post(url, { action: "start", periods: parsed.periods });
-    for (let i = 0; i < parsed.rows.length; i += CHUNK) {
-      onProgress?.(`Mengirim ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris…`);
-      await post(url, { action: "rows", rows: parsed.rows.slice(i, i + CHUNK), filename: file.name });
-    }
-    await post(url, { action: "finish", filename: file.name, total: parsed.rows.length });
-    return {
-      ok: true,
-      message: { rowCount: parsed.rows.length, skipped: parsed.skipped, periods: parsed.periods.length, sheet: parsed.sheet }
-    };
   } catch (err) {
     return { ok: false, message: errMessage(err) };
   }
