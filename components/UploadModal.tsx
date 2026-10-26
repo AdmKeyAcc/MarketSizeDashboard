@@ -8,6 +8,7 @@ import {
   downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
 import { uploadMasterPart, uploadActualSalesYear, uploadUioUnits } from "@/lib/parse/uploadChunked";
+import { syncActualSales } from "@/lib/syncActual";
 import type { DataMeta } from "@/lib/types";
 
 type SlotStatus = { text: string; ok: boolean } | null;
@@ -113,6 +114,7 @@ export default function UploadModal({
   const [stPart, setStPart] = useState<SlotStatus>(null);
   const [stContract, setStContract] = useState<SlotStatus>(null);
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
+  const [stSync, setStSync] = useState<SlotStatus>(null);
   const [masterOpen, setMasterOpen] = useState(false);
   // Data tahun terbaru di laporan Actual Sales biasanya belum setahun penuh (YTD).
   const [busy, setBusy] = useState(false);
@@ -158,14 +160,50 @@ export default function UploadModal({
 
         <div className="upload-group-title">Data rutin</div>
 
+        <div className="upload-slot">
+          <h4>Actual Sales — otomatis dari web Sales</h4>
+          <div className="hint">
+            Diambil langsung dari data penjualan di web Sales (sumber SAP yang sama dengan Laporan Sales), di luar cabang
+            yang dikecualikan (tabel <code>actual_branch_exclusions</code>). Berjalan otomatis tiap jam; tombol di bawah untuk
+            sinkron saat ini juga. Isi ulang per tahun, jadi aman diulang.
+          </div>
+          <div className={"upload-state " + (meta.actual_year_synced_at ? "has" : "empty")}>
+            {meta.actual_year_synced_at
+              ? `✓ Sinkron terakhir ${new Date(meta.actual_year_synced_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
+                `${meta.actual_year_max_date ? ` · data sampai ${new Date(meta.actual_year_max_date).toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}` +
+                `${meta.actual_tx_count ? ` · ${fmt(meta.actual_tx_count)} baris per part/bulan` : ""}`
+              : "● Belum pernah sinkron — Actual Sales masih dari upload file"}
+          </div>
+          <div className="upload-row">
+            <button
+              type="button"
+              className="link-btn"
+              disabled={busy}
+              onClick={() => run(setStSync, () => syncActualSales("recent", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+            >
+              ⟳ Sinkron sekarang (tahun berjalan)
+            </button>
+            <button
+              type="button"
+              className="link-btn"
+              disabled={busy}
+              onClick={() => run(setStSync, () => syncActualSales("all", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+            >
+              Sinkron ulang semua tahun (beberapa menit)
+            </button>
+          </div>
+          {stSync && <div className={"upload-status " + (stSync.ok ? "ok" : "err")}>{stSync.text}</div>}
+        </div>
+
         <Slot
-          title="1. Actual Sales — laporan penjualan tahunan per customer"
+          title="1. Actual Sales — upload Laporan Sales manual (cadangan)"
           hint={
             <>
               Laporan 3 tingkat <b>Product → Customer Group → Customer</b> (disarankan, supaya Actual bisa difilter per Product),
               atau <b>KA Type → Customer Group → Customer</b>, atau 2 tingkat <b>Customer Group → Customer</b>, dengan satu
               kolom nilai (Rp) per tahun (2018, 2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
               apa adanya. Upload ini hanya <b>mengganti tahun-tahun yang ada di file</b>; data tahun lain yang sudah tersimpan tidak terhapus.
+              Pakai hanya kalau sinkron otomatis bermasalah — sinkron berikutnya akan menimpa tahun yang sama.
             </>
           }
           count={counts.actualSales}

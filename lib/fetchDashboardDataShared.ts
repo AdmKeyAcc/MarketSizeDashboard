@@ -49,13 +49,22 @@ async function fetchAll<T>(
   return all;
 }
 
+/** Jumlah baris Actual per part (actual_sales_tx). Isinya sengaja TIDAK dimuat ke dashboard:
+ * hasil sinkron dari web Sales bisa ratusan ribu baris (sejak 2018) dan belum ditampilkan di mana pun.
+ * Kalau nanti tampilan Part butuh, ambil per tahun/customer sesuai filter, bukan semuanya. */
+async function countActualSalesTx(supabase: SupabaseClient): Promise<number> {
+  const head = await supabase.from("actual_sales_tx").select("id", { count: "exact", head: true });
+  return head.error ? 0 : head.count || 0;
+}
+
 /**
+ * (Tidak dipakai lagi oleh dashboard — lihat countActualSalesTx.)
  * Actual Sales per transaksi bisa puluhan ribu baris. Halamannya diambil
  * PARALEL (bukan satu-satu) supaya dashboard tidak menunggu puluhan request
  * berurutan. Kalau tabel actual_sales_tx belum dibuat/kosong, hasilnya []
  * dan dashboard jatuh ke tabel actual_sales yang lama.
  */
-async function fetchActualSalesTx(supabase: SupabaseClient): Promise<ActualSalesTx[]> {
+export async function fetchActualSalesTx(supabase: SupabaseClient): Promise<ActualSalesTx[]> {
   const cols = "year,month,customer_group,customer_name,product,model,part_number,qty,amount";
   const head = await supabase.from("actual_sales_tx").select("id", { count: "exact", head: true });
   if (head.error || !head.count) return [];
@@ -124,17 +133,17 @@ export async function fetchReferences(supabase: SupabaseClient): Promise<Referen
 }
 
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
+  const [parts, uio, assumptions, customers, actualSales, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<UioMaster>(supabase, "uio_master"),
     fetchAll<Assumption>(supabase, "assumptions", "product"),
     fetchAll<Customer>(supabase, "customers"),
     fetchAll<ActualSalesRow>(supabase, "actual_sales"),
-    fetchActualSalesTx(supabase),
+    countActualSalesTx(supabase),
     fetchActualSalesYear(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),
     fetchAll<PriceListEntry>(supabase, "price_list"),
-    fetchAll<{ key: string; value: { filename?: string | null; ytd_year?: number | null; ytd_month?: string | null } }>(supabase, "app_meta", "key"),
+    fetchAll<{ key: string; value: { filename?: string | null; ytd_year?: number | null; ytd_month?: string | null; synced_at?: string | null; max_date?: string | null } }>(supabase, "app_meta", "key"),
     fetchReferences(supabase)
   ]);
 
@@ -153,8 +162,12 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     price_list_updated_at: null,
     actual_year_filename: (findMeta("actual_sales_year").filename as string) ?? null,
     actual_year_ytd_year: ((findMeta("actual_sales_year") as { ytd_year?: number | null }).ytd_year) ?? null,
-    actual_year_ytd_month: ((findMeta("actual_sales_year") as { ytd_month?: string | null }).ytd_month) ?? null
+    actual_year_ytd_month: ((findMeta("actual_sales_year") as { ytd_month?: string | null }).ytd_month) ?? null,
+    actual_year_synced_at: ((findMeta("actual_sales_year") as { synced_at?: string | null }).synced_at) ?? null,
+    actual_year_max_date: ((findMeta("actual_sales_year") as { max_date?: string | null }).max_date) ?? null,
+    actual_tx_count: actualTxCount
   };
+  const actualSalesTx: ActualSalesTx[] = [];
 
   return { parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
 }

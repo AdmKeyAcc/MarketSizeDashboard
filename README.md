@@ -104,3 +104,25 @@ supabase/schema.sql         Skema database + Row Level Security
 scripts/seed.mjs            Isi data contoh sekali di awal
 data/sample/                 Data contoh yang dipakai scripts/seed.mjs
 ```
+
+## Sinkron Actual Sales otomatis dari web Sales
+
+Actual Sales diambil langsung dari tabel `master` di database web Sales (data SAP
+yang sama dengan Laporan Sales), tanpa upload. Aturan cakupan: semua baris kecuali
+cabang di tabel `actual_branch_exclusions` (default JKT, SBY, SMG, BDG) — dicek
+cocok sampai rupiah dengan Laporan Sales 2024–2026.
+
+Pemasangan (sekali):
+1. **Supabase Sales** → SQL Editor → jalankan `supabase/sales_db_feed_for_market_size.sql`,
+   lalu `select token from ms_private.feed_token;` dan salin token-nya.
+2. **Vercel (Market Size)** → Settings → Environment Variables, tambahkan:
+   `SALES_SUPABASE_URL`, `SALES_SUPABASE_ANON_KEY` (Project Settings → API di project Sales),
+   `SALES_FEED_TOKEN` (token langkah 1). Redeploy.
+3. **Supabase Market Size** → jalankan BAGIAN A `supabase/migration_v14_actual_sync.sql`.
+4. Buka dashboard → ⭱ Upload → **Sinkron ulang semua tahun** (sekali, beberapa menit).
+5. Jalankan BAGIAN B `migration_v14_actual_sync.sql` untuk jadwal otomatis tiap jam.
+
+Isi: `actual_sales_year` (per tahun × KA Type × customer × product, dipakai dashboard)
+dan `actual_sales_tx` (per bulan × customer × part; disimpan untuk tampilan Part,
+isinya tidak dimuat ke dashboard karena besar). Upload Laporan Sales manual tetap ada
+sebagai cadangan.

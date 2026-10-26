@@ -176,6 +176,12 @@ export type DataMeta = {
   actual_year_ytd_year?: number | null;
   actual_year_ytd_month?: string | null;
   actual_year_filename?: string | null;
+  /** Waktu sinkron terakhir dari web Sales (null = data dari upload file). */
+  actual_year_synced_at?: string | null;
+  /** Tanggal posting terakhir di data Sales saat sinkron. */
+  actual_year_max_date?: string | null;
+  /** Jumlah baris Actual per part/bulan di database (isinya tidak dimuat ke dashboard). */
+  actual_tx_count?: number;
   kalkulator_updated_at: string | null;
   kalkulator_filename: string | null;
   customers_updated_at: string | null;
