@@ -1,4 +1,4 @@
-import { canonicalProduct, normModel } from "@/lib/calculations";
+import { addUnitHm, canonicalProduct, defaultWorkdaysOf, emptyUnitHm, normModel, type UnitHm, type WorkdaysOf } from "@/lib/calculations";
 import type { PriceListEntry, UioUnit } from "@/lib/types";
 
 const up = (s: string | null | undefined) => (s || "").trim().toUpperCase();
@@ -15,22 +15,36 @@ export function uioCountForPart(
   group?: string,
   name?: string
 ): number {
+  return uioHoursForPart(units, year, product, partModel, group, name).units;
+}
+
+/** Sama seperti uioCountForPart, tapi mengembalikan juga ringkasan jam operasi unit-unit tsb
+ * (HM/Day × Day/Month × Month/Year dari Data UIO) — dasar Annual HM. */
+export function uioHoursForPart(
+  units: UioUnit[],
+  year: number | null,
+  product: string,
+  partModel: string,
+  group?: string,
+  name?: string,
+  workdaysOf: WorkdaysOf = defaultWorkdaysOf
+): UnitHm {
   const prod = canonicalProduct(product);
   const pm = normModel(partModel);
   const g = up(group);
   const n = up(name);
-  let exact = 0;
-  let prefix = 0;
+  const exact = emptyUnitHm();
+  const prefix = emptyUnitHm();
   units.forEach((u) => {
     if (canonicalProduct(u.product) !== prod) return;
     if (year !== null && u.year !== null && u.year > year) return;
     if (g && up(u.customer_group) !== g) return;
     if (n && up(u.customer_name) !== n) return;
     const nm = normModel(u.model);
-    if (nm === pm) exact++;
-    else if (pm.length >= 3 && nm.startsWith(pm)) prefix++;
+    if (nm === pm) addUnitHm(exact, u, workdaysOf);
+    else if (pm.length >= 3 && nm.startsWith(pm)) addUnitHm(prefix, u, workdaysOf);
   });
-  return exact > 0 ? exact : prefix;
+  return exact.units > 0 ? exact : prefix;
 }
 
 export type PriceSource = "contract" | "non_contract" | "pricelist";

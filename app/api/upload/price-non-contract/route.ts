@@ -4,13 +4,14 @@ import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { chunkedUpsert } from "@/lib/supabase/bulk";
 import { parseNonContractPriceWorkbook } from "@/lib/parse/priceList";
 import { ParseError } from "@/lib/parse/xlsxHelpers";
+import { fetchReferences } from "@/lib/fetchDashboardDataShared";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
-/** Data Harga Non Kontrak: harga tertera dikurangi 50% otomatis (price = harga nett, list_price = harga tertera). Disimpan sebagai harga umum (customer_group kosong). */
+/** Data Harga Non Kontrak: harga tertera dipotong otomatis sesuai app_settings.non_contract_discount (bawaan 50%) (price = harga nett, list_price = harga tertera). Disimpan sebagai harga umum (customer_group kosong). */
 export async function POST(request: Request) {
   try {
     const form = await request.formData();
@@ -22,11 +23,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "File terlalu besar (maks 15 MB)." }, { status: 413 });
     }
 
+    const supabase = getSupabaseAdmin();
+    const { settings } = await fetchReferences(supabase);
+
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const { rows, skipped, duplicates } = parseNonContractPriceWorkbook(wb);
+    const { rows, skipped, duplicates } = parseNonContractPriceWorkbook(wb, settings.non_contract_discount);
 
-    const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
     await chunkedUpsert(
@@ -38,11 +41,11 @@ export async function POST(request: Request) {
 
     await supabase.from("app_meta").upsert({
       key: "price_list",
-      value: { filename: file.name, row_count: rows.length, type: "non_contract" },
+      value: { filename: file.name, row_count: rows.length, type: "non_contract", discount: settings.non_contract_discount },
       updated_at: now
     });
 
-    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates });
+    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, discount: settings.non_contract_discount });
   } catch (err) {
     const message = err instanceof ParseError ? err.message : (err as Error).message || "Gagal memproses file.";
     const status = err instanceof ParseError ? 422 : 500;

@@ -8,10 +8,12 @@ import {
   fmtIDRFull,
   fmtInt,
   fmtPct,
+  makeWorkdaysOf,
+  partAnnualHm,
   uioYearsAvailable,
   uniq
 } from "@/lib/calculations";
-import { resolvePriceInfo, uioCountForPart } from "@/lib/calcHelpers";
+import { resolvePriceInfo, uioHoursForPart } from "@/lib/calcHelpers";
 import { exportSummaryToExcel } from "@/lib/exportSummary";
 import type { Part } from "@/lib/types";
 
@@ -63,6 +65,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   const [pricelist, setPricelist] = useState(0);
   const [freq, setFreq] = useState(1);
   const [hmDay, setHmDay] = useState(8);
+  const [hmManual, setHmManual] = useState(false);
   const [uio, setUio] = useState(0);
   const [uioManual, setUioManual] = useState(false);
   const [price, setPrice] = useState(0);
@@ -86,18 +89,28 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
     setQtyPerUnit(selectedPart.qty_per_unit);
     setPricelist(selectedPart.pricelist);
     setFreq(selectedPart.freq_replacement_hm || 1);
-    // HM/hari mengikuti Master Part (sama dengan perhitungan Dashboard & Summary); baku 8 kalau kosong.
-    setHmDay(selectedPart.hm_day || 8);
+    // HM/hari otomatis dari Data UIO (lihat autoHm di bawah), sama dengan perhitungan Dashboard & Summary.
+    setHmManual(false);
     setPriceManual(false);
     setUioManual(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPart?.part_number, selectedPart?.part_name, product, model]);
 
-  // UIO otomatis dari Data UIO (kumulatif sampai tahun terpilih), kecuali diisi manual.
-  const autoUio = useMemo(
-    () => uioCountForPart(data.uioUnits, year, product, model, group, custName),
-    [data.uioUnits, year, product, model, group, custName]
+  // UIO & jam operasi otomatis dari Data UIO (kumulatif sampai tahun terpilih), kecuali diisi manual.
+  const workdaysOf = useMemo(() => makeWorkdaysOf(data.assumptions), [data.assumptions]);
+  const autoHours = useMemo(
+    () => uioHoursForPart(data.uioUnits, year, product, model, group, custName, workdaysOf),
+    [data.uioUnits, year, product, model, group, custName, workdaysOf]
   );
+  const autoUio = autoHours.units;
+  // Annual HM rata-rata per unit = HM/Day × Day/Month × Month/Year di Data UIO (fallback: HM/Day Master Part / default).
+  const autoHm = useMemo(
+    () => partAnnualHm(autoHours, selectedPart?.hm_day, product, workdaysOf),
+    [autoHours, selectedPart?.hm_day, product, workdaysOf]
+  );
+  useEffect(() => {
+    if (!hmManual) setHmDay(Math.round(autoHm.hmDay * 100) / 100);
+  }, [autoHm.hmDay, hmManual]);
   useEffect(() => {
     if (!uioManual) setUio(autoUio);
   }, [autoUio, uioManual]);
@@ -111,8 +124,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
     if (!priceManual) setPrice(priceInfo.price);
   }, [priceInfo.price, priceManual]);
 
-  const workdaysMonth = data.assumptions.find((a) => a.product === product)?.workdays_month || 22;
-  const annualHm = hmDay * workdaysMonth * 12;
+  // HM/hari diisi manual → Annual HM diskalakan dari rata-rata hari & bulan operasi unit yang sama.
+  const hoursPerHmDay = autoHm.hmDay > 0 ? autoHm.annualHm / autoHm.hmDay : 0;
+  const annualHm = hmManual ? hmDay * hoursPerHmDay : autoHm.annualHm;
   const { qty: qtyMarketSize, amount: amountMarketSize } = computePartMarketSize({
     annualHm,
     freqReplacementHm: freq,
@@ -250,7 +264,19 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
         </div>
         <div className="calc-field">
           <label>HM / hari</label>
-          <input type="number" min={0} step={0.5} value={hmDay} onChange={(e) => setHmDay(Number(e.target.value) || 0)} />
+          <input type="number" min={0} step={0.5} value={hmDay} onChange={(e) => { setHmDay(Number(e.target.value) || 0); setHmManual(true); }} />
+          <div className="calc-hint">
+            {hmManual ? (
+              <>
+                Manual · otomatis: {autoHm.hmDay.toLocaleString("id-ID", { maximumFractionDigits: 2 })}{" "}
+                <button type="button" className="link-btn" onClick={() => setHmManual(false)}>pakai otomatis</button>
+              </>
+            ) : autoUio > 0 ? (
+              <>Rata-rata dari Data UIO</>
+            ) : (
+              <>Dari Master Part / default</>
+            )}
+          </div>
         </div>
         <div className="calc-field">
           <label>UIO (unit)</label>

@@ -2,14 +2,21 @@ import {
   EMPTY_FILTERS,
   buildPriceResolver,
   canonicalProduct,
+  addUnitHm,
   computePartMarketSize,
   custKey,
+  emptyUnitHm,
+  makeWorkdaysOf,
+  mergeUnitHm,
+  partAnnualHm,
+  type UnitHm,
+  type WorkdaysOf,
   normModel,
   type FilterState,
   type MarketSizeYearRow
 } from "@/lib/calculations";
 import type { ActualSalesYear, Assumption, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
-import { CUSTOMER_TIER_OPTIONS } from "@/lib/types";
+import { kaRank } from "@/lib/references";
 
 /* ------------------------------------------------------------------ */
 /* Dimensi hierarki                                                    */
@@ -64,10 +71,7 @@ export type CustInfo = {
 /** Satu baris fakta = Market Size satu customer untuk satu Product + Model pada tahun acuan (setahun penuh). */
 export type Fact = { product: string; model: string; ms: number; qty: number; uio: number };
 
-const tierRank = (t: string) => {
-  const i = CUSTOMER_TIER_OPTIONS.indexOf(t as (typeof CUSTOMER_TIER_OPTIONS)[number]);
-  return i === -1 ? 999 : i;
-};
+const tierRank = (t: string) => kaRank(t);
 export const byKaOrder = (a: string, b: string) => tierRank(a) - tierRank(b) || a.localeCompare(b);
 
 /** Gabungan customer dari Master Customer, Data UIO dan laporan Actual Sales (dicocokkan lewat custKey = GROUP|NAMA). */
@@ -157,7 +161,7 @@ export function indexParts(parts: Part[]): PartIndex {
 
 export type FactDeps = {
   partIndex: PartIndex;
-  workdays: Map<string, number>;
+  workdaysOf: WorkdaysOf;
   priceOf: ReturnType<typeof buildPriceResolver>;
   year: number;
   /** Hanya filter Product/Model/Part Number/Part Name yang dipakai di sini. */
@@ -165,16 +169,13 @@ export type FactDeps = {
 };
 
 export function makeFactDeps(parts: Part[], assumptions: Assumption[], priceList: PriceListEntry[], year: number, filters: FilterState): FactDeps {
-  const workdays = new Map<string, number>();
-  assumptions.forEach((a) => {
-    if (!workdays.has(a.product)) workdays.set(a.product, a.workdays_month || 22);
-  });
-  return { partIndex: indexParts(parts), workdays, priceOf: buildPriceResolver(priceList), year, filters };
+  return { partIndex: indexParts(parts), workdaysOf: makeWorkdaysOf(assumptions), priceOf: buildPriceResolver(priceList), year, filters };
 }
 
 /** Market Size setahun satu customer per Product + Model, dengan rumus yang sama seperti Detail part di page Summary:
  * UIO = unit customer itu sampai tahun acuan (cocok Product + Model; model part boleh berupa awalan model unit),
- * Qty = ROUND(Annual HM ÷ Frekuensi × Qty/unit × UIO), Rp = Harga × Qty (harga kontrak kalau group-nya punya). */
+ * Qty = ROUND(Annual HM ÷ Frekuensi × Qty/unit × UIO), Rp = Harga × Qty (harga kontrak kalau group-nya punya).
+ * Annual HM = rata-rata jam operasi unit-unit itu (HM/Day × Day/Month × Month/Year di Data UIO). */
 export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
   if (c.units.length === 0) return [];
   const f = d.filters;
@@ -183,15 +184,17 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
   const pnSet = f.partNumber.length > 0 ? new Set(f.partNumber) : null;
   const nameSet = f.partName.length > 0 ? new Set(f.partName) : null;
 
-  // hitung unit per product → model (dinormalisasi)
-  const counts = new Map<string, Map<string, number>>();
+  // jumlah unit + jam operasi per product → model (dinormalisasi)
+  const counts = new Map<string, Map<string, UnitHm>>();
   c.units.forEach((u) => {
     if (u.year !== null && u.year > d.year) return;
     const pk = canonicalProduct(u.product);
     let m = counts.get(pk);
     if (!m) counts.set(pk, (m = new Map()));
     const nm = normModel(u.model);
-    m.set(nm, (m.get(nm) || 0) + 1);
+    let agg = m.get(nm);
+    if (!agg) m.set(nm, (agg = emptyUnitHm()));
+    addUnitHm(agg, u, d.workdaysOf);
   });
 
   const out = new Map<string, Fact>();
@@ -199,15 +202,20 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
     const byModel = d.partIndex.get(pk);
     if (!byModel) return;
     byModel.forEach((plist, pm) => {
-      let uio = unitModels.get(pm) || 0;
-      if (uio === 0 && pm.length >= 3) unitModels.forEach((n, k) => { if (k.startsWith(pm)) uio += n; });
+      let hrs = unitModels.get(pm);
+      if ((!hrs || hrs.units === 0) && pm.length >= 3) {
+        const sum = emptyUnitHm();
+        unitModels.forEach((a, k) => { if (k.startsWith(pm)) mergeUnitHm(sum, a); });
+        hrs = sum;
+      }
+      const uio = hrs?.units || 0;
       if (uio === 0) return;
       plist.forEach((p) => {
         if (prodSet && !prodSet.has(p.product)) return;
         if (modelSet && !modelSet.has(p.model)) return;
         if (pnSet && !pnSet.has(p.part_number || "")) return;
         if (nameSet && !nameSet.has(p.part_name || "")) return;
-        const annualHm = (p.hm_day || 8) * (d.workdays.get(p.product) || 22) * 12;
+        const { annualHm } = partAnnualHm(hrs, p.hm_day, p.product, d.workdaysOf);
         const price = d.priceOf(p.part_number, c.priceGroup || c.group, p.pricelist);
         const { qty, amount } = computePartMarketSize({ annualHm, freqReplacementHm: p.freq_replacement_hm, qtyPerUnit: p.qty_per_unit, uio, price });
         const k = `${p.product}|${p.model}`;

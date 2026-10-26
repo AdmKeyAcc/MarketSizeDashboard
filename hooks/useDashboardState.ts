@@ -23,7 +23,8 @@ import {
   marketShareByYear,
   findPartsWithoutPrice
 } from "@/lib/calculations";
-import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
+import { MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
+import { applyReferences, kaRank } from "@/lib/references";
 import { buildCustomerIndex, marketRowsFromFacts } from "@/lib/hierarchy";
 import { useYearFacts } from "@/hooks/useYearFacts";
 import { monthsShare } from "@/lib/workdays";
@@ -74,6 +75,9 @@ function enrichCustomersFromUio(data: DashboardData): DashboardData {
 
 export function useDashboardState(initialData: DashboardData) {
   const [rawData, setData] = useState<DashboardData>(initialData);
+  // Kamus & pengaturan (alias product, KA Type, angka default rumus) dari Supabase harus
+  // terpasang SEBELUM semua perhitungan di bawah. Idempotent: tidak berbuat apa-apa kalau sama.
+  applyReferences(rawData.references);
   const data = useMemo(() => enrichCustomersFromUio(rawData), [rawData]);
   const [refreshing, setRefreshing] = useState(false);
   const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
@@ -268,12 +272,7 @@ export function useDashboardState(initialData: DashboardData) {
       ...pool("tier").map((i) => i.c.tier),
       ...data.actualSalesYear.map((r) => r.ka_type).filter(() => filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length + filters.sector.length === 0 && selYears.length === 0 && selProducts.length === 0)
     ]).sort((a, b) => {
-      const ia = CUSTOMER_TIER_OPTIONS.indexOf(a as (typeof CUSTOMER_TIER_OPTIONS)[number]);
-      const ib = CUSTOMER_TIER_OPTIONS.indexOf(b as (typeof CUSTOMER_TIER_OPTIONS)[number]);
-      if (ia === -1 && ib === -1) return a.localeCompare(b);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
+      return kaRank(a) - kaRank(b) || a.localeCompare(b);
     });
 
     // Tahun: hanya tahun yang punya data untuk customer/product yang sedang dipilih.

@@ -165,7 +165,7 @@ export default function UploadModal({
               Laporan 3 tingkat <b>Product → Customer Group → Customer</b> (disarankan, supaya Actual bisa difilter per Product),
               atau <b>KA Type → Customer Group → Customer</b>, atau 2 tingkat <b>Customer Group → Customer</b>, dengan satu
               kolom nilai (Rp) per tahun (2018, 2019, dst) dan baris <b>GRAND TOTAL</b>. Tingkat dibaca dari grouping (outline) baris Excel, jadi pakai file laporan
-              apa adanya. Upload ini <b>mengganti seluruh</b> data Actual Sales sebelumnya.
+              apa adanya. Upload ini hanya <b>mengganti tahun-tahun yang ada di file</b>; data tahun lain yang sudah tersimpan tidak terhapus.
             </>
           }
           count={counts.actualSales}
@@ -268,7 +268,7 @@ export default function UploadModal({
               busy={busy}
               onPick={(f) =>
                 run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f), (j) =>
-                  `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (- 50%).${dupText(j)}${skippedText(j)}`
+                  `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (- ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%).${dupText(j)}${skippedText(j)}`
                 )
               }
               onTemplate={downloadNonContractPriceTemplate}

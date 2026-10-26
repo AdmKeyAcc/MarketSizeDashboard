@@ -19,7 +19,8 @@ import {
 import { MultiSelectField } from "@/components/FilterBar";
 import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 import { monthsShare } from "@/lib/workdays";
-import { CUSTOMER_TIER_OPTIONS, MONTH_ORDER, type UioUnit } from "@/lib/types";
+import { MONTH_ORDER, type UioUnit } from "@/lib/types";
+import { kaRank } from "@/lib/references";
 
 const PAGE_SIZE = 20;
 const PRICE_CONTRACT = "Contract (SCPL)";
@@ -62,10 +63,7 @@ const topList = (m: Map<string, number>, max = 3): string => {
 const addCount = (m: Map<string, number>, k: string, n = 1) => {
   if (k) m.set(k, (m.get(k) || 0) + n);
 };
-const tierRank = (t: string) => {
-  const i = CUSTOMER_TIER_OPTIONS.indexOf(t as (typeof CUSTOMER_TIER_OPTIONS)[number]);
-  return i === -1 ? 999 : i;
-};
+const tierRank = (t: string) => kaRank(t);
 const byTier = (a: string, b: string) => tierRank(a) - tierRank(b) || a.localeCompare(b);
 
 /** Tab Summary: dua box terpisah — (1) Filter, (2) Summary per Customer Group.

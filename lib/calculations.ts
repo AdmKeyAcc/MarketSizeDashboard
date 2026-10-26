@@ -13,6 +13,7 @@ import {
   CUST_BRAND_MAP
 } from "@/lib/types";
 import { monthsShare } from "@/lib/workdays";
+import { DEFAULT_REFERENCES, onReferencesChange, refs } from "@/lib/references";
 
 /** Every filter is multi-select (checklist): an empty array means "no
  * restriction / semua", one or more values means "match any of these" (OR
@@ -57,29 +58,17 @@ export function monthIndex(m: string): number {
  * data part (TOYOTA / PERKINS). Tanpa pemetaan ini, unit UIO tidak pernah
  * ketemu pasangannya di part, sehingga Market Size per tahun selalu 0. Kode
  * yang tidak ada di daftar dipakai apa adanya. */
-export const UIO_PRODUCT_ALIAS: Record<string, string> = {
-  TYT: "TOYOTA",
-  PER: "PERKINS",
-  MFT: "MF",
-  KBT: "KUBOTA",
-  BTF: "BT",
-  GDD: "GD",
-  CNC: "CANYCOM",
-  FGW: "FG WILSON",
-  IRN: "IR",
-  LBT: "LINK-BELT",
-  // nama product di Laporan Sales -> kode product di Master Part / Data UIO
-  "MASSEY FERGUSON": "MF",
-  "GARDNER DENVER": "GD"
-};
+export const UIO_PRODUCT_ALIAS: Record<string, string> = DEFAULT_REFERENCES.productAlias;
+// Daftar alias yang dipakai sungguhan dibaca dari tabel Supabase `product_alias` (lib/references.ts).
 
 const canonProductCache = new Map<string, string>();
+onReferencesChange(() => canonProductCache.clear());
 export function canonicalProduct(p: string | null | undefined): string {
   const raw = String(p || "");
   const hit = canonProductCache.get(raw);
   if (hit !== undefined) return hit;
   const k = raw.trim().toUpperCase();
-  const v = UIO_PRODUCT_ALIAS[k] || k;
+  const v = refs().productAlias[k] || k;
   if (canonProductCache.size < 50000) canonProductCache.set(raw, v);
   return v;
 }
@@ -457,47 +446,140 @@ export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterSta
   return uioByDimension(uioUnits, years, "product", f).map((r) => ({ product: r.label, uio: r.uio }));
 }
 
+/* ---------------- Jam operasi (HM) per unit ---------------- */
+
+/** Ringkasan jam operasi sekumpulan unit (satu Product + Model).
+ * Annual HM satu unit = HM/Day × Day/Month × Month/Year dari Data UIO.
+ * Kolom kosong diisi default: Day/Month → hari kerja per Product (tabel assumptions) → app_settings,
+ * Month/Year → app_settings (12). Unit tanpa HM/Day memakai HM/Day Master Part (lalu app_settings),
+ * jadi bagian itu baru bisa dihitung per part — disimpan terpisah sebagai `unknownBase`. */
+export type UnitHm = {
+  units: number;
+  /** Jumlah Annual HM unit yang punya HM/Day. */
+  knownHm: number;
+  /** Jumlah HM/Day unit yang punya HM/Day (untuk rata-rata tampilan). */
+  knownHmDay: number;
+  /** Jumlah unit tanpa HM/Day. */
+  unknownUnits: number;
+  /** Jumlah (Day/Month × Month/Year) unit tanpa HM/Day — dikali HM/Day part nanti. */
+  unknownBase: number;
+};
+
+export const emptyUnitHm = (): UnitHm => ({ units: 0, knownHm: 0, knownHmDay: 0, unknownUnits: 0, unknownBase: 0 });
+
+const inRange = (v: unknown, max: number): number | null => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= max ? n : null;
+};
+
+/** Hari kerja per bulan untuk sebuah Product (fallback kalau Day/Month unit kosong). */
+export type WorkdaysOf = (product: string) => number;
+
+export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workdays_month;
+
+export function makeWorkdaysOf(assumptions: Assumption[]): WorkdaysOf {
+  const m = new Map<string, number>();
+  assumptions.forEach((a) => {
+    const k = canonicalProduct(a.product);
+    if (!m.has(k) && Number(a.workdays_month) > 0) m.set(k, Number(a.workdays_month));
+  });
+  return (product) => m.get(canonicalProduct(product)) ?? refs().settings.default_workdays_month;
+}
+
+export function addUnitHm(agg: UnitHm, u: UioUnit, workdaysOf: WorkdaysOf): void {
+  const dm = inRange(u.day_month, 31) ?? workdaysOf(u.product || "");
+  const my = inRange(u.month_year, 12) ?? refs().settings.default_months_year;
+  const hm = inRange(u.hm_day, 24);
+  agg.units += 1;
+  if (hm !== null) {
+    agg.knownHm += hm * dm * my;
+    agg.knownHmDay += hm;
+  } else {
+    agg.unknownUnits += 1;
+    agg.unknownBase += dm * my;
+  }
+}
+
+export function mergeUnitHm(into: UnitHm, from: UnitHm): void {
+  into.units += from.units;
+  into.knownHm += from.knownHm;
+  into.knownHmDay += from.knownHmDay;
+  into.unknownUnits += from.unknownUnits;
+  into.unknownBase += from.unknownBase;
+}
+
+/** Annual HM RATA-RATA per unit untuk satu part (rata-rata × UIO = total jam semua unit),
+ * plus HM/Day rata-rata untuk ditampilkan. Tanpa unit sama sekali (UIO dari template):
+ * HM/Day part × hari kerja × bulan/tahun default. */
+export function partAnnualHm(
+  agg: UnitHm | null | undefined,
+  partHmDay: number | null | undefined,
+  product: string,
+  workdaysOf: WorkdaysOf
+): { annualHm: number; hmDay: number } {
+  const s = refs().settings;
+  const fallbackHm = inRange(partHmDay, 24) ?? s.default_hm_day;
+  if (!agg || agg.units <= 0) {
+    return { annualHm: fallbackHm * workdaysOf(product) * s.default_months_year, hmDay: fallbackHm };
+  }
+  return {
+    annualHm: (agg.knownHm + fallbackHm * agg.unknownBase) / agg.units,
+    hmDay: (agg.knownHmDay + fallbackHm * agg.unknownUnits) / agg.units
+  };
+}
+
 export type UnitCounter = {
   /** Jumlah unit untuk Product + Model (sudah kena filter). Kalau tidak ada
    * model yang persis sama, dicoba model yang diawali nama model part
    * (mis. part "1103" → unit "1103A-33G"). */
   count: (product: string, model: string) => number;
+  /** Ringkasan jam operasi unit-unit yang sama persis dengan yang dihitung `count`. */
+  hours: (product: string, model: string) => UnitHm;
 };
 
 export function buildUnitCounter(
   uioUnits: UioUnit[],
   years: number[],
   f?: FilterState,
-  customers?: Customer[]
+  customers?: Customer[],
+  workdaysOf: WorkdaysOf = defaultWorkdaysOf
 ): UnitCounter {
   const keys = buildUnitScopeKeys(customers, f);
-  const byProduct = new Map<string, Map<string, number>>();
+  const byProduct = new Map<string, Map<string, UnitHm>>();
   uioUnits.forEach((u) => {
     if (!unitInScope(u, years, f, keys)) return;
     const p = canonicalProduct(u.product);
     let m = byProduct.get(p);
     if (!m) byProduct.set(p, (m = new Map()));
     const nm = normModel(u.model);
-    m.set(nm, (m.get(nm) || 0) + 1);
+    let agg = m.get(nm);
+    if (!agg) m.set(nm, (agg = emptyUnitHm()));
+    addUnitHm(agg, u, workdaysOf);
   });
-  const cache = new Map<string, number>();
-  return {
-    count(product, model) {
-      const p = canonicalProduct(product);
-      const nm = normModel(model);
-      const ck = `${p}|${nm}`;
-      const hit = cache.get(ck);
-      if (hit !== undefined) return hit;
-      const m = byProduct.get(p);
-      let n = m ? m.get(nm) || 0 : 0;
-      if (m && n === 0 && nm.length >= 3) {
-        m.forEach((c, k) => {
-          if (k.startsWith(nm)) n += c;
-        });
-      }
-      cache.set(ck, n);
-      return n;
+  const cache = new Map<string, UnitHm>();
+  const hours = (product: string, model: string): UnitHm => {
+    const p = canonicalProduct(product);
+    const nm = normModel(model);
+    const ck = `${p}|${nm}`;
+    const hit = cache.get(ck);
+    if (hit !== undefined) return hit;
+    const m = byProduct.get(p);
+    let agg = m?.get(nm);
+    if (m && (!agg || agg.units === 0) && nm.length >= 3) {
+      const sum = emptyUnitHm();
+      m.forEach((a, k) => {
+        if (k.startsWith(nm)) mergeUnitHm(sum, a);
+      });
+      agg = sum;
     }
+    const out = agg ?? emptyUnitHm();
+    cache.set(ck, out);
+    return out;
+  };
+  return {
+    count: (product, model) => hours(product, model).units,
+    hours
   };
 }
 
@@ -768,11 +850,11 @@ export function buildDetailRows(
     scopedUnits = subset ? subset.units : uioUnits.filter((u) => customerKeys.has(custKey(u.customer_group, u.customer_name)));
     scopedTx = subset ? subset.tx : actualTx.filter((r) => customerKeys.has(custKey(r.customer_group, r.customer_name)));
   }
-  const counter = buildUnitCounter(scopedUnits, years, f, customers);
-  const allCounter = customerKeys ? null : buildUnitCounter(uioUnits, [], undefined, undefined);
+  const workdaysOf = makeWorkdaysOf(assumptions);
+  const counter = buildUnitCounter(scopedUnits, years, f, customers, workdaysOf);
+  const allCounter = customerKeys ? null : buildUnitCounter(uioUnits, [], undefined, undefined, workdaysOf);
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
-  const workdaysOf = (product: string) => assumptions.find((a) => a.product === product)?.workdays_month || 22;
   const selectedShare = f.bulan.length > 0 ? monthsShare(f.bulan) : 1;
 
   // Mode customer/group: hanya part dari product yang dimiliki customer itu (unit atau penjualan).
@@ -819,7 +901,8 @@ export function buildDetailRows(
       uio = (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
       source = "template";
     }
-    const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
+    // Annual HM rata-rata per unit dari HM/Day × Day/Month × Month/Year di Data UIO (fallback: Master Part / default).
+    const { annualHm, hmDay } = partAnnualHm(source === "unit" ? counter.hours(p.product, p.model) : null, p.hm_day, p.product, workdaysOf);
     const price = priceOf(p.part_number, customerGroup, p.pricelist);
     const { qty, amount } = computePartMarketSize({
       annualHm,
@@ -840,7 +923,7 @@ export function buildDetailRows(
       model: p.model,
       part_name: p.part_name,
       part_number: p.part_number,
-      hm_day: p.hm_day || 8,
+      hm_day: Math.round(hmDay * 100) / 100,
       annual_hm: annualHm,
       freq_replacement_hm: p.freq_replacement_hm,
       qty_per_unit: p.qty_per_unit,
@@ -990,26 +1073,18 @@ export function marketSizeByYear(
   }
   if (years.length === 0 || parts.length === 0) return [];
 
-  const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined);
   const priceOf = buildPriceResolver(priceList);
   // Contract Price per Customer Group hanya masuk akal untuk satu grup
   // spesifik — kalau 0 atau lebih dari 1 Customer Group dicentang, pakai
   // harga umum/nasional.
   const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
-  const workdaysCache = new Map<string, number>();
-  const workdaysOf = (product: string) => {
-    let w = workdaysCache.get(product);
-    if (w === undefined) {
-      w = assumptions.find((a) => a.product === product)?.workdays_month || 22;
-      workdaysCache.set(product, w);
-    }
-    return w;
-  };
+  const workdaysOf = makeWorkdaysOf(assumptions);
   // Tahun & Bulan tidak membatasi populasi unit (UIO dihitung per tahun di bawah).
   const unitFilter = { ...f, tahun: [] as string[], bulan: [] as string[] };
+  const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined, workdaysOf);
 
   return years.map((year) => {
-    const counter = buildUnitCounter(uioUnits, [year], unitFilter, customers);
+    const counter = buildUnitCounter(uioUnits, [year], unitFilter, customers, workdaysOf);
     let total = 0;
     let totalQty = 0;
     parts.forEach((p) => {
@@ -1017,12 +1092,15 @@ export function marketSizeByYear(
       if (f.modelUnit.length > 0 && !setOf(f.modelUnit).has(p.model)) return;
       if (f.partNumber.length > 0 && !setOf(f.partNumber).has(p.part_number || "")) return;
       if (f.partName.length > 0 && !setOf(f.partName).has(p.part_name || "")) return;
-      let uio = counter.count(p.product, p.model);
+      const hrs = counter.hours(p.product, p.model);
+      let uio = hrs.units;
+      let fromUnits = true;
       if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
         uio = (p.uio_qty || 0) * (customers ? allocationFactor(customers, f, p.product) : 1);
+        fromUnits = false;
       }
       if (uio === 0) return;
-      const annualHm = (p.hm_day || 8) * workdaysOf(p.product) * 12;
+      const { annualHm } = partAnnualHm(fromUnits ? hrs : null, p.hm_day, p.product, workdaysOf);
       const price = priceOf(p.part_number, customerGroup, p.pricelist);
       const r = computePartMarketSize({
         annualHm,

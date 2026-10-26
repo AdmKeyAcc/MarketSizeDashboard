@@ -12,6 +12,7 @@ import type {
   UioUnit,
   PriceListEntry
 } from "@/lib/types";
+import { buildReferences, type References } from "@/lib/references";
 
 const PAGE_SIZE = 1000;
 
@@ -107,8 +108,23 @@ async function fetchActualSalesYear(supabase: SupabaseClient): Promise<ActualSal
   return out.flat();
 }
 
+/** Tabel referensi kecil (product_alias, ka_types, app_settings). Tabel yang belum dibuat
+ * atau gagal dibaca dianggap kosong → nilai bawaan di lib/references.ts dipakai. */
+export async function fetchReferences(supabase: SupabaseClient): Promise<References> {
+  const safe = async <T,>(table: string, select: string): Promise<T[] | null> => {
+    const { data, error } = await supabase.from(table).select(select).limit(5000);
+    return error ? null : ((data ?? []) as unknown as T[]);
+  };
+  const [aliasRows, kaRows, settingRows] = await Promise.all([
+    safe<{ alias: string | null; product: string | null }>("product_alias", "alias, product"),
+    safe<{ name: string | null; sort_order: number | null }>("ka_types", "name, sort_order"),
+    safe<{ key: string; value: number | string | null }>("app_settings", "key, value")
+  ]);
+  return buildReferences(aliasRows, kaRows, settingRows);
+}
+
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, metaRows] = await Promise.all([
+  const [parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<UioMaster>(supabase, "uio_master"),
     fetchAll<Assumption>(supabase, "assumptions", "product"),
@@ -118,7 +134,8 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchActualSalesYear(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),
     fetchAll<PriceListEntry>(supabase, "price_list"),
-    fetchAll<{ key: string; value: { filename?: string | null; ytd_year?: number | null; ytd_month?: string | null } }>(supabase, "app_meta", "key")
+    fetchAll<{ key: string; value: { filename?: string | null; ytd_year?: number | null; ytd_month?: string | null } }>(supabase, "app_meta", "key"),
+    fetchReferences(supabase)
   ]);
 
   const findMeta = (key: string) => metaRows.find((m) => m.key === key)?.value ?? {};
@@ -139,5 +156,5 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     actual_year_ytd_month: ((findMeta("actual_sales_year") as { ytd_month?: string | null }).ytd_month) ?? null
   };
 
-  return { parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta };
+  return { parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
 }

@@ -96,7 +96,7 @@ export async function uploadActualSalesYear(
     const dm = /(\d{4})[-_.](\d{2})[-_.](\d{2})/.exec(file.name);
     const ref = dm ? { y: Number(dm[1]), m: Number(dm[2]) - 1 } : { y: new Date().getFullYear(), m: new Date().getMonth() };
     const ytdMonth = latestYear < ref.y ? "Desember" : BULAN[Math.min(Math.max(ref.m, 0), 11)];
-    await post(url, { action: "start" });
+    await post(url, { action: "start", years: parsed.years });
     for (let i = 0; i < parsed.rows.length; i += CHUNK) {
       onProgress?.(`Mengirim ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris…`);
       await post(url, { action: "rows", rows: parsed.rows.slice(i, i + CHUNK), filename: file.name });

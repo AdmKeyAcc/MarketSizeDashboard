@@ -1,8 +1,8 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
 
-/** Potongan otomatis untuk Data Harga Non Kontrak: harga tertera di file
- * dikurangi 50% => harga nett = 50% dari harga tertera. */
+/** Potongan bawaan untuk Data Harga Non Kontrak (harga nett = 50% dari harga tertera).
+ * Nilai yang dipakai sungguhan dibaca dari tabel `app_settings` (key non_contract_discount). */
 export const NON_CONTRACT_DISCOUNT = 0.5;
 
 function normKey(k: string): string {
@@ -103,8 +103,8 @@ export type NonContractPriceRow = { part_number: string; list_price: number; pri
 export type NonContractPriceParseResult = { rows: NonContractPriceRow[]; skipped: number; duplicates: number };
 
 /** Data Harga Non Kontrak. Kolom: Part Number, Harga (harga tertera/pricelist).
- * Sistem otomatis mengurangi 50% -> harga nett. */
-export function parseNonContractPriceWorkbook(wb: XLSX.WorkBook): NonContractPriceParseResult {
+ * Sistem otomatis memotong `discount` (bawaan 50%) -> harga nett. */
+export function parseNonContractPriceWorkbook(wb: XLSX.WorkBook, discount: number = NON_CONTRACT_DISCOUNT): NonContractPriceParseResult {
   const rows = readRows(wb);
   const map = new Map<string, NonContractPriceRow>();
   let skipped = 0;
@@ -121,7 +121,7 @@ export function parseNonContractPriceWorkbook(wb: XLSX.WorkBook): NonContractPri
     map.set(partNumber, {
       part_number: partNumber,
       list_price: listPrice,
-      price: listPrice * (1 - NON_CONTRACT_DISCOUNT)
+      price: listPrice * (1 - discount)
     });
   }
   if (map.size === 0) {

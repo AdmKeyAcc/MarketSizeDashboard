@@ -5,6 +5,7 @@
  * cukup untuk file puluhan ribu baris. Bisa membaca .xlsx maupun .csv.
  */
 import { canonicalProduct } from "@/lib/calculations";
+import { refs } from "@/lib/references";
 import { MONTH_ORDER } from "@/lib/types";
 
 export class UploadParseError extends Error {}
@@ -176,7 +177,7 @@ export async function parseMasterPartFile(file: File): Promise<MasterPartParse> 
     };
     if (hasHmDay) {
       const hm = numOf(pick(norm, COL.hmDay));
-      row.hm_day = Number.isFinite(hm) && hm > 0 && hm <= 24 ? hm : 8;
+      row.hm_day = Number.isFinite(hm) && hm > 0 && hm <= 24 ? hm : refs().settings.default_hm_day;
     }
     if (hasComponent) row.component = text(pick(norm, COL.component));
     const k = `${row.product}|${row.model}|${row.part_number}`;
@@ -317,7 +318,7 @@ export async function parseActualSalesYearFile(file: File): Promise<ActualYearPa
   });
   const twoLevel = maxLevel <= 1;
   // Tingkat teratas berisi KA Type atau Product? Kalau semua nama tingkat teratas adalah KA Type yang dikenal → laporan KA.
-  const KA_NAMES = new Set(["KA NASIONAL", "KA BRANCH PLATINUM", "KA BRANCH GOLD", "NKA", "DEALER", "SHN"]);
+  const KA_NAMES = new Set(refs().kaTypes.map((k) => k.trim().toUpperCase()));
   const topNames: string[] = [];
   if (!twoLevel) {
     best.aoa.forEach((row, r) => {

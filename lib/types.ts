@@ -1,3 +1,4 @@
+import { DEFAULT_REFERENCES, type References } from "@/lib/references";
 export type Part = {
   id?: number;
   product: string;
@@ -34,14 +35,7 @@ export type Assumption = {
 /** Urutan tier yang dipakai tim TRAKNUS (dari laporan key account) —
  * dipakai untuk mengurutkan pilihan filter. Customer dengan tier di luar
  * daftar ini tetap tampil (tidak difilter), hanya urutannya di akhir. */
-export const CUSTOMER_TIER_OPTIONS = [
-  "KA NASIONAL",
-  "KA BRANCH PLATINUM",
-  "KA BRANCH GOLD",
-  "NKA",
-  "DEALER",
-  "SHN"
-] as const;
+export const CUSTOMER_TIER_OPTIONS = DEFAULT_REFERENCES.kaTypes;
 
 export type Customer = {
   id?: number;
@@ -207,6 +201,8 @@ export type DashboardData = {
   uioUnits: UioUnit[];
   priceList: PriceListEntry[];
   meta: DataMeta;
+  /** Kamus & pengaturan dari tabel product_alias, ka_types, app_settings (lihat lib/references.ts). */
+  references: References;
 };
 
 export const MONTH_ORDER = [
