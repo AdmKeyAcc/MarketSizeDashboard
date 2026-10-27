@@ -42,7 +42,9 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       <div className="kpi red">
         <div className="kpi-label">Actual sales</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(act) : "–"}</div>
-        <div className="kpi-sub">{comparable ? periodLabel : whyNot}</div>
+        <div className="kpi-sub" title={state.data.actualExcluded.products.length > 0 ? `Tidak dihitung (belum ada Market Size): ${state.data.actualExcluded.products.join(", ")}` : undefined}>
+          {comparable ? `${periodLabel} · produk ber-Master Part` : whyNot}
+        </div>
       </div>
       <div className="kpi green">
         <div className="kpi-label">Market Share</div>
