@@ -13,11 +13,6 @@ export type Part = {
   hm_day: number;
 };
 
-/** Hari kerja per bulan per Product — cadangan kalau kolom Day/Month di Data UIO kosong. */
-export type Assumption = {
-  product: string;
-  workdays_month: number;
-};
 
 /** Urutan tier yang dipakai tim TRAKNUS (dari laporan key account) —
  * dipakai untuk mengurutkan pilihan filter. Customer dengan tier di luar
@@ -48,7 +43,7 @@ export type ActualSalesRow = {
 /** A snapshot of one Quick Calculator computation, saved by the user into
  * the "summary part yang dicek" list on the Calculator tab. Values are
  * frozen at the moment "Tambah ke summary" was clicked — later edits to
- * assumptions/discounts do not change rows already added. */
+ * inputs do not change rows already added. */
 export type CalcSummaryItem = {
   id: string;
   addedAt: string;
@@ -167,7 +162,6 @@ export type DataMeta = {
 
 export type DashboardData = {
   parts: Part[];
-  assumptions: Assumption[];
   customers: Customer[];
   actualSales: ActualSalesRow[];
   /** Actual Sales per transaksi/part; kosong kalau tabel actual_sales_tx belum diisi. */

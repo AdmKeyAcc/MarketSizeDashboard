@@ -8,7 +8,7 @@ import {
   fmtIDRFull,
   fmtInt,
   fmtPct,
-  makeWorkdaysOf,
+  defaultWorkdaysOf,
   partAnnualHm,
   uioYearsAvailable,
   uniq
@@ -97,7 +97,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   }, [selectedPart?.part_number, selectedPart?.part_name, product, model]);
 
   // UIO & jam operasi otomatis dari Data UIO (kumulatif sampai tahun terpilih), kecuali diisi manual.
-  const workdaysOf = useMemo(() => makeWorkdaysOf(data.assumptions), [data.assumptions]);
+  const workdaysOf = defaultWorkdaysOf;
   const autoHours = useMemo(
     () => uioHoursForPart(data.uioUnits, year, product, model, group, custName, workdaysOf),
     [data.uioUnits, year, product, model, group, custName, workdaysOf]

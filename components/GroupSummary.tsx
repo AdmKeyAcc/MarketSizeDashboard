@@ -324,7 +324,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const list =
       g.units.length === 0
         ? []
-        : buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
+        : buildDetailRows(data.parts, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
             units: g.units,
             tx: [],
             priceGroup: contractNameByKey.get(normGroup(g.name)) || g.name,

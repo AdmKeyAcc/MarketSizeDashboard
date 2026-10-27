@@ -6,7 +6,7 @@ import {
   computePartMarketSize,
   custKey,
   emptyUnitHm,
-  makeWorkdaysOf,
+  defaultWorkdaysOf,
   mergeUnitHm,
   partAnnualHm,
   type UnitHm,
@@ -15,7 +15,7 @@ import {
   type FilterState,
   type MarketSizeYearRow
 } from "@/lib/calculations";
-import type { ActualSalesYear, Assumption, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
+import type { ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
 
 /* ------------------------------------------------------------------ */
@@ -166,8 +166,8 @@ export type FactDeps = {
   filters: FilterState;
 };
 
-export function makeFactDeps(parts: Part[], assumptions: Assumption[], priceList: PriceListEntry[], year: number, filters: FilterState): FactDeps {
-  return { partIndex: indexParts(parts), workdaysOf: makeWorkdaysOf(assumptions), priceOf: buildPriceResolver(priceList), year, filters };
+export function makeFactDeps(parts: Part[], priceList: PriceListEntry[], year: number, filters: FilterState): FactDeps {
+  return { partIndex: indexParts(parts), workdaysOf: defaultWorkdaysOf, priceOf: buildPriceResolver(priceList), year, filters };
 }
 
 /** Market Size setahun satu customer per Product + Model, dengan rumus yang sama seperti Detail part di page Summary:

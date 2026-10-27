@@ -1,6 +1,5 @@
 import {
   type Part,
-  type Assumption,
   type Customer,
   type ActualSalesRow,
   type ActualSalesTx,
@@ -264,7 +263,7 @@ export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterSta
 
 /** Ringkasan jam operasi sekumpulan unit (satu Product + Model).
  * Annual HM satu unit = HM/Day × Day/Month × Month/Year dari Data UIO.
- * Kolom kosong diisi default: Day/Month → hari kerja per Product (tabel assumptions) → app_settings,
+ * Kolom kosong diisi default dari app_settings: Day/Month → default_workdays_month,
  * Month/Year → app_settings (12). Unit tanpa HM/Day memakai HM/Day Master Part (lalu app_settings),
  * jadi bagian itu baru bisa dihitung per part — disimpan terpisah sebagai `unknownBase`. */
 export type UnitHm = {
@@ -291,15 +290,6 @@ const inRange = (v: unknown, max: number): number | null => {
 export type WorkdaysOf = (product: string) => number;
 
 export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workdays_month;
-
-export function makeWorkdaysOf(assumptions: Assumption[]): WorkdaysOf {
-  const m = new Map<string, number>();
-  assumptions.forEach((a) => {
-    const k = canonicalProduct(a.product);
-    if (!m.has(k) && Number(a.workdays_month) > 0) m.set(k, Number(a.workdays_month));
-  });
-  return (product) => m.get(canonicalProduct(product)) ?? refs().settings.default_workdays_month;
-}
 
 export function addUnitHm(agg: UnitHm, u: UioUnit, workdaysOf: WorkdaysOf): void {
   const dm = inRange(u.day_month, 31) ?? workdaysOf(u.product || "");
@@ -637,7 +627,6 @@ export function prepareDetailCtx(parts: Part[], uioUnits: UioUnit[], priceList: 
 
 export function buildDetailRows(
   parts: Part[],
-  assumptions: Assumption[],
   uioUnits: UioUnit[],
   priceList: PriceListEntry[],
   customers: Customer[],
@@ -661,7 +650,7 @@ export function buildDetailRows(
     scopedUnits = subset ? subset.units : uioUnits.filter((u) => customerKeys.has(custKey(u.customer_group, u.customer_name)));
     scopedTx = subset ? subset.tx : actualTx.filter((r) => customerKeys.has(custKey(r.customer_group, r.customer_name)));
   }
-  const workdaysOf = makeWorkdaysOf(assumptions);
+  const workdaysOf = defaultWorkdaysOf;
   const counter = buildUnitCounter(scopedUnits, years, f, customers, workdaysOf);
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
@@ -850,7 +839,6 @@ export type MarketSizeYearRow = {
  * untuk periode yang sama dengan Actual Sales (mis. Jan–Agu 2026 = 8/12). */
 export function marketSizeByYear(
   parts: Part[],
-  assumptions: Assumption[],
   uioUnits: UioUnit[],
   priceList: PriceListEntry[],
   actualSales: ActualSalesRow[],
@@ -882,7 +870,7 @@ export function marketSizeByYear(
   // spesifik — kalau 0 atau lebih dari 1 Customer Group dicentang, pakai
   // harga umum/nasional.
   const customerGroup = f.customerGroup.length === 1 ? f.customerGroup[0] : "";
-  const workdaysOf = makeWorkdaysOf(assumptions);
+  const workdaysOf = defaultWorkdaysOf;
   // Tahun & Bulan tidak membatasi populasi unit (UIO dihitung per tahun di bawah).
   const unitFilter = { ...f, tahun: [] as string[], bulan: [] as string[] };
 

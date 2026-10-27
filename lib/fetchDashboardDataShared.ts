@@ -3,7 +3,6 @@ import type {
   DashboardData,
   DataMeta,
   Part,
-  Assumption,
   Customer,
   ActualSalesRow,
   ActualSalesTx,
@@ -132,9 +131,8 @@ export async function fetchReferences(supabase: SupabaseClient): Promise<Referen
 }
 
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, assumptions, customers, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
+  const [parts, customers, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
-    fetchAll<Assumption>(supabase, "assumptions", "product"),
     fetchAll<Customer>(supabase, "customers"),
     countActualSalesTx(supabase),
     fetchActualSalesYear(supabase),
@@ -168,5 +166,5 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
 
   // actual_sales (bulanan lama) sudah dihapus — Actual dari actual_sales_year (sinkron web Sales).
   const actualSales: ActualSalesRow[] = [];
-  return { parts, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
+  return { parts, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
 }

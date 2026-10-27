@@ -135,7 +135,6 @@ export function useDashboardState(initialData: DashboardData) {
     () =>
       marketSizeByYear(
         data.parts,
-        data.assumptions,
         data.uioUnits,
         data.priceList,
         data.actualSales,
@@ -145,7 +144,7 @@ export function useDashboardState(initialData: DashboardData) {
         data.actualSalesYear,
         { year: data.meta.actual_year_ytd_year ?? null, month: data.meta.actual_year_ytd_month ?? null }
       ),
-    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.actualSales, data.actualSalesTx, data.actualSalesYear, data.meta, filters, data.customers]
+    [data.parts, data.uioUnits, data.priceList, data.actualSales, data.actualSalesTx, data.actualSalesYear, data.meta, filters, data.customers]
   );
 
   // ---- satu mesin hitung untuk tabel hierarki, chart, dan KPI: Market Size per customer × Product × Model per tahun ----
@@ -161,7 +160,7 @@ export function useDashboardState(initialData: DashboardData) {
     data.actualSalesYear.forEach((r) => ys.add(r.year));
     return Array.from(ys).sort((a, b) => a - b);
   }, [data.uioUnits, data.actualSalesYear]);
-  const { facts: yearFacts, progress: factsProgress } = useYearFacts(custIndex, data.parts, data.assumptions, data.priceList, factYears, filters);
+  const { facts: yearFacts, progress: factsProgress } = useYearFacts(custIndex, data.parts, data.priceList, factYears, filters);
 
   const marketSizeYearRows = useMemo(() => {
     const ready = factsProgress === null && yearFacts.size > 0 && data.actualSalesYear.length > 0 && data.parts.length > 0;

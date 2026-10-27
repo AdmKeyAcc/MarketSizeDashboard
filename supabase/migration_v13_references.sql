@@ -59,7 +59,7 @@ create table if not exists public.app_settings (
 
 insert into public.app_settings (key, value, description) values
   ('default_hm_day',         8,   'HM/hari kalau Data UIO dan Master Part tidak punya angkanya (maks 24)'),
-  ('default_workdays_month', 22,  'Hari kerja/bulan kalau kolom Day/Month di Data UIO kosong (dan Product tidak ada di tabel assumptions)'),
+  ('default_workdays_month', 22,  'Hari kerja/bulan kalau kolom Day/Month di Data UIO kosong'),
   ('default_months_year',    12,  'Bulan operasi/tahun kalau kolom Month/Year di Data UIO kosong'),
   ('non_contract_discount',  0.5, 'Potongan Harga Non Kontrak: 0.5 = harga nett 50% dari harga tertera. Berlaku untuk upload berikutnya.')
 on conflict (key) do nothing;

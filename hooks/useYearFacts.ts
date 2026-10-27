@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FilterState } from "@/lib/calculations";
 import { computeCustomerFacts, makeFactDeps, type CustInfo, type Fact } from "@/lib/hierarchy";
-import type { Assumption, Part, PriceListEntry } from "@/lib/types";
+import type { Part, PriceListEntry } from "@/lib/types";
 
 /** Market Size per customer × Product × Model untuk beberapa tahun sekaligus (satu mesin hitung untuk tabel hierarki, chart, dan KPI).
  * Dihitung bertahap supaya halaman tetap responsif. Hanya filter Product / Model / Part yang memengaruhi fakta;
@@ -11,7 +11,6 @@ import type { Assumption, Part, PriceListEntry } from "@/lib/types";
 export function useYearFacts(
   custs: CustInfo[],
   parts: Part[],
-  assumptions: Assumption[],
   priceList: PriceListEntry[],
   years: number[],
   filters: FilterState
@@ -26,7 +25,7 @@ export function useYearFacts(
       setProgress(null);
       return;
     }
-    const base = makeFactDeps(parts, assumptions, priceList, years[0], filters);
+    const base = makeFactDeps(parts, priceList, years[0], filters);
     const depsByYear = years.map((y) => ({ year: y, deps: { ...base, year: y } }));
     const withUnits = custs.filter((c) => c.units.length > 0);
     const out = new Map<number, Map<string, Fact[]>>();
@@ -56,7 +55,7 @@ export function useYearFacts(
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custs, parts, assumptions, priceList, yearsKey, filters.product, filters.modelUnit, filters.partNumber, filters.partName]);
+  }, [custs, parts, priceList, yearsKey, filters.product, filters.modelUnit, filters.partNumber, filters.partName]);
 
   return { facts, progress };
 }
