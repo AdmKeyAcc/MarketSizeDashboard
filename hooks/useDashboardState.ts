@@ -30,6 +30,27 @@ import { monthsShare } from "@/lib/workdays";
 /** Branch & PSS di Master Customer sering kosong, padahal Data UIO punya kolom Branch dan Pss Name per unit.
  * Isi yang kosong dengan nilai terbanyak dari unit milik customer itu, supaya filter Branch / PSS di
  * seluruh dashboard ada isinya dan bekerja sampai ke perhitungan Market Share. */
+/** Market Share hanya membandingkan Product yang punya Market Size (ada di Master Part).
+ * Actual Product lain (mis. IKD, BKT, OIL, battery) tidak punya pasangan Market Size — kalau ikut
+ * dijumlahkan, share jadi terlalu tinggi. Disaring sekali di sini supaya KPI, chart, tabel hierarki
+ * dan Summary memakai angka yang sama. */
+function comparableActual(data: DashboardData): DashboardData & { actualExcluded: { products: string[]; amount: number } } {
+  const msProducts = new Set(data.parts.map((p) => canonicalProduct(p.product)));
+  if (msProducts.size === 0) return { ...data, actualExcluded: { products: [], amount: 0 } };
+  const kept: DashboardData["actualSalesYear"] = [];
+  const excluded = new Set<string>();
+  let amount = 0;
+  data.actualSalesYear.forEach((r) => {
+    const pk = canonicalProduct(r.product);
+    if (msProducts.has(pk)) kept.push(r);
+    else {
+      excluded.add(pk || "(tanpa product)");
+      amount += r.amount || 0;
+    }
+  });
+  return { ...data, actualSalesYear: kept, actualExcluded: { products: Array.from(excluded).sort(), amount } };
+}
+
 function enrichCustomersFromUio(data: DashboardData): DashboardData {
   if (data.uioUnits.length === 0 || data.customers.length === 0) return data;
   const branch = new Map<string, Map<string, number>>();
@@ -76,7 +97,7 @@ export function useDashboardState(initialData: DashboardData) {
   // Kamus & pengaturan (alias product, KA Type, angka default rumus) dari Supabase harus
   // terpasang SEBELUM semua perhitungan di bawah. Idempotent: tidak berbuat apa-apa kalau sama.
   applyReferences(rawData.references);
-  const data = useMemo(() => enrichCustomersFromUio(rawData), [rawData]);
+  const data = useMemo(() => comparableActual(enrichCustomersFromUio(rawData)), [rawData]);
   const [refreshing, setRefreshing] = useState(false);
   const [filters, setFiltersState] = useState<FilterState>(EMPTY_FILTERS);
   const [marketSizeView, setMarketSizeView] = useState<"amount" | "quantity">("amount");
