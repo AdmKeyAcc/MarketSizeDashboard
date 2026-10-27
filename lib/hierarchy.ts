@@ -58,7 +58,6 @@ export type CustInfo = {
   ka: string;
   area: string;
   pss: string;
-  sectors: string[];
   /** Actual Sales per tahun (Rp), dari laporan tahunan. */
   actual: Map<number, number>;
   /** Actual Sales per Product (canonical; "" = laporan tanpa Product) lalu per tahun. */
@@ -94,7 +93,7 @@ export function buildCustomerIndex(
     let c = m.get(key);
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", sectors: [], actual: new Map(), actualByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
       m.set(key, c);
     }
     return c;
@@ -107,7 +106,6 @@ export function buildCustomerIndex(
     c.area = (cu.cabang || "").trim();
     c.pss = (cu.pss || "").trim();
     c.ka = (cu.tier || "").trim().toUpperCase();
-    c.sectors = cu.customer_sector || [];
   });
   uioUnits.forEach((u) => {
     const c = get(u.customer_group, u.customer_name);
@@ -256,7 +254,6 @@ export function customerPasses(c: CustInfo, f: FilterState): boolean {
   if (f.area.length > 0 && !up(f.area).has(c.area.toUpperCase())) return false;
   if (f.pss.length > 0 && !up(f.pss).has(c.pss.toUpperCase())) return false;
   if (f.tier.length > 0 && !up(f.tier).has(c.ka.toUpperCase())) return false;
-  if (f.sector.length > 0 && !c.sectors.some((s) => up(f.sector).has(s.trim().toUpperCase()))) return false;
   return true;
 }
 

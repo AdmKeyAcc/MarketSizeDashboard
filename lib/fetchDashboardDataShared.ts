@@ -3,7 +3,6 @@ import type {
   DashboardData,
   DataMeta,
   Part,
-  UioMaster,
   Assumption,
   Customer,
   ActualSalesRow,
@@ -52,13 +51,6 @@ async function fetchAll<T>(
 /** Jumlah baris Actual per part (actual_sales_tx). Isinya sengaja TIDAK dimuat ke dashboard:
  * hasil sinkron dari web Sales bisa ratusan ribu baris (sejak 2018) dan belum ditampilkan di mana pun.
  * Kalau nanti tampilan Part butuh, ambil per tahun/customer sesuai filter, bukan semuanya. */
-/** Tabel lama yang sudah tidak dipakai (uio_master, actual_sales). Boleh sudah dihapus dari
- * database: kalau tabelnya tidak ada atau gagal dibaca, dianggap kosong. */
-async function fetchLegacy<T>(supabase: SupabaseClient, table: string): Promise<T[]> {
-  const { data, error } = await supabase.from(table).select("*").limit(1000);
-  return error ? [] : ((data ?? []) as T[]);
-}
-
 async function countActualSalesTx(supabase: SupabaseClient): Promise<number> {
   const head = await supabase.from("actual_sales_tx").select("id", { count: "exact", head: true });
   return head.error ? 0 : head.count || 0;
@@ -140,12 +132,10 @@ export async function fetchReferences(supabase: SupabaseClient): Promise<Referen
 }
 
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, uio, assumptions, customers, actualSales, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
+  const [parts, assumptions, customers, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
-    fetchLegacy<UioMaster>(supabase, "uio_master"),
     fetchAll<Assumption>(supabase, "assumptions", "product"),
     fetchAll<Customer>(supabase, "customers"),
-    fetchLegacy<ActualSalesRow>(supabase, "actual_sales"),
     countActualSalesTx(supabase),
     fetchActualSalesYear(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),
@@ -176,5 +166,7 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
   };
   const actualSalesTx: ActualSalesTx[] = [];
 
-  return { parts, uio, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
+  // actual_sales (bulanan lama) sudah dihapus — Actual dari actual_sales_year (sinkron web Sales).
+  const actualSales: ActualSalesRow[] = [];
+  return { parts, assumptions, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
 }

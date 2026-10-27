@@ -10,8 +10,6 @@ import {
   uniq,
   canonicalProduct,
   monthIndex,
-  buildModelLookup,
-  buildDetailRows,
   allowedProducts,
   custKey,
   getRealCustomers,
@@ -116,13 +114,8 @@ export function useDashboardState(initialData: DashboardData) {
     data.actualSalesYear.forEach((r) => ys.add(r.year));
     return { years: Array.from(ys).map(String), months: Array.from(ms) };
   }, [data.actualSalesTx, data.actualSales, data.actualSalesYear]);
-  const modelLookup = useMemo(() => buildModelLookup(data.uio), [data.uio]);
   const realCustomers = useMemo(() => getRealCustomers(data.customers), [data.customers]);
 
-  const detailRows = useMemo(
-    () => buildDetailRows(data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters),
-    [data.parts, data.assumptions, data.uioUnits, data.priceList, data.customers, data.actualSalesTx, filters]
-  );
 
   // ---- dashboard charts: UIO per product / market size & share per tahun ----
   const uioYears = useMemo(() => resolveUioYears(filters, data.uioUnits), [filters, data.uioUnits]);
@@ -245,7 +238,7 @@ export function useDashboardState(initialData: DashboardData) {
         return ys.some((y) => (mn !== undefined && mn <= y) || !!act?.has(y) || (!ps && !!actAll?.has(y)));
       });
     };
-    type Dim = "tahun" | "area" | "sector" | "pss" | "customerGroup" | "customerName" | "tier" | "product";
+    type Dim = "tahun" | "area" | "pss" | "customerGroup" | "customerName" | "tier" | "product";
     const pass = (inf: Info, ex: Dim): boolean => {
       const c = inf.c;
       if (ex !== "customerGroup" && filters.customerGroup.length > 0 && !up(filters.customerGroup).has((c.customer_group || "").trim().toUpperCase())) return false;
@@ -253,7 +246,6 @@ export function useDashboardState(initialData: DashboardData) {
       if (ex !== "area" && filters.area.length > 0 && !up(filters.area).has((c.cabang || "").trim().toUpperCase())) return false;
       if (ex !== "pss" && filters.pss.length > 0 && !up(filters.pss).has((c.pss || "").trim().toUpperCase())) return false;
       if (ex !== "tier" && filters.tier.length > 0 && !up(filters.tier).has((c.tier || "").trim().toUpperCase())) return false;
-      if (ex !== "sector" && filters.sector.length > 0 && !(c.customer_sector || []).some((x) => up(filters.sector).has(x.trim().toUpperCase()))) return false;
       const ys = ex !== "tahun" && selYears.length > 0 ? selYears : null;
       const ps = ex !== "product" && selProducts.length > 0 ? selProducts : null;
       return hasDataFor(inf, ys, ps);
@@ -263,21 +255,20 @@ export function useDashboardState(initialData: DashboardData) {
     const areaOpts = uniq(pool("area").map((i) => i.c.cabang))
       .filter((a) => !EXCLUDED_AREAS.includes(a.trim().toUpperCase()))
       .sort();
-    const sectorOpts = uniq(pool("sector").flatMap((i) => i.c.customer_sector || [])).sort();
     const pssOpts = uniq(pool("pss").map((i) => i.c.pss)).sort();
     const groupOpts = uniq(pool("customerGroup").map((i) => i.c.customer_group)).sort();
     // uniq() wajib: nama customer yang sama bisa ada di lebih dari satu Customer Group.
     const customerNameOpts = uniq(pool("customerName").map((i) => i.c.customer_name as string)).sort();
     const tierOpts = uniq([
       ...pool("tier").map((i) => i.c.tier),
-      ...data.actualSalesYear.map((r) => r.ka_type).filter(() => filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length + filters.sector.length === 0 && selYears.length === 0 && selProducts.length === 0)
+      ...data.actualSalesYear.map((r) => r.ka_type).filter(() => filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length === 0 && selYears.length === 0 && selProducts.length === 0)
     ]).sort((a, b) => {
       return kaRank(a) - kaRank(b) || a.localeCompare(b);
     });
 
     // Tahun: hanya tahun yang punya data untuk customer/product yang sedang dipilih.
     const cascadeActive =
-      filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length + filters.sector.length + filters.tier.length + selProducts.length > 0;
+      filters.customerGroup.length + filters.customerName.length + filters.area.length + filters.pss.length + filters.tier.length + selProducts.length > 0;
     const yearPool = pool("tahun");
     const yearOpts = cascadeActive
       ? allYears.filter((y) => yearPool.some((inf) => hasDataFor(inf, [parseInt(y, 10)], selProducts.length > 0 ? selProducts : null)))
@@ -315,7 +306,6 @@ export function useDashboardState(initialData: DashboardData) {
       tahun: yearOpts.length ? yearOpts : allYears.length ? allYears : ["2026"],
       bulan: monthOpts.length ? monthOpts : (MONTH_ORDER as unknown as string[]),
       area: areaOpts,
-      sector: sectorOpts,
       pss: pssOpts,
       customerGroup: groupOpts,
       customerName: customerNameOpts,
@@ -335,9 +325,7 @@ export function useDashboardState(initialData: DashboardData) {
     filters,
     setFilter,
     resetFilters,
-    modelLookup,
     realCustomers,
-    detailRows,
     options,
     uioYears,
     uioByProductRows,

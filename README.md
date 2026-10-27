@@ -26,13 +26,11 @@ cp .env.example .env.local
 # isi tiga nilai di atas ke .env.local
 
 npm install
-node --env-file=.env.local scripts/seed.mjs   # isi data contoh (sekali saja)
 npm run dev
 ```
 
-Buka http://localhost:3000. Data contoh yang muncul persis sama dengan angka
-di template Excel asli (Rp 201,4 M/tahun) — actual sales-nya masih data
-simulasi sampai Anda upload yang sungguhan lewat tombol ⭱ di halaman.
+Buka http://localhost:3000, lalu isi data lewat tombol ⭱ (Data UIO, Harga,
+Master Part). Actual Sales terisi otomatis dari web Sales (lihat bagian bawah).
 
 ## 3. Deploy ke Vercel
 
@@ -40,11 +38,6 @@ simulasi sampai Anda upload yang sungguhan lewat tombol ⭱ di halaman.
 2. Di [vercel.com](https://vercel.com) → **Add New Project** → import repo tersebut. Vercel akan otomatis mendeteksi Next.js.
 3. Di **Environment Variables**, isi tiga variabel yang sama seperti `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`).
 4. Deploy. Setiap upload lewat dashboard akan langsung tersimpan ke Supabase yang sama, terlihat oleh siapa pun yang mengakses URL Vercel tersebut.
-
-Kalau belum sempat menjalankan `scripts/seed.mjs` secara lokal, jalankan
-sekali dari komputer manapun yang bisa mengakses internet — script ini hanya
-butuh `NEXT_PUBLIC_SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`, tidak perlu
-dijalankan di Vercel.
 
 ## Struktur data & bagaimana upload bekerja
 
@@ -101,8 +94,7 @@ lib/
   parse/                   Parser .xlsx (divalidasi terhadap file asli)
   supabase/                Client browser (anon) & server (service role)
 supabase/schema.sql         Skema database + Row Level Security
-scripts/seed.mjs            Isi data contoh sekali di awal
-data/sample/                 Data contoh yang dipakai scripts/seed.mjs
+supabase/migration_v*.sql   Perubahan skema berurutan (v13 referensi, v14 sinkron, v15–v16 pembersihan)
 ```
 
 ## Sinkron Actual Sales otomatis dari web Sales

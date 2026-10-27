@@ -1,16 +1,13 @@
 import {
   type Part,
-  type UioMaster,
   type Assumption,
   type Customer,
-  type MonthlyRow,
   type ActualSalesRow,
   type ActualSalesTx,
   type UioUnit,
   type ActualSalesYear,
   type PriceListEntry,
-  MONTH_ORDER,
-  CUST_BRAND_MAP
+  MONTH_ORDER
 } from "@/lib/types";
 import { monthsShare } from "@/lib/workdays";
 import { DEFAULT_REFERENCES, onReferencesChange, refs } from "@/lib/references";
@@ -22,8 +19,6 @@ export type FilterState = {
   tahun: string[];
   bulan: string[];
   area: string[];
-  /** Customer Sector (Plantation, Rental, Mining, dst) — atribut per customer. */
-  sector: string[];
   customerGroup: string[];
   customerName: string[];
   pss: string[];
@@ -37,7 +32,7 @@ export type FilterState = {
 };
 
 export const EMPTY_FILTERS: FilterState = {
-  tahun: [], bulan: [], area: [], sector: [],
+  tahun: [], bulan: [], area: [],
   customerGroup: [], customerName: [], pss: [], tier: [],
   product: [], modelUnit: [], partNumber: [], partName: []
 };
@@ -103,44 +98,18 @@ export function getRealCustomers(customers: Customer[]): Customer[] {
 }
 
 export function getScopedCustomers(customers: Customer[], f: FilterState): Customer[] | null {
-  const anyScope = [f.area, f.sector, f.customerGroup, f.customerName, f.pss, f.tier].some(
+  const anyScope = [f.area, f.customerGroup, f.customerName, f.pss, f.tier].some(
     (arr) => arr.length > 0
   );
   if (!anyScope) return null;
   return getRealCustomers(customers).filter((c) => {
     if (f.area.length > 0 && !setOf(f.area).has(c.cabang || "")) return false;
-    // Satu customer bisa punya lebih dari satu sector — cocok kalau SALAH
-    // SATU sector customer ada di pilihan filter.
-    if (f.sector.length > 0 && !(c.customer_sector || []).some((s) => setOf(f.sector).has(s))) return false;
     if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(c.customer_group || "")) return false;
     if (f.customerName.length > 0 && !setOf(f.customerName).has(c.customer_name || "")) return false;
     if (f.pss.length > 0 && !setOf(f.pss).has(c.pss || "")) return false;
     if (f.tier.length > 0 && !setOf(f.tier).has(c.tier || "")) return false;
     return true;
   });
-}
-
-export function isScalingActive(customers: Customer[], f: FilterState): boolean {
-  return getScopedCustomers(customers, f) !== null;
-}
-
-/**
- * Proportional allocation factor: what share of a brand's national UIO
- * falls inside the currently scoped set of customers (by Area / Customer
- * Group / Customer Name / PSS / Tier). Returns 1 (no scaling) when no
- * customer-level filter is active, so the unfiltered view always shows
- * the exact national numbers from the source data.
- */
-export function allocationFactor(customers: Customer[], f: FilterState, product: string): number {
-  const custCol = CUST_BRAND_MAP[product];
-  if (!custCol) return 1;
-  const scoped = getScopedCustomers(customers, f);
-  if (scoped === null) return 1;
-  const all = getRealCustomers(customers);
-  const scopedSum = scoped.reduce((s, c) => s + (c.uio_by_brand?.[custCol] || 0), 0);
-  const totalSum = all.reduce((s, c) => s + (c.uio_by_brand?.[custCol] || 0), 0);
-  if (totalSum === 0) return 0;
-  return scopedSum / totalSum;
 }
 
 /** Dulu dipakai untuk menerjemahkan filter "Business Area" (pengelompokan
@@ -153,163 +122,8 @@ export function allowedProducts(_f: FilterState): string[] | null {
   return null;
 }
 
-export type ScaledPart = Part & {
-  uio_scaled: number;
-  qty_market_size_scaled: number;
-  amount_market_size_scaled: number;
-  alloc_factor: number;
-};
-
-export function filteredParts(parts: Part[], customers: Customer[], f: FilterState): ScaledPart[] {
-  const allowed = allowedProducts(f);
-  return parts
-    .filter((p) => {
-      if (allowed && !allowed.includes(p.product)) return false;
-      if (f.product.length > 0 && !f.product.includes(p.product)) return false;
-      if (f.modelUnit.length > 0 && !f.modelUnit.includes(p.model)) return false;
-      if (f.partNumber.length > 0 && !f.partNumber.includes(p.part_number || "")) return false;
-      if (f.partName.length > 0 && !f.partName.includes(p.part_name || "")) return false;
-      return true;
-    })
-    .map((p) => {
-      const fac = allocationFactor(customers, f, p.product);
-      return {
-        ...p,
-        uio_scaled: (p.uio_qty || 0) * fac,
-        qty_market_size_scaled: (p.qty_market_size || 0) * fac,
-        amount_market_size_scaled: (p.amount_market_size || 0) * fac,
-        alloc_factor: fac
-      };
-    });
-}
-
-/** Derives the {year, month, product} monthly table from current parts
- * totals (market size) combined with whatever actual-sales rows exist. */
-export function buildMonthly(parts: Part[], actualSales: ActualSalesRow[]): MonthlyRow[] {
-  const totals: Record<string, number> = {};
-  parts.forEach((p) => {
-    totals[p.product] = (totals[p.product] || 0) + (p.amount_market_size || 0);
-  });
-  const products = Object.keys(totals);
-  let months = uniq(actualSales.map((r) => r.month));
-  months.sort((a, b) => monthIndex(a) - monthIndex(b));
-  if (months.length === 0) months = MONTH_ORDER.slice(0, 9) as unknown as string[];
-  let years = uniq(actualSales.map((r) => r.year));
-  if (years.length === 0) years = [2026];
-
-  const rows: MonthlyRow[] = [];
-  years.forEach((year) => {
-    months.forEach((month) => {
-      products.forEach((product) => {
-        const match = actualSales.find(
-          (r) => String(r.year) === String(year) && r.month === month && r.product === product
-        );
-        rows.push({
-          year,
-          month,
-          product,
-          market_size: Math.round((totals[product] || 0) * monthsShare([month])),
-          actual_sales: match ? match.actual_sales || 0 : 0
-        });
-      });
-    });
-  });
-  return rows;
-}
-
-export function monthsInScope(monthly: MonthlyRow[], f: FilterState): string[] {
-  if (f.bulan.length > 0) return f.bulan.slice().sort((a, b) => monthIndex(a) - monthIndex(b));
-  return uniq(monthly.map((r) => r.month)).sort((a, b) => monthIndex(a) - monthIndex(b));
-}
-
-export type ScaledMonthlyRow = MonthlyRow & { market_size_scaled: number; actual_sales_scaled: number };
-
-export function aggregatedMonthly(monthly: MonthlyRow[], customers: Customer[], f: FilterState): ScaledMonthlyRow[] {
-  const allowed = allowedProducts(f);
-  const months = monthsInScope(monthly, f);
-  return monthly
-    .filter((r) => {
-      if (f.tahun.length > 0 && !f.tahun.includes(String(r.year))) return false;
-      if (!months.includes(r.month)) return false;
-      if (allowed && !allowed.includes(r.product)) return false;
-      if (f.product.length > 0 && !f.product.includes(r.product)) return false;
-      return true;
-    })
-    .map((r) => {
-      const fac = allocationFactor(customers, f, r.product);
-      return { ...r, market_size_scaled: r.market_size * fac, actual_sales_scaled: r.actual_sales * fac };
-    });
-}
-
 /* ---------------- Calculator (quick, per-part editable) ---------------- */
 
-export function buildModelLookup(uio: UioMaster[]): Record<string, UioMaster> {
-  const lookup: Record<string, UioMaster> = {};
-  uio.forEach((u) => {
-    const k = (u.model || "").trim().toUpperCase();
-    if (!(k in lookup)) lookup[k] = u;
-  });
-  return lookup;
-}
-
-/** Default diskon untuk sebuah product/brand, dipakai sebagai nilai awal
- * kolom Diskon di Quick Calculator (baru bisa diubah manual per part
- * setelahnya — tidak ada lagi tabel "Diskon per brand" yang dibagi
- * bersama). */
-export function defaultDiscount(assumptions: Assumption[], product: string): number {
-  const base = assumptions.find((a) => a.product === product);
-  return base ? base.discount : 0;
-}
-
-/** Default HM/Day untuk sebuah model, diambil dari uio_master kalau ada
- * (fallback 8 — sesuai permintaan: HM/Day baku 8 jam/hari). */
-export function defaultHmDay(lookup: Record<string, UioMaster>, model: string): number {
-  const src = lookup[(model || "").trim().toUpperCase()];
-  return src?.hm_day || 8;
-}
-
-/** Default UIO qty untuk sebuah model: pakai jumlah unit dari Data UIO
- * (populasi riil) di tahun terbaru kalau ada, fallback ke uio_master. */
-export function defaultUioQty(
-  lookup: Record<string, UioMaster>,
-  uioUnits: UioUnit[],
-  product: string,
-  model: string
-): number {
-  const prod = canonicalProduct(product);
-  const mod = normModel(model);
-  // UIO = unit yang beroperasi sampai tahun terbaru = semua unit yang sudah
-  // terjual (Year Inv) sampai tahun itu, ditambah unit tanpa tahun.
-  const count = uioUnits.filter((u) => canonicalProduct(u.product) === prod && normModel(u.model) === mod).length;
-  if (count > 0) return count;
-  const src = lookup[(model || "").trim().toUpperCase()];
-  return src?.uio_qty || 0;
-}
-
-export function computeQuickRow(input: {
-  qtyPerUnit: number;
-  pricelist: number;
-  freqReplacementHm: number;
-  hmDay: number;
-  uio: number;
-  discount: number;
-  workdaysMonth: number;
-}) {
-  const annualHm = input.hmDay * input.workdaysMonth * 12;
-  const qtyMarketSize = input.freqReplacementHm
-    ? (annualHm / input.freqReplacementHm) * input.qtyPerUnit * input.uio
-    : 0;
-  const contractPrice = input.pricelist * (1 - input.discount);
-  const amountMarketSize = contractPrice * qtyMarketSize;
-  return { annualHm, qtyMarketSize, contractPrice, amountMarketSize };
-}
-
-/* ---------------- Dashboard charts: UIO / Market Size / Market Share per tahun ---------------- */
-
-/** Data UIO adalah populasi per tahun (1 baris = 1 unit fisik pada tahun
- * tertentu) — tidak masuk akal dijumlah lintas tahun karena unit yang sama
- * bisa muncul di beberapa tahun. Semua agregasi di bawah selalu di-scope
- * per tahun. */
 export function uioYearsAvailable(uioUnits: UioUnit[]): number[] {
   return uniq(uioUnits.map((u) => u.year))
     .filter((y): y is number => y !== null)
@@ -358,14 +172,14 @@ function uioDimensionValue(u: UioUnit, dimension: UioDimension): string {
 
 type UnitScopeKeys = { areaKeys: Set<string> | null; otherKeys: Set<string> | null };
 
-/** Filter yang butuh data customer (Area via cabang, PSS, Tier, Sector) diterjemahkan jadi himpunan kunci "group|nama" customer, lalu dipakai
+/** Filter yang butuh data customer (Area via cabang, PSS, Tier) diterjemahkan jadi himpunan kunci "group|nama" customer, lalu dipakai
  * untuk menyaring unit UIO. */
 function buildUnitScopeKeys(customers: Customer[] | undefined, f: FilterState | undefined): UnitScopeKeys {
   if (!customers || !f) return { areaKeys: null, otherKeys: null };
   const toSet = (list: Customer[] | null) => (list ? new Set(list.map((c) => custKey(c.customer_group, c.customer_name))) : null);
   const areaKeys = f.area.length > 0 ? toSet(getScopedCustomers(customers, { ...EMPTY_FILTERS, area: f.area })) : null;
   const otherKeys = toSet(
-    getScopedCustomers(customers, { ...EMPTY_FILTERS, pss: f.pss, tier: f.tier, sector: f.sector })
+    getScopedCustomers(customers, { ...EMPTY_FILTERS, pss: f.pss, tier: f.tier })
   );
   return { areaKeys, otherKeys };
 }
@@ -510,7 +324,7 @@ export function mergeUnitHm(into: UnitHm, from: UnitHm): void {
 }
 
 /** Annual HM RATA-RATA per unit untuk satu part (rata-rata × UIO = total jam semua unit),
- * plus HM/Day rata-rata untuk ditampilkan. Tanpa unit sama sekali (UIO dari template):
+ * plus HM/Day rata-rata untuk ditampilkan. Tanpa unit sama sekali (Kalkulator cepat dengan UIO manual):
  * HM/Day part × hari kerja × bulan/tahun default. */
 export function partAnnualHm(
   agg: UnitHm | null | undefined,
@@ -775,9 +589,6 @@ export type DetailRow = {
   freq_replacement_hm: number;
   qty_per_unit: number;
   uio: number;
-  /** "unit" = dihitung dari Data UIO; "template" = belum ada Data UIO untuk
-   * model ini, dipakai angka UIO dari template kalkulator. */
-  uio_source: "unit" | "template";
   price: number;
   qty_market_size: number;
   amount_market_size: number;
@@ -852,7 +663,6 @@ export function buildDetailRows(
   }
   const workdaysOf = makeWorkdaysOf(assumptions);
   const counter = buildUnitCounter(scopedUnits, years, f, customers, workdaysOf);
-  const allCounter = customerKeys ? null : buildUnitCounter(uioUnits, [], undefined, undefined, workdaysOf);
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
   const selectedShare = f.bulan.length > 0 ? monthsShare(f.bulan) : 1;
@@ -891,18 +701,13 @@ export function buildDetailRows(
     if (f.partNumber.length > 0 && !setOf(f.partNumber).has(p.part_number || "")) return;
     if (f.partName.length > 0 && !setOf(f.partName).has(p.part_name || "")) return;
 
-    let uio = counter.count(p.product, p.model);
+    // UIO hanya dari Data UIO: model tanpa unit = UIO 0.
+    const hrs = counter.hours(p.product, p.model);
+    const uio = hrs.units;
     // Mode customer/group: part tanpa unit & tanpa penjualan tidak berpengaruh ke total.
     if (customerKeys && subset && uio === 0 && !actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`)) return;
-    let source: "unit" | "template" = "unit";
-    if (uio === 0 && allCounter && allCounter.count(p.product, p.model) === 0) {
-      // Template hanya untuk model tanpa data unit sama sekali; kalau customer
-      // dipilih, UIO-nya 0 (tidak ada unit milik customer itu).
-      uio = (p.uio_qty || 0) * allocationFactor(customers, f, p.product);
-      source = "template";
-    }
     // Annual HM rata-rata per unit dari HM/Day × Day/Month × Month/Year di Data UIO (fallback: Master Part / default).
-    const { annualHm, hmDay } = partAnnualHm(source === "unit" ? counter.hours(p.product, p.model) : null, p.hm_day, p.product, workdaysOf);
+    const { annualHm, hmDay } = partAnnualHm(hrs, p.hm_day, p.product, workdaysOf);
     const price = priceOf(p.part_number, customerGroup, p.pricelist);
     const { qty, amount } = computePartMarketSize({
       annualHm,
@@ -928,7 +733,6 @@ export function buildDetailRows(
       freq_replacement_hm: p.freq_replacement_hm,
       qty_per_unit: p.qty_per_unit,
       uio,
-      uio_source: source,
       price,
       qty_market_size: qty,
       amount_market_size: amount,
@@ -993,7 +797,7 @@ export function findPartsWithoutPrice(parts: Part[], priceList: PriceListEntry[]
 export function actualYearTotals(rows: ActualSalesYear[], f: FilterState, customers?: Customer[]): Map<number, number> {
   const out = new Map<number, number>();
   const prods = f.product.length > 0 ? new Set(f.product.map((p) => canonicalProduct(p))) : null;
-  const keys = buildUnitScopeKeys(customers, { ...EMPTY_FILTERS, area: f.area, pss: f.pss, sector: f.sector });
+  const keys = buildUnitScopeKeys(customers, { ...EMPTY_FILTERS, area: f.area, pss: f.pss });
   const groups = f.customerGroup.length > 0 ? new Set(f.customerGroup.map((g) => g.trim().toUpperCase())) : null;
   const names = f.customerName.length > 0 ? new Set(f.customerName.map((g) => g.trim().toUpperCase())) : null;
   const tiers = f.tier.length > 0 ? new Set(f.tier.map((g) => g.trim().toUpperCase())) : null;
@@ -1081,7 +885,6 @@ export function marketSizeByYear(
   const workdaysOf = makeWorkdaysOf(assumptions);
   // Tahun & Bulan tidak membatasi populasi unit (UIO dihitung per tahun di bawah).
   const unitFilter = { ...f, tahun: [] as string[], bulan: [] as string[] };
-  const allCounter = buildUnitCounter(uioUnits, [], undefined, undefined, workdaysOf);
 
   return years.map((year) => {
     const counter = buildUnitCounter(uioUnits, [year], unitFilter, customers, workdaysOf);
@@ -1092,15 +895,11 @@ export function marketSizeByYear(
       if (f.modelUnit.length > 0 && !setOf(f.modelUnit).has(p.model)) return;
       if (f.partNumber.length > 0 && !setOf(f.partNumber).has(p.part_number || "")) return;
       if (f.partName.length > 0 && !setOf(f.partName).has(p.part_name || "")) return;
+      // UIO hanya dari Data UIO: model tanpa unit tidak menyumbang Market Size.
       const hrs = counter.hours(p.product, p.model);
-      let uio = hrs.units;
-      let fromUnits = true;
-      if (uio === 0 && allCounter.count(p.product, p.model) === 0) {
-        uio = (p.uio_qty || 0) * (customers ? allocationFactor(customers, f, p.product) : 1);
-        fromUnits = false;
-      }
+      const uio = hrs.units;
       if (uio === 0) return;
-      const { annualHm } = partAnnualHm(fromUnits ? hrs : null, p.hm_day, p.product, workdaysOf);
+      const { annualHm } = partAnnualHm(hrs, p.hm_day, p.product, workdaysOf);
       const price = priceOf(p.part_number, customerGroup, p.pricelist);
       const r = computePartMarketSize({
         annualHm,

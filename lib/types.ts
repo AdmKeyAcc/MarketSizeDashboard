@@ -11,25 +11,12 @@ export type Part = {
   pricelist: number;
   freq_replacement_hm: number;
   hm_day: number;
-  annual_hm: number;
-  uio_qty: number;
-  qty_market_size: number;
-  contract_price: number;
-  amount_market_size: number;
 };
 
-export type UioMaster = {
-  id?: number;
-  product: string;
-  model: string;
-  hm_day: number;
-  uio_qty: number;
-};
-
+/** Hari kerja per bulan per Product — cadangan kalau kolom Day/Month di Data UIO kosong. */
 export type Assumption = {
   product: string;
   workdays_month: number;
-  discount: number;
 };
 
 /** Urutan tier yang dipakai tim TRAKNUS (dari laporan key account) —
@@ -39,7 +26,6 @@ export const CUSTOMER_TIER_OPTIONS = DEFAULT_REFERENCES.kaTypes;
 
 export type Customer = {
   id?: number;
-  no: number | null;
   customer_group: string | null;
   cabang: string | null;
   customer_code: string | null;
@@ -48,14 +34,6 @@ export type Customer = {
   /** Klasifikasi key account — lihat CUSTOMER_TIER_OPTIONS. Opsional: null
    * kalau file yang diupload belum punya kolom ini. */
   tier: string | null;
-  uio_by_brand: Record<string, number>;
-  total_uio: number;
-  /** Customer Sector (Plantation, Rental, Mining, dst) — bisa lebih dari satu
-   * per customer, jadi array. Dipakai sebagai sumber filter "Sector".
-   * Opsional & sengaja TIDAK diisi oleh parseCustomerWorkbook (upload "Cust
-   * Data") — diisi lewat SQL import terpisah, jadi re-upload Cust Data tidak
-   * menimpanya (supabase upsert hanya meng-update kolom yang ada di payload). */
-  customer_sector?: string[];
 };
 
 export type ActualSalesRow = {
@@ -66,13 +44,6 @@ export type ActualSalesRow = {
   actual_sales: number;
 };
 
-export type MonthlyRow = {
-  year: number;
-  month: string;
-  product: string;
-  market_size: number;
-  actual_sales: number;
-};
 
 /** A snapshot of one Quick Calculator computation, saved by the user into
  * the "summary part yang dicek" list on the Calculator tab. Values are
@@ -115,7 +86,7 @@ export type MarketSizeSnapshot = {
 /** Satu baris = satu unit fisik yang terkonfirmasi beroperasi (populasi
  * UIO), sumber dari upload "Data UIO" (mis. sheet "Populasi All Branch").
  * Ini yang dipakai untuk menghitung UIO di formula Market Size — bukan lagi
- * angka manual di UioMaster — dan untuk chart "UIO per Product". */
+ * chart "UIO per Product". */
 export type UioUnit = {
   id?: number;
   year: number | null;
@@ -196,7 +167,6 @@ export type DataMeta = {
 
 export type DashboardData = {
   parts: Part[];
-  uio: UioMaster[];
   assumptions: Assumption[];
   customers: Customer[];
   actualSales: ActualSalesRow[];
@@ -216,7 +186,3 @@ export const MONTH_ORDER = [
   "Juli", "Agustus", "September", "Oktober", "November", "Desember"
 ] as const;
 
-export const CUST_BRAND_MAP: Record<string, string> = {
-  MF: "MF", CANYCOM: "CNY", TOYOTA: "TYT", BT: "BT/RAY", RAYMOND: "BT/RAY",
-  PERKINS: "PER", GD: "GD/COM", KUBOTA: "KBT", HSC: "HSC"
-};
