@@ -291,17 +291,26 @@ export type WorkdaysOf = (product: string) => number;
 
 export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workdays_month;
 
-export function addUnitHm(agg: UnitHm, u: UioUnit, workdaysOf: WorkdaysOf): void {
+/** Bagian tahun yang dijalani unit di tahun acuan: unit yang dibeli bulan ke-m di tahun acuan baru beroperasi
+ * (13 − m)/12 tahun (dibeli Oktober → 3/12). Tahun sesudahnya penuh. Month Inv kosong = setahun penuh. */
+export function firstYearFraction(u: UioUnit, refYear: number | null | undefined): number {
+  if (refYear === null || refYear === undefined || u.year !== refYear) return 1;
+  const m = Number(u.month_inv);
+  return Number.isInteger(m) && m >= 1 && m <= 12 ? (13 - m) / 12 : 1;
+}
+
+export function addUnitHm(agg: UnitHm, u: UioUnit, workdaysOf: WorkdaysOf, refYear: number | null = null): void {
   const dm = inRange(u.day_month, 31) ?? workdaysOf(u.product || "");
   const my = inRange(u.month_year, 12) ?? refs().settings.default_months_year;
   const hm = inRange(u.hm_day, 24);
+  const w = firstYearFraction(u, refYear);
   agg.units += 1;
   if (hm !== null) {
-    agg.knownHm += hm * dm * my;
+    agg.knownHm += hm * dm * my * w;
     agg.knownHmDay += hm;
   } else {
     agg.unknownUnits += 1;
-    agg.unknownBase += dm * my;
+    agg.unknownBase += dm * my * w;
   }
 }
 
@@ -350,6 +359,8 @@ export function buildUnitCounter(
   workdaysOf: WorkdaysOf = defaultWorkdaysOf
 ): UnitCounter {
   const keys = buildUnitScopeKeys(customers, f);
+  // Tahun acuan untuk menghitung bulan beli (unit yang baru dibeli tahun itu hanya dihitung sebagian tahun).
+  const refYear = years.length > 0 ? Math.max(...years) : null;
   const byProduct = new Map<string, Map<string, UnitHm>>();
   uioUnits.forEach((u) => {
     if (!unitInScope(u, years, f, keys)) return;
@@ -359,7 +370,7 @@ export function buildUnitCounter(
     const nm = normModel(u.model);
     let agg = m.get(nm);
     if (!agg) m.set(nm, (agg = emptyUnitHm()));
-    addUnitHm(agg, u, workdaysOf);
+    addUnitHm(agg, u, workdaysOf, refYear);
   });
   const cache = new Map<string, UnitHm>();
   const hours = (product: string, model: string): UnitHm => {

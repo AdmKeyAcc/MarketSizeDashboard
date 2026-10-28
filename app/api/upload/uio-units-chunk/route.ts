@@ -8,7 +8,7 @@ export const maxDuration = 60;
 type Row = {
   year?: unknown; product?: unknown; model?: unknown; customer_group?: unknown; customer_name?: unknown; branch?: unknown;
   serial_number?: unknown; pss_name?: unknown; customer_code?: unknown; customer_type?: unknown;
-  hm_day?: unknown; day_month?: unknown; month_year?: unknown;
+  hm_day?: unknown; day_month?: unknown; month_year?: unknown; month_inv?: unknown;
 };
 type Body = { action?: "start" | "rows" | "finish"; rows?: Row[]; filename?: string; total?: number; sheet?: string; replace?: boolean };
 
@@ -70,6 +70,10 @@ export async function POST(request: Request) {
       byKey.set(key, {
         dedupe_key: key,
         year: n(r.year),
+        month_inv: (() => {
+          const m = n(r.month_inv);
+          return m !== null && Number.isInteger(m) && m >= 1 && m <= 12 ? m : null;
+        })(),
         product,
         model: s(r.model),
         customer_group: s(r.customer_group),

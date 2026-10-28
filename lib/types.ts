@@ -84,7 +84,10 @@ export type MarketSizeSnapshot = {
  * chart "UIO per Product". */
 export type UioUnit = {
   id?: number;
+  /** Year Inv — tahun invoice/pembelian unit. */
   year: number | null;
+  /** Month Inv — bulan invoice/pembelian (1–12); null = dianggap beroperasi setahun penuh di tahun belinya. */
+  month_inv?: number | null;
   product: string | null;
   model: string | null;
   customer_group: string | null;

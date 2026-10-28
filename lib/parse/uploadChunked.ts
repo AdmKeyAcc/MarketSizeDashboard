@@ -102,51 +102,72 @@ export async function uploadActualSalesYear(
 }
 
 /**
- * Upload Data UIO: file dibaca di browser (bisa puluhan ribu baris / belasan MB, melewati batas request Vercel),
- * nama customer disamakan dengan Master Customer, lalu dikirim per potongan. Mengganti seluruh isi Data UIO.
+ * Data UIO, langkah 1: baca & periksa file di browser (belum menyimpan apa pun).
+ * Hasilnya berisi ringkasan pemeriksaan (kolom/isi kosong atau tidak valid) untuk ditampilkan
+ * ke pengguna, dan fungsi `commit` untuk benar-benar menyimpan kalau pengguna melanjutkan.
  */
-export async function uploadUioUnits(file: File, onProgress?: (text: string) => void): Promise<Result> {
+export type UioPrepared = {
+  validation: import("@/lib/parse/uioUnits").UioValidation;
+  rowCount: number;
+  sheet: string;
+  commit: (onProgress?: (text: string) => void) => Promise<Result>;
+};
+export async function prepareUioUpload(file: File): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
   try {
-    onProgress?.("Membaca file (bisa beberapa puluh detik)…");
     const XLSX = await import("@e965/xlsx");
     const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
     const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR });
 
-    onProgress?.("Menyamakan nama customer dengan Master Customer…");
-    const { supabaseBrowser } = await import("@/lib/supabase/client");
-    const canon: { customer_group: string | null; customer_name: string | null }[] = [];
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await supabaseBrowser.from("customers").select("customer_group, customer_name").range(from, from + 999);
-      if (error) throw new Error("Gagal membaca Master Customer: " + error.message);
-      canon.push(...(data || []));
-      if (!data || data.length < 1000) break;
-    }
-    const mapped = canonicalizeUnits(parsed.rows, canon);
+    const commit = async (onProgress?: (text: string) => void): Promise<Result> => {
+      try {
+        onProgress?.("Menyamakan nama customer dengan Master Customer…");
+        const { supabaseBrowser } = await import("@/lib/supabase/client");
+        const canon: { customer_group: string | null; customer_name: string | null }[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabaseBrowser.from("customers").select("customer_group, customer_name").range(from, from + 999);
+          if (error) throw new Error("Gagal membaca Master Customer: " + error.message);
+          canon.push(...(data || []));
+          if (!data || data.length < 1000) break;
+        }
+        const mapped = canonicalizeUnits(parsed.rows, canon);
 
-    const url = "/api/upload/uio-units-chunk";
-    await post(url, { action: "start", replace: true });
-    for (let i = 0; i < mapped.rows.length; i += CHUNK) {
-      onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
-      await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name });
-    }
-    await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName });
-    return {
-      ok: true,
-      message: {
-        rowCount: mapped.rows.length,
-        skipped: parsed.skipped,
-        returns: parsed.returns,
-        beforeMinYear: parsed.beforeMinYear,
-        minYear: UIO_MIN_YEAR,
-        sheet: parsed.sheetName,
-        exact: mapped.exact,
-        remapped: mapped.remapped,
-        unmatched: mapped.unmatched
+        const url = "/api/upload/uio-units-chunk";
+        await post(url, { action: "start", replace: true });
+        for (let i = 0; i < mapped.rows.length; i += CHUNK) {
+          onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
+          await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name });
+        }
+        await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName });
+        return {
+          ok: true,
+          message: {
+            rowCount: mapped.rows.length,
+            skipped: parsed.skipped,
+            returns: parsed.returns,
+            beforeMinYear: parsed.beforeMinYear,
+            minYear: UIO_MIN_YEAR,
+            sheet: parsed.sheetName,
+            exact: mapped.exact,
+            remapped: mapped.remapped,
+            unmatched: mapped.unmatched
+          }
+        };
+      } catch (err) {
+        return { ok: false, message: errMessage(err) };
       }
     };
+    return { ok: true, prep: { validation: parsed.validation, rowCount: parsed.rows.length, sheet: parsed.sheetName, commit } };
   } catch (err) {
     return { ok: false, message: errMessage(err) };
   }
+}
+
+/** Data UIO tanpa jeda pemeriksaan (baca + simpan sekaligus). Mengganti seluruh Data UIO. */
+export async function uploadUioUnits(file: File, onProgress?: (text: string) => void): Promise<Result> {
+  onProgress?.("Membaca file (bisa beberapa puluh detik)…");
+  const r = await prepareUioUpload(file);
+  if (!r.ok) return { ok: false, message: r.message };
+  return r.prep.commit(onProgress);
 }

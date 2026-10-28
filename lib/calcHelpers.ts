@@ -41,8 +41,8 @@ export function uioHoursForPart(
     if (g && up(u.customer_group) !== g) return;
     if (n && up(u.customer_name) !== n) return;
     const nm = normModel(u.model);
-    if (nm === pm) addUnitHm(exact, u, workdaysOf);
-    else if (pm.length >= 3 && nm.startsWith(pm)) addUnitHm(prefix, u, workdaysOf);
+    if (nm === pm) addUnitHm(exact, u, workdaysOf, year);
+    else if (pm.length >= 3 && nm.startsWith(pm)) addUnitHm(prefix, u, workdaysOf, year);
   });
   return exact.units > 0 ? exact : prefix;
 }

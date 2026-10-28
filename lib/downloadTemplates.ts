@@ -55,13 +55,14 @@ export async function downloadUioTemplate() {
         Product: "",
         Model: "",
         "Serial Number": "",
-        Year: "",
+        "Year Inv": "",
+        "Month Inv": "",
         "HM/Day": "",
         "Day/Month": "",
         "Month/Year": ""
       }
     ],
-    [14, 18, 14, 28, 22, 18, 14, 16, 20, 8, 10, 11, 12],
+    [14, 18, 14, 28, 22, 18, 14, 16, 20, 10, 11, 10, 11, 12],
     "template_data_uio.xlsx",
     true
   );

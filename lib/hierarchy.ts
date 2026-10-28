@@ -192,7 +192,7 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
     const nm = normModel(u.model);
     let agg = m.get(nm);
     if (!agg) m.set(nm, (agg = emptyUnitHm()));
-    addUnitHm(agg, u, d.workdaysOf);
+    addUnitHm(agg, u, d.workdaysOf, d.year);
   });
 
   const out = new Map<string, Fact>();

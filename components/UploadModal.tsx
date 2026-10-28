@@ -7,7 +7,7 @@ import {
   downloadNonContractPriceTemplate,
   downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
-import { uploadMasterPart, uploadUioUnits } from "@/lib/parse/uploadChunked";
+import { uploadMasterPart, prepareUioUpload, type UioPrepared } from "@/lib/parse/uploadChunked";
 import { syncActualSales } from "@/lib/syncActual";
 import type { DataMeta } from "@/lib/types";
 
@@ -53,6 +53,45 @@ async function clearData(target: ClearTarget, pin: string): Promise<Result> {
   } catch (err) {
     return { ok: false, message: (err as Error).message || "Gagal terhubung ke server." };
   }
+}
+
+/** Hasil pemeriksaan file Data UIO sebelum disimpan: kolom yang tidak ada, isi kosong / tidak valid. */
+function UioCheck({ prep, busy, onContinue, onCancel }: { prep: UioPrepared; busy: boolean; onContinue: () => void; onCancel: () => void }) {
+  const v = prep.validation;
+  const penting = v.issues.filter((i) => i.level === "penting");
+  const info = v.issues.filter((i) => i.level === "info");
+  const rowsText = (rows: number[], count: number) =>
+    `baris ${rows.join(", ")}${count > rows.length ? `, … (+${fmt(count - rows.length)} lainnya)` : ""}`;
+  return (
+    <div className={"uio-check " + (v.missingColumns.length > 0 || penting.length > 0 ? "warn" : "info")}>
+      <div className="uio-check-title">
+        Pemeriksaan file: {fmt(prep.rowCount)} unit siap disimpan (sheet "{prep.sheet}"). <b>Data belum disimpan.</b>
+      </div>
+      {v.missingColumns.length > 0 && (
+        <div className="uio-check-row">
+          ⚠ <b>Kolom tidak ditemukan:</b> {v.missingColumns.join(", ")}. Cek judul kolom sesuai template (mis. "Year Inv", "Month Inv").
+        </div>
+      )}
+      {penting.map((i) => (
+        <div className="uio-check-row" key={i.message}>
+          ⚠ <b>{fmt(i.count)} baris</b> — {i.message} <span className="uio-check-rows">({rowsText(i.rows, i.count)})</span>
+        </div>
+      ))}
+      {info.map((i) => (
+        <div className="uio-check-row muted" key={i.message}>
+          ℹ {fmt(i.count)} baris — {i.message} <span className="uio-check-rows">({rowsText(i.rows, i.count)})</span>
+        </div>
+      ))}
+      <div className="upload-row">
+        <button type="button" className="danger-btn" disabled={busy} onClick={onContinue}>
+          Tetap upload
+        </button>
+        <button type="button" className="link-btn" disabled={busy} onClick={onCancel}>
+          Batal, perbaiki file dulu
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** Tombol "Hapus data" dengan konfirmasi + PIN admin, ditampilkan di bawah slot yang sudah berisi data. */
@@ -184,6 +223,7 @@ export default function UploadModal({
   meta: DataMeta;
 }) {
   const [stUio, setStUio] = useState<SlotStatus>(null);
+  const [uioPending, setUioPending] = useState<UioPrepared | null>(null);
   const [stPart, setStPart] = useState<SlotStatus>(null);
   const [stContract, setStContract] = useState<SlotStatus>(null);
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
@@ -204,6 +244,31 @@ export default function UploadModal({
       setStatus({ text: "Gagal: " + result.message, ok: false });
     }
     setBusy(false);
+  }
+
+  const uioDoneText = (j: any) =>
+    `Berhasil: ${fmt(j.rowCount)} unit disimpan (sheet "${j.sheet}"). Nama customer: ${fmt(j.exact)} sudah cocok, ${fmt(j.remapped)} disamakan dengan Master Customer, ${fmt(j.unmatched)} tidak ditemukan di master.${
+      j.returns ? ` ${fmt(j.returns)} baris retur dibuang.` : ""
+    }${j.beforeMinYear ? ` ${fmt(j.beforeMinYear)} unit sebelum ${j.minYear} dilewati.` : ""}${skippedText(j)} Upload ini mengganti seluruh Data UIO sebelumnya.`;
+
+  /** Data UIO: periksa file dulu. Kalau ada masalah, tampilkan ringkasan dan tunggu keputusan pengguna. */
+  async function pickUio(f: File) {
+    setUioPending(null);
+    setBusy(true);
+    setStUio({ text: "Memeriksa file (bisa beberapa puluh detik)…", ok: true });
+    const r = await prepareUioUpload(f);
+    setBusy(false);
+    if (!r.ok) {
+      setStUio({ text: "Gagal: " + r.message, ok: false });
+      return;
+    }
+    const v = r.prep.validation;
+    if (v.missingColumns.length > 0 || v.issues.length > 0) {
+      setStUio(null);
+      setUioPending(r.prep);
+      return;
+    }
+    await run(setStUio, () => r.prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
   }
 
   const skippedText = (j: any) => (j.skipped ? ` (${j.skipped} baris dilewati.)` : "");
@@ -247,11 +312,22 @@ export default function UploadModal({
           lastFile={meta.uio_units_filename}
           status={stUio}
           busy={busy}
-          onPick={(f) =>
-            run(setStUio, () => uploadUioUnits(f, (t) => setStUio({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} unit disimpan (sheet "${j.sheet}"). Nama customer: ${fmt(j.exact)} sudah cocok, ${fmt(j.remapped)} disamakan dengan Master Customer, ${fmt(j.unmatched)} tidak ditemukan di master.${
-                j.returns ? ` ${fmt(j.returns)} baris retur dibuang.` : ""
-              }${j.beforeMinYear ? ` ${fmt(j.beforeMinYear)} unit sebelum ${j.minYear} dilewati.` : ""}${skippedText(j)} Upload ini mengganti seluruh Data UIO sebelumnya.`
+          onPick={pickUio}
+          extra={
+            uioPending && (
+              <UioCheck
+                prep={uioPending}
+                busy={busy}
+                onContinue={() => {
+                  const prep = uioPending;
+                  setUioPending(null);
+                  run(setStUio, () => prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
+                }}
+                onCancel={() => {
+                  setUioPending(null);
+                  setStUio({ text: "Upload dibatalkan — tidak ada data yang diubah.", ok: false });
+                }}
+              />
             )
           }
           onTemplate={downloadUioTemplate}

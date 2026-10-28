@@ -296,3 +296,11 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .pin-input { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 12.5px; width: 130px; background: var(--surface); }
 .danger-btn { background: var(--red-600); color: #fff; border: none; border-radius: var(--radius-sm); padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .danger-btn:disabled { opacity: .5; cursor: default; }
+
+/* Hasil pemeriksaan file Data UIO sebelum disimpan */
+.uio-check { margin: 4px 0 10px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 6px; }
+.uio-check.warn { border: 1px solid var(--red-600); background: rgba(220, 70, 50, .06); }
+.uio-check.info { border: 1px solid var(--border-strong); background: var(--surface-2); }
+.uio-check-title { font-weight: 500; }
+.uio-check-row.muted { color: var(--ink-mute); }
+.uio-check-rows { color: var(--ink-mute); font-size: 11.5px; }
