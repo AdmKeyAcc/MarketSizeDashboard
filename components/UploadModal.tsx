@@ -123,7 +123,7 @@ function Slot({
   accept = ".xlsx,.xls"
 }: {
   title: string;
-  hint: React.ReactNode;
+  hint?: React.ReactNode;
   count: number;
   countUnit: string;
   lastFile?: string | null;
@@ -139,7 +139,7 @@ function Slot({
   return (
     <div className="upload-slot">
       <h4>{title}</h4>
-      <div className="hint">{hint}</div>
+      {hint && <div className="hint">{hint}</div>}
       <div className={"upload-state " + (count > 0 ? "has" : "empty")}>
         {count > 0
           ? `✓ Sudah ada ${fmt(count)} ${countUnit}${lastFile ? ` · upload terakhir: ${lastFile}` : ""}`
