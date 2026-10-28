@@ -77,7 +77,11 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
           </button>
         </div>
       </div>
-      {labels.length === 0 ? (
+      {state.marketComputing ? (
+        <div className="empty-hint" style={{ margin: 0 }}>
+          Menghitung Market Size per customer…{state.factsProgress !== null ? ` ${Math.round(state.factsProgress * 100)}%` : ""}
+        </div>
+      ) : labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>
           Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Size per tahun belum bisa dihitung.
         </div>

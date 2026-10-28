@@ -91,7 +91,28 @@ export async function fetchActualSalesTx(supabase: SupabaseClient): Promise<Actu
   return out.flat();
 }
 
+/** Penanda versi data Actual tahunan (berubah setiap kali sinkron menulis). */
+async function actualVersion(supabase: SupabaseClient): Promise<string> {
+  const { data } = await supabase.from("app_meta").select("value, updated_at").eq("key", "actual_sales_year").maybeSingle();
+  const v = (data?.value ?? {}) as { synced_at?: string };
+  return `${v.synced_at ?? ""}|${data?.updated_at ?? ""}`;
+}
+
+/** Actual tahunan dibaca dalam beberapa halaman sekaligus. Kalau sinkron otomatis selesai tepat di tengah
+ * pembacaan, halaman bisa berisi campuran versi lama & baru — jadi versi dicek sebelum & sesudah, dan dibaca
+ * ulang kalau berubah (maks. 3 kali). */
 async function fetchActualSalesYear(supabase: SupabaseClient): Promise<ActualSalesYear[]> {
+  let rows: ActualSalesYear[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const before = await actualVersion(supabase);
+    rows = await fetchActualSalesYearOnce(supabase);
+    const after = await actualVersion(supabase);
+    if (before === after) break;
+  }
+  return rows;
+}
+
+async function fetchActualSalesYearOnce(supabase: SupabaseClient): Promise<ActualSalesYear[]> {
   const head = await supabase.from("actual_sales_year").select("id", { count: "exact", head: true });
   // Tabel belum dibuat (migration v12 belum dijalankan) -> anggap kosong, jangan menjatuhkan dashboard.
   if (head.error || !head.count) return [];

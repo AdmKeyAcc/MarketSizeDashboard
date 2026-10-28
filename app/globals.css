@@ -304,3 +304,7 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .uio-check-title { font-weight: 500; }
 .uio-check-row.muted { color: var(--ink-mute); }
 .uio-check-rows { color: var(--ink-mute); font-size: 11.5px; }
+
+/* Scorecard saat Market Size masih dihitung */
+.kpi-loading { color: var(--ink-mute); animation: kpi-pulse 1.2s ease-in-out infinite; }
+@keyframes kpi-pulse { 50% { opacity: .35; } }

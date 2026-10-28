@@ -23,6 +23,25 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       ? `Actual tidak tersedia per ${blockers.join(" / ")} (laporan Actual sampai level Customer × Product, setahun). Kosongkan filter tsb untuk melihat Actual.`
       : "Laporan Actual Sales belum diupload / belum punya data tahun ini.";
 
+  if (state.marketComputing) {
+    const pct = state.factsProgress !== null ? ` ${Math.round(state.factsProgress * 100)}%` : "";
+    const card = (cls: string, label: string) => (
+      <div className={"kpi " + cls}>
+        <div className="kpi-label">{label}</div>
+        <div className="kpi-value mono kpi-loading">…</div>
+        <div className="kpi-sub">Menghitung{pct}</div>
+      </div>
+    );
+    return (
+      <div className="kpis">
+        {card("blue", "Market size")}
+        {card("red", "Actual sales")}
+        {card("green", "Market Share")}
+        {card("", "Gap (peluang)")}
+      </div>
+    );
+  }
+
   const years = marketSizeYearRows.map((r) => r.year);
   const yearLabel =
     years.length === 0

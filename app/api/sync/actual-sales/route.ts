@@ -63,6 +63,10 @@ async function replaceRows(
   await ren;
 }
 
+/** Fungsi atomik (migration v19) belum dibuat → pakai cara lama. */
+const isMissingFn = (e: { code?: string; message?: string } | null) =>
+  !!e && (e.code === "PGRST202" || /could not find the function|does not exist/i.test(e.message || ""));
+
 function ytdFrom(info: FeedInfo): { ytd_year: number | null; ytd_month: string | null } {
   if (!info.max_year) return { ytd_year: null, ytd_month: null };
   const d = info.max_date ? new Date(info.max_date) : null;
@@ -111,15 +115,26 @@ export async function POST(request: Request) {
         source_filename: batchTag,
         uploaded_at: now
       }));
-      await replaceRows(admin, "actual_sales_year", { year }, rows, batchTag);
+      const metaValue = { filename: SOURCE, ...ytdFrom(info), synced_at: now, max_date: info.max_date, exclude };
 
-      const cnt = await admin.from("actual_sales_year").select("id", { count: "exact", head: true });
-      const meta = await admin.from("app_meta").upsert({
-        key: "actual_sales_year",
-        value: { filename: SOURCE, row_count: cnt.count ?? rows.length, ...ytdFrom(info), synced_at: now, max_date: info.max_date, exclude },
-        updated_at: now
+      // Utama: hapus + isi ulang + metadata dalam SATU transaksi (tidak ada jeda data ganda).
+      const rpc = await admin.rpc("ms_replace_actual_year", {
+        p_year: year,
+        p_rows: rows.map(({ year: _y, uploaded_at: _u, ...r }) => ({ ...r, source_filename: SOURCE })),
+        p_meta: metaValue
       });
-      if (meta.error) throw meta.error;
+      if (rpc.error && !isMissingFn(rpc.error)) throw new Error(`Gagal menyimpan Actual ${year}: ${rpc.error.message}`);
+      if (rpc.error) {
+        // Cadangan (migration v19 belum dijalankan): cara lama bertahap.
+        await replaceRows(admin, "actual_sales_year", { year }, rows, batchTag);
+        const cnt = await admin.from("actual_sales_year").select("id", { count: "exact", head: true });
+        const meta = await admin.from("app_meta").upsert({
+          key: "actual_sales_year",
+          value: { ...metaValue, row_count: cnt.count ?? rows.length },
+          updated_at: now
+        });
+        if (meta.error) throw meta.error;
+      }
       const total = rows.reduce((a, r) => a + r.amount, 0);
       return NextResponse.json({ ok: true, unit: "year", year, rows: rows.length, total });
     }
@@ -145,12 +160,21 @@ export async function POST(request: Request) {
         source_filename: batchTag,
         uploaded_at: now
       }));
-      await replaceRows(admin, "actual_sales_tx", { year, month: monthName }, rows, batchTag);
-      await admin.from("app_meta").upsert({
-        key: "actual_sales",
-        value: { filename: SOURCE, synced_at: now },
-        updated_at: now
+      const rpc = await admin.rpc("ms_replace_actual_tx", {
+        p_year: year,
+        p_month: monthName,
+        p_rows: rows.map(({ year: _y, month: _m, model: _mo, uploaded_at: _u, ...r }) => ({ ...r, source_filename: SOURCE })),
+        p_meta: { filename: SOURCE, synced_at: now }
       });
+      if (rpc.error && !isMissingFn(rpc.error)) throw new Error(`Gagal menyimpan Actual ${monthName} ${year}: ${rpc.error.message}`);
+      if (rpc.error) {
+        await replaceRows(admin, "actual_sales_tx", { year, month: monthName }, rows, batchTag);
+        await admin.from("app_meta").upsert({
+          key: "actual_sales",
+          value: { filename: SOURCE, synced_at: now },
+          updated_at: now
+        });
+      }
       return NextResponse.json({ ok: true, unit: "month", year, month, rows: rows.length });
     }
 

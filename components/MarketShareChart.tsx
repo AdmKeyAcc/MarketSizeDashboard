@@ -37,7 +37,11 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
           <span className="info-dot" title="Market share = Actual Sales ÷ Market Size (persentase), untuk periode yang sama.">i</span>
         </h2>
       </div>
-      {labels.length > 0 && !hasActual ? (
+      {state.marketComputing ? (
+        <div className="empty-hint" style={{ margin: 0 }}>
+          Menghitung Market Size per customer…{state.factsProgress !== null ? ` ${Math.round(state.factsProgress * 100)}%` : ""}
+        </div>
+      ) : labels.length > 0 && !hasActual ? (
         <div className="empty-hint" style={{ margin: 0 }}>
           {marketSizeYearRows.some((r) => r.actual_comparable === false)
             ? "Actual Sales berupa total tahunan per customer, jadi Market Share tidak bisa dihitung saat filter Bulan / Product / Model / Part dipakai."

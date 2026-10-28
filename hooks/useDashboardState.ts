@@ -152,9 +152,14 @@ export function useDashboardState(initialData: DashboardData) {
     () => uioScopedUnits(data.uioUnits, uioYears, filters, data.customers),
     [data.uioUnits, uioYears, filters, data.customers]
   );
+  // Rumus lama (harga non kontrak untuk semua customer) — HANYA dipakai kalau belum ada Actual Sales tahunan
+  // atau Master Part. Tidak lagi ditampilkan sebagai angka sementara saat mesin hitung utama berjalan,
+  // karena hasilnya berbeda dan membuat scorecard terlihat berubah-ubah setiap refresh.
   const legacyMarketRows = useMemo(
     () =>
-      marketSizeByYear(
+      data.actualSalesYear.length > 0 && data.parts.length > 0
+        ? []
+        : marketSizeByYear(
         data.parts,
         data.uioUnits,
         data.priceList,
@@ -184,8 +189,10 @@ export function useDashboardState(initialData: DashboardData) {
   const { facts: yearFacts, progress: factsProgress } = useYearFacts(custIndex, data.parts, data.priceList, factYears, filters);
 
   const marketSizeYearRows = useMemo(() => {
-    const ready = factsProgress === null && yearFacts.size > 0 && data.actualSalesYear.length > 0 && data.parts.length > 0;
-    if (!ready) return legacyMarketRows;
+    const usesFacts = data.actualSalesYear.length > 0 && data.parts.length > 0;
+    if (!usesFacts) return legacyMarketRows;
+    // Mesin hitung utama belum selesai → kosong dulu (komponen menampilkan "Menghitung…"), bukan angka sementara.
+    if (factsProgress !== null || yearFacts.size === 0) return [];
     const ytdYear = data.meta.actual_year_ytd_year ?? null;
     const ytdMonth = data.meta.actual_year_ytd_month ?? null;
     const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
@@ -200,7 +207,7 @@ export function useDashboardState(initialData: DashboardData) {
       monthsOf: (y) => (filters.bulan.length > 0 ? filters.bulan.length : isYtd(y) ? ytdIdx + 1 : 12),
       actualComparable
     });
-    return rows.length > 0 ? rows : legacyMarketRows;
+    return rows;
   }, [legacyMarketRows, factsProgress, yearFacts, custIndex, factYears, filters, data.actualSalesYear, data.parts.length, data.meta]);
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
   const partsWithoutPrice = useMemo(
@@ -359,7 +366,10 @@ export function useDashboardState(initialData: DashboardData) {
     custIndex,
     factYears,
     yearFacts,
-    factsProgress
+    factsProgress,
+    /** true selama Market Size per customer masih dihitung (scorecard & chart menampilkan "Menghitung…"). */
+    marketComputing:
+      data.actualSalesYear.length > 0 && data.parts.length > 0 && factYears.length > 0 && (factsProgress !== null || yearFacts.size === 0)
   };
 }
 
