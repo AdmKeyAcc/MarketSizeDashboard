@@ -242,12 +242,6 @@ export default function UploadModal({
 
         <Slot
           title="1. Data UIO"
-          hint={
-            <>
-              Kolom: Branch, Pss Name, Cust. Code, Cust. Name, Cust. Group, Cust. Type, Product, Model, Serial Number, Year,
-              HM/Day, Day/Month, Month/Year. Upload ini mengganti seluruh Data UIO sebelumnya.
-            </>
-          }
           count={counts.uioUnits}
           countUnit="unit"
           lastFile={meta.uio_units_filename}
@@ -266,7 +260,6 @@ export default function UploadModal({
 
         <Slot
           title="2. Data Harga Kontrak (SCPL)"
-          hint={<>Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.</>}
           count={counts.contractPrices}
           countUnit="harga kontrak"
           lastFile={meta.price_list_filename}
@@ -283,7 +276,6 @@ export default function UploadModal({
 
         <Slot
           title="3. Data Harga Non Kontrak"
-          hint={<>Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type, Part Number, Harga.</>}
           count={counts.nonContractPrices}
           countUnit="harga non kontrak"
           lastFile={meta.price_list_filename}
@@ -306,12 +298,6 @@ export default function UploadModal({
         {masterOpen && (
           <Slot
             title="Master Part — daftar part per model"
-            hint={
-              <>
-                Kolom: Product, Model Unit, Part Number, Part Name, Qty per Unit, Frekuensi Ganti (HM), HM per Hari. Part yang sama
-                diperbarui, part baru ditambahkan, part lain tidak dihapus.
-              </>
-            }
             count={counts.parts}
             countUnit="part"
             lastFile={meta.kalkulator_filename}
