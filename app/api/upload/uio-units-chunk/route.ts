@@ -18,8 +18,10 @@ type Body = {
   total?: number;
   sheet?: string;
   replace?: boolean;
-  /** "replace" = ganti semua (default); "merge" = tambah / perbarui per Serial Number. */
+  /** "merge" = tambah / perbarui per Serial Number (bawaan); "replace" = ganti semua. */
   mode?: "replace" | "merge";
+  /** Cap waktu upload dari action "start" (dipakai semua potongan). */
+  since?: string;
 };
 const s = (v: unknown): string | null => {
   if (v === null || v === undefined) return null;
@@ -44,15 +46,24 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
+    // Cap waktu satu upload; semua potongan menyimpan uploaded_at = cap ini.
+    const sinceOk = body.since && !Number.isNaN(Date.parse(String(body.since))) ? String(body.since) : null;
+
     if (body.action === "start") {
-      if (body.replace) {
-        const del = await supabase.from("uio_units").delete().gte("id", 0);
-        if (del.error) throw del.error;
-      }
-      return NextResponse.json({ ok: true });
+      // Tidak menghapus apa pun di awal: mode ganti semua menghapus data lama SETELAH semua unit baru tersimpan.
+      return NextResponse.json({ ok: true, since: now });
     }
 
     if (body.action === "finish") {
+      let removed = 0;
+      if (body.mode === "replace" || (body.mode === undefined && body.replace)) {
+        if (!sinceOk) return NextResponse.json({ error: "Waktu mulai upload tidak valid — ulangi upload." }, { status: 400 });
+        const d1 = await supabase.from("uio_units").delete({ count: "exact" }).lt("uploaded_at", sinceOk);
+        if (d1.error) throw d1.error;
+        const d2 = await supabase.from("uio_units").delete({ count: "exact" }).is("uploaded_at", null);
+        if (d2.error) throw d2.error;
+        removed = (d1.count ?? 0) + (d2.count ?? 0);
+      }
       // Jumlah unit di database (mode tambah/perbarui: bukan jumlah baris file).
       const cnt = await supabase.from("uio_units").select("id", { count: "exact", head: true });
       const up = await supabase.from("app_meta").upsert({
@@ -67,7 +78,7 @@ export async function POST(request: Request) {
         updated_at: now
       });
       if (up.error) throw up.error;
-      return NextResponse.json({ ok: true, rowCount: cnt.error ? null : cnt.count ?? null });
+      return NextResponse.json({ ok: true, removed, rowCount: cnt.error ? null : cnt.count ?? null });
     }
 
     const rows = Array.isArray(body.rows) ? body.rows : [];
@@ -104,7 +115,7 @@ export async function POST(request: Request) {
         day_month: n(r.day_month),
         month_year: n(r.month_year),
         source_filename: s(body.filename),
-        uploaded_at: now
+        uploaded_at: sinceOk ?? now
       });
     });
     const clean = Array.from(byKey.values());

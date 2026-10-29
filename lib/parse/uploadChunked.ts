@@ -23,11 +23,24 @@ function errMessage(err: unknown): string {
   return (err as Error)?.message || "Gagal memproses file.";
 }
 
-export async function uploadMasterPart(file: File, onProgress?: (text: string) => void): Promise<Result> {
+export async function uploadMasterPart(file: File, onProgress?: (text: string) => void, mode: "merge" | "replace" = "merge"): Promise<Result> {
   try {
     onProgress?.("Membaca file…");
     const parsed = await parseMasterPartFile(file);
     const url = "/api/upload/master-part";
+    // Ringkasan diperbarui / baru: bandingkan dengan Master Part yang sudah ada.
+    onProgress?.("Membandingkan dengan Master Part yang sudah ada…");
+    const { supabaseBrowser } = await import("@/lib/supabase/client");
+    const k = (p: string | null, m: string | null, n: string | null) => `${String(p ?? "").trim().toUpperCase()}|${String(m ?? "").trim()}|${String(n ?? "").trim()}`;
+    const existing = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabaseBrowser.from("parts").select("product, model, part_number").order("id").range(from, from + 999);
+      if (error) throw new Error("Gagal membaca Master Part: " + error.message);
+      (data || []).forEach((r: { product: string | null; model: string | null; part_number: string | null }) => existing.add(k(r.product, r.model, r.part_number)));
+      if (!data || data.length < 1000) break;
+    }
+    const updated = parsed.rows.filter((r) => existing.has(k(r.product, r.model, r.part_number))).length;
+    const { since } = await post(url, { action: "start", mode });
     for (let i = 0; i < parsed.rows.length; i += CHUNK) {
       onProgress?.(`Mengirim ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris…`);
       await post(url, {
@@ -35,11 +48,25 @@ export async function uploadMasterPart(file: File, onProgress?: (text: string) =
         rows: parsed.rows.slice(i, i + CHUNK),
         hasHmDay: parsed.hasHmDay,
         hasComponent: parsed.hasComponent,
-        filename: file.name
+        filename: file.name,
+        since
       });
     }
-    await post(url, { action: "finish", filename: file.name, total: parsed.rows.length });
-    return { ok: true, message: { rowCount: parsed.rows.length, skipped: parsed.skipped, duplicates: parsed.duplicates, sheet: parsed.sheet } };
+    const fin = await post(url, { action: "finish", filename: file.name, total: parsed.rows.length, mode, since });
+    return {
+      ok: true,
+      message: {
+        rowCount: parsed.rows.length,
+        skipped: parsed.skipped,
+        duplicates: parsed.duplicates,
+        sheet: parsed.sheet,
+        mode,
+        updated,
+        added: parsed.rows.length - updated,
+        removed: fin?.removed ?? 0,
+        totalInDb: fin?.totalInDb ?? null
+      }
+    };
   } catch (err) {
     return { ok: false, message: errMessage(err) };
   }
@@ -135,7 +162,7 @@ async function existingUioKeys(): Promise<Set<string>> {
 
 export async function prepareUioUpload(
   file: File,
-  mode: UioUploadMode = "replace"
+  mode: UioUploadMode = "merge"
 ): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
   try {
     const XLSX = await import("@e965/xlsx");
@@ -185,12 +212,12 @@ export async function prepareUioUpload(
         const mapped = canonicalizeUnits(parsed.rows, canon);
 
         const url = "/api/upload/uio-units-chunk";
-        await post(url, { action: "start", replace: mode === "replace", mode });
+        const { since } = await post(url, { action: "start", mode });
         for (let i = 0; i < mapped.rows.length; i += CHUNK) {
           onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
-          await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name, mode });
+          await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name, mode, since });
         }
-        const fin = await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName, mode });
+        const fin = await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName, mode, since });
         return {
           ok: true,
           message: {
@@ -205,7 +232,8 @@ export async function prepareUioUpload(
             unmatched: mapped.unmatched,
             mode,
             merge,
-            totalInDb: fin?.rowCount ?? null
+            totalInDb: fin?.rowCount ?? null,
+            removed: fin?.removed ?? 0
           }
         };
       } catch (err) {

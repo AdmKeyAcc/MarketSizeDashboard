@@ -196,7 +196,11 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     price_contract_updated_at: updatedAt("price_contract"),
     price_non_contract_filename: (findMeta("price_non_contract").filename as string) ?? null,
     price_non_contract_updated_at: updatedAt("price_non_contract"),
-    uio_units_mode: (findMeta("uio_units").mode as "replace" | "merge" | null) ?? null
+    uio_units_mode: (findMeta("uio_units").mode as "replace" | "merge" | null) ?? null,
+    kalkulator_mode: (findMeta("kalkulator").mode as "replace" | "merge" | null) ?? null,
+    price_contract_mode: (findMeta("price_contract").mode as "replace" | "merge" | null) ?? null,
+    price_non_contract_mode: (findMeta("price_non_contract").mode as "replace" | "merge" | null) ?? null,
+    price_list_type: ((findMeta("price_list") as { type?: string | null }).type) ?? null
   };
   const actualSalesTx: ActualSalesTx[] = [];
 

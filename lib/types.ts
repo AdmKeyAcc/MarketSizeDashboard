@@ -168,8 +168,13 @@ export type DataMeta = {
   price_contract_updated_at?: string | null;
   price_non_contract_filename?: string | null;
   price_non_contract_updated_at?: string | null;
-  /** Mode upload Data UIO terakhir: replace (ganti semua) / merge (tambah / perbarui). */
+  /** Cara upload terakhir: replace (ganti semua) / merge (tambah / perbarui). */
   uio_units_mode?: "replace" | "merge" | null;
+  kalkulator_mode?: "replace" | "merge" | null;
+  price_contract_mode?: "replace" | "merge" | null;
+  price_non_contract_mode?: "replace" | "merge" | null;
+  /** Jenis harga upload terakhir di key lama "price_list" (contract / non_contract). */
+  price_list_type?: string | null;
 };
 
 export type DashboardData = {

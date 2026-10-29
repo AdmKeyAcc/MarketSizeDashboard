@@ -11,7 +11,11 @@ type Row = {
   hm_day?: unknown; component?: unknown;
 };
 type Body = {
-  action?: "rows" | "finish";
+  action?: "start" | "rows" | "finish";
+  /** "merge" (bawaan) = tambah / perbarui; "replace" = ganti semua. */
+  mode?: "merge" | "replace";
+  /** Waktu server dari action "start" — part yang tidak diperbarui sejak itu dihapus pada mode replace. */
+  since?: string;
   rows?: Row[];
   hasHmDay?: boolean;
   hasComponent?: boolean;
@@ -28,8 +32,9 @@ const n = (v: unknown) => {
 /**
  * Master Part: product + model + part number (kunci) dengan qty per unit,
  * frekuensi ganti, pricelist, dan (opsional) HM/Hari & komponen.
- * Sifatnya menambah/memperbarui: part yang sama (Product + Model + Part
- * Number) diperbarui, part baru ditambahkan, part lain TIDAK dihapus.
+ * Mode "merge" (bawaan): part yang sama (Product + Model + Part Number) diperbarui,
+ * part baru ditambahkan, part lain TIDAK dihapus.
+ * Mode "replace": sama, lalu part yang tidak ada di file dihapus (setelah semua baris tersimpan).
  * Kolom opsional yang tidak ada di file tidak pernah menimpa nilai lama.
  * File dikirim dari browser dalam potongan (action "rows"), lalu "finish".
  */
@@ -39,19 +44,37 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
+    if (body.action === "start") {
+      return NextResponse.json({ ok: true, since: now });
+    }
+
     if (body.action === "finish") {
+      let removed = 0;
+      if (body.mode === "replace") {
+        const since = s(body.since);
+        if (!since || Number.isNaN(Date.parse(since))) {
+          return NextResponse.json({ error: "Waktu mulai upload tidak valid — ulangi upload." }, { status: 400 });
+        }
+        const d1 = await supabase.from("parts").delete({ count: "exact" }).lt("updated_at", since);
+        if (d1.error) throw d1.error;
+        const d2 = await supabase.from("parts").delete({ count: "exact" }).is("updated_at", null);
+        if (d2.error) throw d2.error;
+        removed = (d1.count ?? 0) + (d2.count ?? 0);
+      }
+      const cnt = await supabase.from("parts").select("id", { count: "exact", head: true });
       await supabase.from("app_meta").upsert({
         key: "kalkulator",
-        value: { filename: s(body.filename) || "Master Part", row_count: Number(body.total) || 0 },
+        value: { filename: s(body.filename) || "Master Part", row_count: cnt.error ? Number(body.total) || 0 : cnt.count ?? 0, mode: body.mode === "replace" ? "replace" : "merge" },
         updated_at: now
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, removed, totalInDb: cnt.error ? null : cnt.count ?? null });
     }
 
     const rows = Array.isArray(body.rows) ? body.rows : [];
     if (rows.length === 0) return NextResponse.json({ error: "Tidak ada baris yang dikirim." }, { status: 400 });
     if (rows.length > 5000) return NextResponse.json({ error: "Potongan data terlalu besar." }, { status: 413 });
 
+    const batchAt = body.since && !Number.isNaN(Date.parse(String(body.since))) ? String(body.since) : now;
     const clean: Record<string, unknown>[] = [];
     for (const r of rows) {
       const product = s(r.product).toUpperCase();
@@ -70,7 +93,8 @@ export async function POST(request: Request) {
         qty_per_unit: qty,
         freq_replacement_hm: freq,
         pricelist: Math.max(0, n(r.pricelist) || 0),
-        updated_at: now
+        // Semua potongan satu upload memakai cap waktu yang sama (dari "start") → mode replace tepat sasaran.
+        updated_at: batchAt
       };
       if (body.hasHmDay) {
         const hm = n(r.hm_day);

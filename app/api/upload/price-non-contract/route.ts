@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "@e965/xlsx";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
-import { chunkedUpsert } from "@/lib/supabase/bulk";
+import { modeOf, savePrices } from "@/lib/priceSave";
 import { parseNonContractPriceWorkbook } from "@/lib/parse/priceList";
 import { ParseError } from "@/lib/parse/xlsxHelpers";
 import { fetchReferences } from "@/lib/fetchDashboardDataShared";
@@ -32,22 +32,24 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
 
-    await chunkedUpsert(
+    const mode = modeOf(form.get("mode"));
+    const res = await savePrices(
       supabase,
-      "price_list",
+      "non_contract",
       rows.map((r) => ({ part_number: r.part_number, customer_group: "", price: r.price, list_price: r.list_price, price_type: "non_contract", customer_code: null, customer_name: null, customer_type: null, source_filename: file.name, uploaded_at: now })),
-      "part_number,customer_group"
+      mode,
+      now
     );
 
     // Per jenis harga (untuk info "upload terakhir" di tiap slot), plus key lama "price_list".
-    await supabase.from("app_meta").upsert({ key: "price_non_contract", value: { filename: file.name, row_count: rows.length, type: "non_contract", discount: settings.non_contract_discount }, updated_at: now });
+    await supabase.from("app_meta").upsert({ key: "price_non_contract", value: { filename: file.name, row_count: rows.length, mode, type: "non_contract", discount: settings.non_contract_discount }, updated_at: now });
     await supabase.from("app_meta").upsert({
       key: "price_list",
-      value: { filename: file.name, row_count: rows.length, type: "non_contract", discount: settings.non_contract_discount },
+      value: { filename: file.name, row_count: rows.length, mode, type: "non_contract", discount: settings.non_contract_discount },
       updated_at: now
     });
 
-    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, discount: settings.non_contract_discount });
+    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, mode, ...res, discount: settings.non_contract_discount });
   } catch (err) {
     const message = err instanceof ParseError ? err.message : (err as Error).message || "Gagal memproses file.";
     const status = err instanceof ParseError ? 422 : 500;

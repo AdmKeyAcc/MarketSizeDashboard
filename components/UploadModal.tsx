@@ -24,9 +24,12 @@ export type UploadCounts = {
   actualSales: number;
 };
 
-async function uploadFile(url: string, file: File): Promise<Result> {
+type Mode = "merge" | "replace";
+
+async function uploadFile(url: string, file: File, mode: Mode): Promise<Result> {
   const form = new FormData();
   form.append("file", file);
+  form.append("mode", mode);
   try {
     const res = await fetch(url, { method: "POST", body: form });
     const json = await res.json();
@@ -121,7 +124,10 @@ function UioCheck({ prep, busy, onContinue, onCancel }: { prep: UioPrepared; bus
           )}
         </div>
       ) : (
-        <div className="uio-check-row muted">⟲ Mode ganti semua: seluruh Data UIO di database diganti isi file ini.</div>
+        <div className="uio-check-row">
+          ⟲ <b>Mode ganti semua</b>: isi file ini menjadi Data UIO yang baru. Unit lama yang tidak ada di file akan <b>dihapus</b>{" "}
+          (setelah semua unit baru tersimpan).
+        </div>
       )}
       {v.missingColumns.length > 0 && (
         <div className="uio-check-row">
@@ -203,6 +209,30 @@ function ClearControl({ count, countUnit, busy, onClear }: { count: number; coun
   );
 }
 
+/** Pilihan cara upload — sama untuk semua jenis data. */
+function ModeChoice({ name, mode, onChange, matchBy, busy }: { name: string; mode: Mode; onChange: (m: Mode) => void; matchBy: string; busy: boolean }) {
+  return (
+    <div className="upload-mode">
+      <div className="upload-mode-opts" role="radiogroup" aria-label="Cara upload">
+        <span className="upload-mode-label">Cara upload:</span>
+        <label className={mode === "merge" ? "on" : ""}>
+          <input type="radio" name={name} checked={mode === "merge"} disabled={busy} onChange={() => onChange("merge")} />
+          Tambah / perbarui
+        </label>
+        <label className={mode === "replace" ? "on replace" : ""}>
+          <input type="radio" name={name} checked={mode === "replace"} disabled={busy} onChange={() => onChange("replace")} />
+          Ganti semua
+        </label>
+      </div>
+      <div className="upload-mode-hint">
+        {mode === "merge"
+          ? `Dicocokkan per ${matchBy}: yang sudah ada diperbarui, yang baru ditambahkan, data lain tidak diubah.`
+          : "File dianggap berisi data lengkap: data lama yang tidak ada di file dihapus (setelah isi file tersimpan)."}
+      </div>
+    </div>
+  );
+}
+
 function Slot({
   title,
   hint,
@@ -217,6 +247,10 @@ function Slot({
   onTemplate,
   onClear,
   extra,
+  mode,
+  onMode,
+  matchBy,
+  confirmReplace = true,
   accept = ".xlsx,.xls"
 }: {
   title: string;
@@ -230,13 +264,20 @@ function Slot({
   download?: DownloadKind;
   status: SlotStatus;
   busy: boolean;
-  onPick: (file: File) => void;
+  onPick: (file: File, mode: Mode) => void;
   onTemplate?: () => void;
+  mode: Mode;
+  onMode: (m: Mode) => void;
+  /** Kunci pencocokan mode tambah / perbarui, mis. "Serial Number". */
+  matchBy: string;
+  /** Mode ganti semua: minta konfirmasi dulu (Data UIO punya panel pemeriksaan sendiri). */
+  confirmReplace?: boolean;
   /** Kalau diisi, muncul tombol "Hapus data" (dengan konfirmasi + PIN). */
   onClear?: (pin: string) => void;
   extra?: React.ReactNode;
   accept?: string;
 }) {
+  const [pending, setPending] = useState<File | null>(null);
   return (
     <div className="upload-slot">
       <h4>{title}</h4>
@@ -246,6 +287,32 @@ function Slot({
           ? `✓ Sudah ada ${fmt(count)} ${countUnit}${lastFile ? ` · upload terakhir: ${lastFile}` : ""}${fmtDate(updatedAt) ? ` (${fmtDate(updatedAt)})` : ""}`
           : "● Belum ada data"}
       </div>
+      <ModeChoice name={`mode-${title}`} mode={mode} onChange={(m) => { setPending(null); onMode(m); }} matchBy={matchBy} busy={busy} />
+      {pending && (
+        <div className="clear-confirm" style={{ marginBottom: 8 }}>
+          <div>
+            Mode <b>Ganti semua</b>: isi file <b>{pending.name}</b> menjadi data {countUnit} yang baru. {fmt(count)} {countUnit} lama yang
+            tidak ada di file akan <b>dihapus</b>. Lanjutkan?
+          </div>
+          <div className="upload-row">
+            <button
+              type="button"
+              className="danger-btn"
+              disabled={busy}
+              onClick={() => {
+                const f = pending;
+                setPending(null);
+                onPick(f, "replace");
+              }}
+            >
+              Ya, ganti semua
+            </button>
+            <button type="button" className="link-btn" onClick={() => setPending(null)}>
+              Batal
+            </button>
+          </div>
+        </div>
+      )}
       {extra}
       <div className="upload-row">
         <input
@@ -255,7 +322,10 @@ function Slot({
           disabled={busy}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) onPick(f);
+            if (f) {
+              if (mode === "replace" && confirmReplace && count > 0) setPending(f);
+              else onPick(f, mode);
+            }
             e.target.value = "";
           }}
         />
@@ -292,7 +362,14 @@ export default function UploadModal({
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
   const [stSync, setStSync] = useState<SlotStatus>(null);
   const [masterOpen, setMasterOpen] = useState(false);
-  const [uioMode, setUioMode] = useState<UioUploadMode>("replace");
+  // Cara upload per jenis data — bawaan "Tambah / perbarui" (tidak menghapus apa pun).
+  const [modes, setModes] = useState<Record<"uio" | "contract" | "non_contract" | "parts", Mode>>({
+    uio: "merge",
+    contract: "merge",
+    non_contract: "merge",
+    parts: "merge"
+  });
+  const setMode = (k: keyof typeof modes) => (m: Mode) => setModes((prev) => ({ ...prev, [k]: m }));
   const [advOpen, setAdvOpen] = useState(false);
   const [syncPin, setSyncPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -320,23 +397,29 @@ export default function UploadModal({
         ? `Mode tambah / perbarui: ${fmt(j.merge?.updated ?? 0)} unit diperbarui, ${fmt(j.merge?.added ?? 0)} unit baru${
             j.merge?.noSerial ? `, ${fmt(j.merge.noSerial)} baris tanpa Serial Number tidak disimpan` : ""
           }.${typeof j.totalInDb === "number" ? ` Total Data UIO sekarang ${fmt(j.totalInDb)} unit.` : ""}`
-        : "Upload ini mengganti seluruh Data UIO sebelumnya."
+        : `Mode ganti semua: ${fmt(j.removed ?? 0)} unit lama yang tidak ada di file dihapus.${typeof j.totalInDb === "number" ? ` Total Data UIO sekarang ${fmt(j.totalInDb)} unit.` : ""}`
+    }`;
+
+  /** Ringkasan hasil upload yang sama untuk Harga & Master Part. */
+  const mergeText = (j: any, unit: string) =>
+    ` ${fmt(j.updated ?? 0)} diperbarui, ${fmt(j.added ?? 0)} baru${j.mode === "replace" ? `, ${fmt(j.removed ?? 0)} ${unit} lama dihapus` : ""}.${
+      typeof j.totalInDb === "number" ? ` Total sekarang ${fmt(j.totalInDb)} ${unit}.` : ""
     }`;
 
   /** Data UIO: periksa file dulu. Kalau ada masalah, tampilkan ringkasan dan tunggu keputusan pengguna. */
-  async function pickUio(f: File) {
+  async function pickUio(f: File, mode: Mode) {
     setUioPending(null);
     setBusy(true);
     setStUio({ text: "Memeriksa file (bisa beberapa puluh detik)…", ok: true });
-    const r = await prepareUioUpload(f, uioMode);
+    const r = await prepareUioUpload(f, mode as UioUploadMode);
     setBusy(false);
     if (!r.ok) {
       setStUio({ text: "Gagal: " + r.message, ok: false });
       return;
     }
     const v = r.prep.validation;
-    // Mode tambah/perbarui selalu minta konfirmasi (ringkasan unit diperbarui / baru).
-    if (v.missingColumns.length > 0 || v.issues.length > 0 || r.prep.mode === "merge") {
+    // Selalu tampilkan ringkasan sebelum menyimpan (berapa unit diperbarui / baru / diganti).
+    if (v.missingColumns.length > 0 || v.issues.length > 0 || r.prep.mode === "merge" || counts.uioUnits > 0) {
       setStUio(null);
       setUioPending(r.prep);
       return;
@@ -354,6 +437,19 @@ export default function UploadModal({
     counts.parts === 0 ? "Master Part" : null
   ].filter(Boolean) as string[];
 
+  const modeTag = (m: string | null | undefined) => (m === "merge" ? " (tambah/perbarui)" : m === "replace" ? " (ganti semua)" : "");
+  // Upload terakhir per jenis harga. Data lama (sebelum dicatat terpisah) hanya dipakai kalau jenisnya cocok.
+  const priceFile = (t: "contract" | "non_contract") => {
+    const f = t === "contract" ? meta.price_contract_filename : meta.price_non_contract_filename;
+    const m = t === "contract" ? meta.price_contract_mode : meta.price_non_contract_mode;
+    if (f) return `${f}${modeTag(m)}`;
+    return meta.price_list_type === t ? meta.price_list_filename : null;
+  };
+  const priceAt = (t: "contract" | "non_contract") => {
+    const f = t === "contract" ? meta.price_contract_filename : meta.price_non_contract_filename;
+    if (f) return t === "contract" ? meta.price_contract_updated_at : meta.price_non_contract_updated_at;
+    return meta.price_list_type === t ? meta.price_list_updated_at : null;
+  };
   const syncedAt = meta.actual_year_synced_at ? new Date(meta.actual_year_synced_at) : null;
   const dataUntil = meta.actual_year_max_date ? new Date(meta.actual_year_max_date) : null;
 
@@ -382,24 +478,18 @@ export default function UploadModal({
           title="1. Data UIO"
           count={counts.uioUnits}
           countUnit="unit"
-          lastFile={meta.uio_units_filename ? `${meta.uio_units_filename}${meta.uio_units_mode === "merge" ? " (tambah/perbarui)" : ""}` : null}
+          lastFile={meta.uio_units_filename ? `${meta.uio_units_filename}${modeTag(meta.uio_units_mode)}` : null}
           updatedAt={meta.uio_units_updated_at}
           download="uio"
           status={stUio}
           busy={busy}
           onPick={pickUio}
+          mode={modes.uio}
+          onMode={setMode("uio")}
+          matchBy="Product + Serial Number"
+          confirmReplace={false}
           extra={
             <>
-            <div className="upload-mode" role="radiogroup" aria-label="Cara upload Data UIO">
-              <label className={uioMode === "replace" ? "on" : ""}>
-                <input type="radio" name="uio-mode" checked={uioMode === "replace"} disabled={busy} onChange={() => setUioMode("replace")} />
-                <span><b>Ganti semua</b> — file berisi seluruh populasi unit. Unit yang tidak ada di file ikut terhapus.</span>
-              </label>
-              <label className={uioMode === "merge" ? "on" : ""}>
-                <input type="radio" name="uio-mode" checked={uioMode === "merge"} disabled={busy} onChange={() => setUioMode("merge")} />
-                <span><b>Tambah / perbarui</b> — dicocokkan dengan Serial Number. Unit lain tidak diubah (untuk tambahan unit baru).</span>
-              </label>
-            </div>
             {uioPending && (
               <UioCheck
                 prep={uioPending}
@@ -425,14 +515,17 @@ export default function UploadModal({
           title="2. Data Harga Kontrak (SCPL)"
           count={counts.contractPrices}
           countUnit="harga kontrak"
-          lastFile={meta.price_contract_filename ?? meta.price_list_filename}
-          updatedAt={meta.price_contract_filename ? meta.price_contract_updated_at : null}
+          lastFile={priceFile("contract")}
+          updatedAt={priceAt("contract")}
+          mode={modes.contract}
+          onMode={setMode("contract")}
+          matchBy="Part Number + Customer Group"
           download="contract"
           status={stContract}
           busy={busy}
-          onPick={(f) =>
-            run(setStContract, () => uploadFile("/api/upload/price-contract", f), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} harga kontrak disimpan.${dupText(j)}${skippedText(j)}`
+          onPick={(f, m) =>
+            run(setStContract, () => uploadFile("/api/upload/price-contract", f, m), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} harga kontrak dari file —${mergeText(j, "harga kontrak")}${dupText(j)}${skippedText(j)}`
             )
           }
           onTemplate={downloadContractPriceTemplate}
@@ -443,14 +536,17 @@ export default function UploadModal({
           title="3. Data Harga Non Kontrak"
           count={counts.nonContractPrices}
           countUnit="harga non kontrak"
-          lastFile={meta.price_non_contract_filename ?? meta.price_list_filename}
-          updatedAt={meta.price_non_contract_filename ? meta.price_non_contract_updated_at : null}
+          lastFile={priceFile("non_contract")}
+          updatedAt={priceAt("non_contract")}
+          mode={modes.non_contract}
+          onMode={setMode("non_contract")}
+          matchBy="Part Number"
           download="non_contract"
           status={stNonContract}
           busy={busy}
-          onPick={(f) =>
-            run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} harga non kontrak disimpan (- ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%).${dupText(j)}${skippedText(j)}`
+          onPick={(f, m) =>
+            run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f, m), (j) =>
+              `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
             )
           }
           onTemplate={downloadNonContractPriceTemplate}
@@ -467,14 +563,17 @@ export default function UploadModal({
             title="Master Part — daftar part per model"
             count={counts.parts}
             countUnit="part"
-            lastFile={meta.kalkulator_filename}
+            lastFile={meta.kalkulator_filename ? `${meta.kalkulator_filename}${modeTag(meta.kalkulator_mode)}` : null}
             updatedAt={meta.kalkulator_updated_at}
+            mode={modes.parts}
+            onMode={setMode("parts")}
+            matchBy="Product + Model + Part Number"
             download="parts"
             status={stPart}
             busy={busy}
-            onPick={(f) =>
-              run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true })), (j) =>
-                `Berhasil: ${fmt(j.rowCount)} part disimpan.${dupText(j)}${skippedText(j)}`
+            onPick={(f, m) =>
+              run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true }), m), (j) =>
+                `Berhasil: ${fmt(j.rowCount)} part dari file —${mergeText(j, "part")}${dupText(j)}${skippedText(j)}`
               )
             }
             onTemplate={downloadMasterPartTemplate}
