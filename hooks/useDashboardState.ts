@@ -23,9 +23,9 @@ import {
 } from "@/lib/calculations";
 import { MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
 import { applyReferences, kaRank } from "@/lib/references";
+import { comparePlan } from "@/lib/period";
 import { buildCustomerIndex, marketRowsFromFacts } from "@/lib/hierarchy";
 import { useYearFacts } from "@/hooks/useYearFacts";
-import { monthsShare } from "@/lib/workdays";
 
 /** Branch & PSS di Master Customer sering kosong, padahal Data UIO punya kolom Branch dan Pss Name per unit.
  * Isi yang kosong dengan nilai terbanyak dari unit milik customer itu, supaya filter Branch / PSS di
@@ -188,27 +188,20 @@ export function useDashboardState(initialData: DashboardData) {
   }, [data.uioUnits, data.actualSalesYear]);
   const { facts: yearFacts, progress: factsProgress } = useYearFacts(custIndex, data.parts, data.priceList, factYears, filters);
 
+  // Satu rencana periode (bulan Market Size, bulan Actual, bisa dibandingkan?) untuk KPI, chart, hierarki & Summary.
+  const plan = useMemo(
+    () => comparePlan(data.actualSalesYear, filters, { year: data.meta.actual_year_ytd_year ?? null, month: data.meta.actual_year_ytd_month ?? null }),
+    [data.actualSalesYear, filters, data.meta]
+  );
   const marketSizeYearRows = useMemo(() => {
     const usesFacts = data.actualSalesYear.length > 0 && data.parts.length > 0;
     if (!usesFacts) return legacyMarketRows;
     // Mesin hitung utama belum selesai → kosong dulu (komponen menampilkan "Menghitung…"), bukan angka sementara.
     if (factsProgress !== null || yearFacts.size === 0) return [];
-    const ytdYear = data.meta.actual_year_ytd_year ?? null;
-    const ytdMonth = data.meta.actual_year_ytd_month ?? null;
-    const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
-    const isYtd = (y: number) => y === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
-    const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
-    const actualComparable =
-      filters.bulan.length === 0 && (filters.product.length === 0 || actualHasProduct) && filters.modelUnit.length === 0 && filters.partNumber.length === 0 && filters.partName.length === 0;
     const sel = filters.tahun.length > 0 ? new Set(filters.tahun.map((y) => parseInt(y, 10))) : null;
     const years = factYears.filter((y) => !sel || sel.has(y));
-    const rows = marketRowsFromFacts(custIndex, yearFacts, years, filters, {
-      factorOf: (y) => (filters.bulan.length > 0 ? monthsShare(filters.bulan) : isYtd(y) ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1),
-      monthsOf: (y) => (filters.bulan.length > 0 ? filters.bulan.length : isYtd(y) ? ytdIdx + 1 : 12),
-      actualComparable
-    });
-    return rows;
-  }, [legacyMarketRows, factsProgress, yearFacts, custIndex, factYears, filters, data.actualSalesYear, data.parts.length, data.meta]);
+    return marketRowsFromFacts(custIndex, yearFacts, years, filters, plan);
+  }, [legacyMarketRows, factsProgress, yearFacts, custIndex, factYears, filters, data.actualSalesYear, data.parts.length, plan]);
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
   const partsWithoutPrice = useMemo(
     () => findPartsWithoutPrice(data.parts, data.priceList),
@@ -367,6 +360,7 @@ export function useDashboardState(initialData: DashboardData) {
     factYears,
     yearFacts,
     factsProgress,
+    plan,
     /** true selama Market Size per customer masih dihitung (scorecard & chart menampilkan "Menghitung…"). */
     marketComputing:
       data.actualSalesYear.length > 0 && data.parts.length > 0 && factYears.length > 0 && (factsProgress !== null || yearFacts.size === 0)

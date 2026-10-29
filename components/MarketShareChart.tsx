@@ -43,9 +43,10 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
         </div>
       ) : labels.length > 0 && !hasActual ? (
         <div className="empty-hint" style={{ margin: 0 }}>
-          {marketSizeYearRows.some((r) => r.actual_comparable === false)
-            ? "Actual Sales berupa total tahunan per customer, jadi Market Share tidak bisa dihitung saat filter Bulan / Product / Model / Part dipakai."
-            : "Belum ada data Actual Sales untuk filter ini, jadi Market Share belum bisa dihitung."}
+          {(() => {
+            const bad = marketSizeYearRows.find((r) => r.actual_comparable === false);
+            return bad ? state.plan.whyNot(bad.year) : "Belum ada data Actual Sales untuk filter ini, jadi Market Share belum bisa dihitung.";
+          })()}
         </div>
       ) : labels.length === 0 ? (
         <div className="empty-hint" style={{ margin: 0 }}>

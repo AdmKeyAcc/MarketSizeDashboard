@@ -9,6 +9,7 @@ import {
   MONTH_ORDER
 } from "@/lib/types";
 import { monthsShare } from "@/lib/workdays";
+import { calendarWeights, periodOf } from "@/lib/period";
 import { DEFAULT_REFERENCES, onReferencesChange, refs } from "@/lib/references";
 
 /** Every filter is multi-select (checklist): an empty array means "no
@@ -268,6 +269,10 @@ export function uioByProduct(uioUnits: UioUnit[], years: number[], f?: FilterSta
  * jadi bagian itu baru bisa dihitung per part — disimpan terpisah sebagai `unknownBase`. */
 export type UnitHm = {
   units: number;
+  /** Jam operasi per bulan (Jan–Des) unit yang punya HM/Day — jumlahnya = knownHm. */
+  knownM: Float64Array;
+  /** (Day/Month × bobot kalender × Month/Year÷12) per bulan unit tanpa HM/Day — dikali HM/Day part nanti. */
+  unknownBaseM: Float64Array;
   /** Jumlah Annual HM unit yang punya HM/Day. */
   knownHm: number;
   /** Jumlah HM/Day unit yang punya HM/Day (untuk rata-rata tampilan). */
@@ -278,7 +283,9 @@ export type UnitHm = {
   unknownBase: number;
 };
 
-export const emptyUnitHm = (): UnitHm => ({ units: 0, knownHm: 0, knownHmDay: 0, unknownUnits: 0, unknownBase: 0 });
+export const emptyUnitHm = (): UnitHm => ({
+  units: 0, knownM: new Float64Array(12), unknownBaseM: new Float64Array(12), knownHm: 0, knownHmDay: 0, unknownUnits: 0, unknownBase: 0
+});
 
 const inRange = (v: unknown, max: number): number | null => {
   if (v === null || v === undefined || v === "") return null;
@@ -291,31 +298,57 @@ export type WorkdaysOf = (product: string) => number;
 
 export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workdays_month;
 
-/** Bagian tahun yang dijalani unit di tahun acuan: unit yang dibeli bulan ke-m di tahun acuan baru beroperasi
- * (13 − m)/12 tahun (dibeli Oktober → 3/12). Tahun sesudahnya penuh. Month Inv kosong = setahun penuh. */
-export function firstYearFraction(u: UioUnit, refYear: number | null | undefined): number {
-  if (refYear === null || refYear === undefined || u.year !== refYear) return 1;
+/** Bulan pertama (0–11) unit sudah beroperasi di tahun acuan: unit yang dibeli bulan ke-m di tahun acuan
+ * baru dihitung mulai bulan itu. Tahun sesudahnya / Month Inv kosong → Januari (0). Unit setelah tahun acuan → 12 (tidak ada). */
+export function firstActiveMonth(u: UioUnit, refYear: number | null | undefined): number {
+  if (refYear === null || refYear === undefined || u.year === null || u.year === undefined) return 0;
+  if (u.year > refYear) return 12;
+  if (u.year < refYear) return 0;
   const m = Number(u.month_inv);
-  return Number.isInteger(m) && m >= 1 && m <= 12 ? (13 - m) / 12 : 1;
+  return Number.isInteger(m) && m >= 1 && m <= 12 ? m - 1 : 0;
 }
 
+/** Bagian tahun acuan yang dijalani unit (dengan bobot kalender) — mis. dibeli Oktober ≈ 3/12. */
+export function firstYearFraction(u: UioUnit, refYear: number | null | undefined): number {
+  const w = calendarWeights();
+  let s = 0;
+  for (let m = firstActiveMonth(u, refYear); m < 12; m++) s += w[m];
+  return s / 12;
+}
+
+/**
+ * Jam operasi satu unit per bulan di tahun acuan:
+ *   HM/Day × Day/Month × bobot kalender bulan itu × (Month/Year ÷ 12), mulai bulan beli (Month Inv).
+ * Bobot kalender = hari kerja bulan itu ÷ rata-rata hari kerja (app_settings), jadi unit yang beroperasi setahun
+ * penuh tetap berjumlah HM/Day × Day/Month × Month/Year — hanya pembagiannya ke bulan yang mengikuti kalender.
+ */
 export function addUnitHm(agg: UnitHm, u: UioUnit, workdaysOf: WorkdaysOf, refYear: number | null = null): void {
   const dm = inRange(u.day_month, 31) ?? workdaysOf(u.product || "");
   const my = inRange(u.month_year, 12) ?? refs().settings.default_months_year;
   const hm = inRange(u.hm_day, 24);
-  const w = firstYearFraction(u, refYear);
+  const w = calendarWeights();
+  const start = firstActiveMonth(u, refYear);
   agg.units += 1;
-  if (hm !== null) {
-    agg.knownHm += hm * dm * my * w;
-    agg.knownHmDay += hm;
-  } else {
-    agg.unknownUnits += 1;
-    agg.unknownBase += dm * my * w;
+  if (hm !== null) agg.knownHmDay += hm;
+  else agg.unknownUnits += 1;
+  for (let m = start; m < 12; m++) {
+    const base = dm * w[m] * (my / 12);
+    if (hm !== null) {
+      agg.knownM[m] += hm * base;
+      agg.knownHm += hm * base;
+    } else {
+      agg.unknownBaseM[m] += base;
+      agg.unknownBase += base;
+    }
   }
 }
 
 export function mergeUnitHm(into: UnitHm, from: UnitHm): void {
   into.units += from.units;
+  for (let m = 0; m < 12; m++) {
+    into.knownM[m] += from.knownM[m];
+    into.unknownBaseM[m] += from.unknownBaseM[m];
+  }
   into.knownHm += from.knownHm;
   into.knownHmDay += from.knownHmDay;
   into.unknownUnits += from.unknownUnits;
@@ -340,6 +373,17 @@ export function partAnnualHm(
     annualHm: (agg.knownHm + fallbackHm * agg.unknownBase) / agg.units,
     hmDay: (agg.knownHmDay + fallbackHm * agg.unknownUnits) / agg.units
   };
+}
+
+/** Kebutuhan part per bulan (qty, belum dibulatkan) untuk semua unit di `agg`:
+ *   qty bulan m = (jam operasi bulan m) ÷ Frekuensi ganti × Qty/unit
+ * Jam unit tanpa HM/Day memakai HM/Day Master Part (lalu app_settings). */
+export function partMonthlyQty(agg: UnitHm, partHmDay: number | null | undefined, freq: number, qtyPerUnit: number): Float64Array {
+  const out = new Float64Array(12);
+  if (!(freq > 0)) return out;
+  const fallbackHm = inRange(partHmDay, 24) ?? refs().settings.default_hm_day;
+  for (let m = 0; m < 12; m++) out[m] = ((agg.knownM[m] + fallbackHm * agg.unknownBaseM[m]) / freq) * qtyPerUnit;
+  return out;
 }
 
 export type UnitCounter = {
@@ -556,14 +600,21 @@ export type GroupRow = {
   period_market: number;
   amount_per_month: number;
   amount_period: number;
+  /** Jumlah per bulan Jan–Des (belum dibulatkan) — untuk periode sebagian tahun. */
+  qty_months: Float64Array;
+  amount_months: Float64Array;
 };
 
 /** Ringkas baris Detail part jadi satu baris per Customer Group. UIO dijumlah
  * per kombinasi Product+Model (bukan per part, supaya tidak terhitung ganda). */
 export function aggregateGroup(group: string, customers: number, rows: DetailRow[]): GroupRow {
   const uioByModel = new Map<string, number>();
-  const g: GroupRow = { group, customers, uio: 0, qty_market_size: 0, amount_market_size: 0, actual_qty: 0, actual_sales: 0, market_share: null, period_market: 0, amount_per_month: 0, amount_period: 0 };
+  const g: GroupRow = { group, customers, uio: 0, qty_market_size: 0, amount_market_size: 0, actual_qty: 0, actual_sales: 0, market_share: null, period_market: 0, amount_per_month: 0, amount_period: 0, qty_months: new Float64Array(12), amount_months: new Float64Array(12) };
   rows.forEach((r) => {
+    for (let m = 0; m < 12; m++) {
+      g.qty_months[m] += r.qty_months[m];
+      g.amount_months[m] += r.amount_months[m];
+    }
     uioByModel.set(`${r.product}|${r.model}`, r.uio);
     g.qty_market_size += r.qty_market_size;
     g.amount_market_size += r.amount_market_size;
@@ -600,11 +651,15 @@ export type DetailRow = {
   market_share: number | null;
   /** Market Size disesuaikan ke periode Actual (dasar penyebut Market share). */
   period_market: number;
-  /** Market size per bulan = Price × (Annual HM ÷ 12 ÷ Frekuensi × Qty per unit × UIO), tanpa pembulatan. */
+  /** Rata-rata Market Size per bulan dalam periode terpilih (= Market Size periode ÷ jumlah bulan). */
   amount_per_month: number;
-  /** Qty & Market size untuk bulan yang dipilih di filter Bulan (kosong = 12 bulan). */
+  /** Qty & Market Size untuk bulan yang dipilih di filter Bulan (kosong = setahun penuh). */
   qty_period: number;
   amount_period: number;
+  /** Kebutuhan per bulan Jan–Des (belum dibulatkan): jam operasi unit bulan itu (mulai bulan beli, bobot
+   * hari kerja kalender) ÷ Frekuensi × Qty/unit. Jumlah 12 bulan = Qty setahun sebelum dibulatkan. */
+  qty_months: Float64Array;
+  amount_months: Float64Array;
 };
 
 /** Baris "Detail part" di page Summary: semua kolom diturunkan dari data
@@ -665,7 +720,8 @@ export function buildDetailRows(
   const counter = buildUnitCounter(scopedUnits, years, f, customers, workdaysOf);
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
-  const selectedShare = f.bulan.length > 0 ? monthsShare(f.bulan) : 1;
+  // Periode kolom "Market Size periode": bulan di filter Bulan, kosong = setahun penuh.
+  const selMonths = periodOf(0, f.bulan, { year: null, month: null }).months;
 
   // Mode customer/group: hanya part dari product yang dimiliki customer itu (unit atau penjualan).
   let candidateParts: Part[] = parts;
@@ -709,17 +765,25 @@ export function buildDetailRows(
     // Annual HM rata-rata per unit dari HM/Day × Day/Month × Month/Year di Data UIO (fallback: Master Part / default).
     const { annualHm, hmDay } = partAnnualHm(hrs, p.hm_day, p.product, workdaysOf);
     const price = priceOf(p.part_number, customerGroup, p.pricelist);
-    const { qty, amount } = computePartMarketSize({
-      annualHm,
-      freqReplacementHm: p.freq_replacement_hm,
-      qtyPerUnit: p.qty_per_unit,
-      uio,
-      price
-    });
-    // Market size per bulan & untuk bulan terpilih. Qty dibulatkan SETELAH dikali jumlah bulan.
-    // (rata-rata per bulan = setahun ÷ 12; bulan terpilih dibobot hari kerja)
-    const monthlyQty = p.freq_replacement_hm > 0 ? ((annualHm / 12) / p.freq_replacement_hm) * p.qty_per_unit * uio : 0;
-    const periodQty = Math.round(monthlyQty * 12 * selectedShare);
+    // Kebutuhan per bulan (rumus yang sama dengan KPI/chart/hierarki); setahun = jumlah 12 bulan, dibulatkan.
+    const qtyM = partMonthlyQty(hrs, p.hm_day, p.freq_replacement_hm, p.qty_per_unit);
+    const amountM = new Float64Array(12);
+    let qtySum = 0;
+    for (let m = 0; m < 12; m++) qtySum += qtyM[m];
+    const qty = Math.round(qtySum);
+    // Qty setahun (dibulatkan) dibagi ke tiap bulan sesuai porsi jam operasi → Σ 12 bulan = setahun.
+    const scale = qtySum > 0 ? qty / qtySum : 0;
+    for (let m = 0; m < 12; m++) {
+      qtyM[m] *= scale;
+      amountM[m] = qtyM[m] * price;
+    }
+    const amount = price * qty;
+    let periodQty = qty;
+    if (selMonths) {
+      periodQty = 0;
+      for (const m of selMonths) periodQty += qtyM[m];
+    }
+    const nMonths = selMonths ? selMonths.length : 12;
     const act = actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`);
     const periodMarket = amount * factor;
     out.push({
@@ -740,9 +804,11 @@ export function buildDetailRows(
       actual_sales: act?.amount ?? 0,
       market_share: periodMarket > 0 ? (act?.amount ?? 0) / periodMarket : null,
       period_market: periodMarket,
-      amount_per_month: price * monthlyQty,
+      amount_per_month: (price * periodQty) / nMonths,
       qty_period: periodQty,
-      amount_period: price * periodQty
+      amount_period: price * periodQty,
+      qty_months: qtyM,
+      amount_months: amountM
     });
   });
   return out;

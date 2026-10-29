@@ -15,8 +15,6 @@ import {
   type TreeNodeM,
   type YearVals
 } from "@/lib/hierarchy";
-import { MONTH_ORDER } from "@/lib/types";
-import { monthsShare } from "@/lib/workdays";
 
 const MAX_LEVELS = 6;
 /** Jumlah tahun yang ditampilkan berdampingan (tahun acuan + tahun-tahun sebelumnya). */
@@ -64,20 +62,15 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
     [refYear, state.factYears]
   );
 
-  const ytdYear = data.meta.actual_year_ytd_year ?? null;
+  // Periode & keterbandingan Actual: aturan yang sama dengan KPI dan chart (lib/period.ts → comparePlan).
+  const plan = state.plan;
   const ytdMonth = data.meta.actual_year_ytd_month ?? null;
-  const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
-  const isYtdYear = (y: number) => y === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
-  const actualYears = useMemo(() => new Set(data.actualSalesYear.map((r) => r.year)), [data.actualSalesYear]);
-  const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
-  const comparable = filters.bulan.length === 0 && (filters.product.length === 0 || actualHasProduct) && filters.modelUnit.length === 0 && filters.partNumber.length === 0 && filters.partName.length === 0;
-  const actualOkOf = (y: number) => actualYears.has(y) && comparable;
-  const factorOf = (y: number) => (filters.bulan.length > 0 ? monthsShare(filters.bulan) : isYtdYear(y) && actualYears.has(y) ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1);
-  const yearLabel = (y: number) => (filters.bulan.length > 0 ? `${y} · ${filters.bulan.length} bln` : isYtdYear(y) && actualYears.has(y) ? `${y} · Jan–${(ytdMonth || "").slice(0, 3)}` : String(y));
-  const yearHasActual = refYear !== null && actualYears.has(refYear);
+  const actualOkOf = (y: number) => plan.actualOkOf(y);
+  const yearLabel = (y: number) => plan.labelOf(y);
   const actualOk = refYear !== null && actualOkOf(refYear);
+  const refMonths = refYear !== null ? plan.monthsOf(refYear) : null;
   const periodLabel =
-    filters.bulan.length > 0 ? filters.bulan.join(", ") : refYear !== null && isYtdYear(refYear) && yearHasActual ? `Januari–${ytdMonth}` : "setahun penuh";
+    filters.bulan.length > 0 ? filters.bulan.join(", ") : refMonths ? `Januari–${ytdMonth}` : "setahun penuh";
 
   // ---- Market Size per customer & tahun datang dari mesin hitung bersama (juga dipakai chart & KPI) ----
   const custs = state.custIndex;
@@ -89,11 +82,11 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
     const items = years.map((y) => ({
       year: y,
       actualOk: actualOkOf(y),
-      tree: buildTree(custs, (k) => facts.get(y)?.get(k), activeLevels, filters, y, factorOf(y), actualOkOf(y))
+      tree: buildTree(custs, (k) => facts.get(y)?.get(k), activeLevels, filters, y, plan.monthsOf(y), plan.actualMonthsOf(y), actualOkOf(y))
     }));
     return mergeYearTrees(items, refYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custs, facts, activeLevels, filters, refYear, years, actualYears, ytdYear, ytdMonth]);
+  }, [custs, facts, activeLevels, filters, refYear, years, plan]);
 
   // ---- baris yang tampil ----
   const rows = useMemo<FlatRow[]>(() => {
@@ -270,10 +263,8 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
             {!actualOk && (
               <div className="hier-note">
                 {data.actualSalesYear.length === 0
-                  ? "Laporan Actual Sales tahunan belum diupload (menu ⭱ Upload → slot 1), jadi kolom Actual tidak diisi."
-                  : !yearHasActual
-                  ? `Laporan Actual Sales belum punya data tahun ${refYear}, jadi kolom Actual tidak diisi.`
-                  : "Laporan Actual Sales berupa total setahun per customer, jadi tidak bisa dibandingkan saat filter Bulan / Model / Part dipakai (atau Product, kalau laporan belum per Product) — kolom Actual tidak diisi."}
+                  ? "Data Actual Sales belum ada (sinkron dari web Sales di menu ⭱ Upload), jadi kolom Actual tidak diisi."
+                  : `${refYear !== null ? plan.whyNot(refYear) : ""} Kolom Actual tidak diisi.`}
               </div>
             )}
             <div className="ht-scroll">

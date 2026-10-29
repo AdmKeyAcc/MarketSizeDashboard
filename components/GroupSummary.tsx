@@ -18,8 +18,8 @@ import {
 } from "@/lib/calculations";
 import { MultiSelectField } from "@/components/FilterBar";
 import { exportSummaryTableToExcel } from "@/lib/exportDetail";
-import { monthsShare } from "@/lib/workdays";
-import { MONTH_ORDER, type UioUnit } from "@/lib/types";
+import { comparePlan, periodOf, sumPeriod } from "@/lib/period";
+import { type UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
 
 const PAGE_SIZE = 20;
@@ -36,9 +36,9 @@ const METRIC_COLS: ColDef[] = [
   { key: "customers", label: "Customer", kind: "num", width: 12 },
   { key: "uio", label: "UIO (unit)", kind: "num", width: 12 },
   { key: "qty_market_size", label: "Qty market size", kind: "computed", width: 16 },
-  { key: "qty_period", label: "Qty Market Size/m", kind: "computed", width: 20 },
+  { key: "qty_period", label: "Qty Market Size periode", kind: "computed", width: 20 },
   { key: "amount_market_size", label: "Market Size (Rp)", kind: "computed", width: 20 },
-  { key: "amount_period", label: "Market Size/m (Rp)", kind: "computed", width: 24 },
+  { key: "amount_period", label: "Market Size periode (Rp)", kind: "computed", width: 24 },
   { key: "actual_sales", label: "Actual sales (Rp)", kind: "num", width: 20 },
   { key: "market_share", label: "Market share", kind: "computed", width: 14 }
 ];
@@ -109,6 +109,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     tiers: Set<string>; // dari Master Customer
     kaAmount: Map<string, number>; // KA Type dari laporan Actual Sales -> total nilai
     actual: Map<number, number>; // tahun -> Rp
+    actualM: Map<number, Float64Array>; // tahun -> Rp per bulan (kalau data Actual punya rincian bulan)
     units: UioUnit[];
     branches: Map<string, number>; // Branch -> bobot (Master Customer = 1000, tiap unit UIO = 1)
     pssNames: Map<string, number>;
@@ -130,6 +131,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           tiers: new Set(),
           kaAmount: new Map(),
           actual: new Map(),
+          actualM: new Map(),
           units: [],
           branches: new Map(),
           pssNames: new Map()
@@ -160,6 +162,11 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       // Filter Product: Actual hanya dari Product yang dipilih.
       if (prodSet && !prodSet.has(canonicalProduct(r.product))) return;
       g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
+      if (Array.isArray(r.amount_by_month) && r.amount_by_month.length === 12) {
+        let arr = g.actualM.get(r.year);
+        if (!arr) g.actualM.set(r.year, (arr = new Float64Array(12)));
+        for (let i = 0; i < 12; i++) arr[i] += Number(r.amount_by_month[i]) || 0;
+      }
     });
     return Array.from(m.values());
   }, [customers, data.uioUnits, data.actualSalesYear, fProduct]);
@@ -242,7 +249,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     [fTahun, fBulan, fProduct, fModel]
   );
   const monthsSelected = fBulan.length > 0 ? new Set(fBulan).size : 12;
-  const share = fBulan.length > 0 ? monthsShare(fBulan) : 1;
 
   // Tahun acuan: tahun terpilih (terbesar) atau tahun UIO terbaru; kalau belum ada UIO, tahun Actual Sales terbaru.
   const refYear = useMemo(() => {
@@ -252,16 +258,26 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     return ay.length > 0 ? Math.max(...ay) : null;
   }, [calcFilters, data.uioUnits, data.actualSalesYear]);
 
-  // Data Actual Sales tahun terbaru biasanya YTD: Market Size pembandingnya dipotong sampai bulan yang sama.
-  const ytdYear = data.meta.actual_year_ytd_year ?? null;
+  // Periode pembanding (aturan yang sama dengan Dashboard — lib/period.ts):
+  //   Market Size periode = bulan di filter Bulan (kosong = setahun);
+  //   penyebut share = bulan filter, atau Januari s/d bulan terakhir data Actual untuk tahun berjalan;
+  //   Actual = total tahun, atau jumlah bulan terpilih dari rincian bulanan.
   const ytdMonth = data.meta.actual_year_ytd_month ?? null;
-  const ytdIdx = ytdMonth ? (MONTH_ORDER as readonly string[]).indexOf(ytdMonth) : -1;
-  const isYtd = refYear !== null && refYear === ytdYear && ytdIdx >= 0 && ytdIdx < 11;
-  const actualFactor = isYtd ? monthsShare(MONTH_ORDER.slice(0, ytdIdx + 1)) : 1;
-  const actualYearHas = refYear !== null && data.actualSalesYear.some((r) => r.year === refYear);
-  // Actual Sales berupa total setahun semua product: hanya sebanding kalau tidak ada filter Bulan/Product/Model.
-  const actualHasProduct = data.actualSalesYear.some((r) => !!r.product);
-  const comparable = fBulan.length === 0 && (fProduct.length === 0 || actualHasProduct) && fModel.length === 0;
+  const plan = useMemo(
+    () =>
+      comparePlan(data.actualSalesYear, { bulan: fBulan, product: fProduct, modelUnit: fModel, partNumber: [], partName: [] }, {
+        year: data.meta.actual_year_ytd_year ?? null,
+        month: ytdMonth
+      }),
+    [data.actualSalesYear, fBulan, fProduct, fModel, data.meta.actual_year_ytd_year, ytdMonth]
+  );
+  const selMonths = periodOf(0, fBulan, { year: null, month: null }).months;
+  const denMonths = refYear !== null ? plan.monthsOf(refYear) : null;
+  const actualMonths = refYear !== null ? plan.actualMonthsOf(refYear) : null;
+  const isYtd = fBulan.length === 0 && denMonths !== null;
+  const comparable = refYear !== null && plan.actualOkOf(refYear);
+  const actualOf = (g: { actual: Map<number, number>; actualM: Map<number, Float64Array> }) =>
+    refYear === null ? 0 : sumPeriod(g.actualM.get(refYear), actualMonths, g.actual.get(refYear) || 0);
 
   // ---- customer yang lolos filter; tiap Customer Group = gabungan customer yang lolos ----
   const passed = useMemo<GInfo[]>(() => {
@@ -284,13 +300,18 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       const key = normGroup(g.name);
       let t = merged.get(key);
       if (!t) {
-        t = { key, name: g.name, custName: "", custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), units: [], branches: new Map(), pssNames: new Map() };
+        t = { key, name: g.name, custName: "", custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), actualM: new Map(), units: [], branches: new Map(), pssNames: new Map() };
         merged.set(key, t);
       }
       g.custNames.forEach((n) => t!.custNames.add(n));
       g.tiers.forEach((x) => t!.tiers.add(x));
       g.kaAmount.forEach((v, k) => t!.kaAmount.set(k, (t!.kaAmount.get(k) || 0) + v));
       g.actual.forEach((v, y) => t!.actual.set(y, (t!.actual.get(y) || 0) + v));
+      g.actualM.forEach((arr, y) => {
+        let a = t!.actualM.get(y);
+        if (!a) t!.actualM.set(y, (a = new Float64Array(12)));
+        for (let i = 0; i < 12; i++) a[i] += arr[i];
+      });
       g.branches.forEach((v, k) => t!.branches.set(k, (t!.branches.get(k) || 0) + v));
       g.pssNames.forEach((v, k) => t!.pssNames.set(k, (t!.pssNames.get(k) || 0) + v));
       t.units.push(...g.units);
@@ -317,7 +338,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   /** Hitung satu baris (Customer Group atau Customer). null = tidak ada unit & tidak ada Actual. */
   function computeRow(g: GInfo, isCustomer: boolean): Row | null {
-    const actual = refYear !== null ? g.actual.get(refYear) || 0 : 0;
+    const actual = actualOf(g);
     if (g.units.length === 0 && actual === 0) return null;
     const nCust = g.custNames.size || 1;
     // Tanpa unit UIO tidak ada Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
@@ -415,34 +436,23 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const cols: ColDef[] = useMemo(() => [...LABEL_COLS, ...METRIC_COLS], []);
   const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
 
-  // Market Size/m = Market Size setahun × bagian hari kerja bulan terpilih (12 bulan kalau filter Bulan kosong).
-  // Market share = Actual Sales tahun acuan ÷ Market Size periode yang sama (sampai bulan terakhir data, kalau YTD).
-  const rowsM = useMemo<RowM[]>(
-    () =>
-      rows.map((r) => {
-        const den = r.amount_market_size * actualFactor;
-        return {
-          ...r,
-          qty_period: r.qty_market_size * share,
-          amount_period: r.amount_market_size * share,
-          share_den: den,
-          market_share: comparable && actualYearHas && den > 0 ? r.actual_sales / den : null
-        };
-      }),
-    [rows, share, actualFactor, comparable, actualYearHas]
-  );
-
-  // Baris customer: hitungan sama seperti baris group (Market Size/m, Market share).
+  // Market Size periode = jumlah kebutuhan bulan-bulan terpilih (setahun kalau filter Bulan kosong).
+  // Market share = Actual ÷ Market Size periode yang sama (tahun berjalan: Januari s/d bulan terakhir data Actual).
   const withMetrics = (r: Row): RowM => {
-    const den = r.amount_market_size * actualFactor;
+    const den = sumPeriod(r.amount_months, denMonths, r.amount_market_size);
     return {
       ...r,
-      qty_period: r.qty_market_size * share,
-      amount_period: r.amount_market_size * share,
+      qty_period: sumPeriod(r.qty_months, selMonths, r.qty_market_size),
+      amount_period: sumPeriod(r.amount_months, selMonths, r.amount_market_size),
       share_den: den,
-      market_share: comparable && actualYearHas && den > 0 ? r.actual_sales / den : null
+      market_share: comparable && den > 0 ? r.actual_sales / den : null
     };
   };
+  const rowsM = useMemo<RowM[]>(
+    () => rows.map(withMetrics),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, selMonths?.join(","), denMonths?.join(","), comparable]
+  );
 
   const sorted = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -471,9 +481,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       amount_market_size: sum((g) => g.amount_market_size),
       amount_period: sum((g) => g.amount_period),
       actual_sales: sum((g) => g.actual_sales),
-      market_share: comparable && actualYearHas && den > 0 ? sum((g) => g.actual_sales) / den : null
+      market_share: comparable && den > 0 ? sum((g) => g.actual_sales) / den : null
     } as Record<string, number | null>;
-  }, [sorted, comparable, actualYearHas]);
+  }, [sorted, comparable]);
 
   function onSort(key: SortKey) {
     if (sortCol === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -512,9 +522,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   const headLabel = (c: ColDef) =>
     c.key === "amount_period"
-      ? `Market Size/m (${monthsSelected} bln) (Rp)`
+      ? `Market Size ${monthsSelected === 12 ? "setahun" : `${monthsSelected} bln`} (Rp)`
       : c.key === "qty_period"
-        ? `Qty Market Size/m (${monthsSelected} bln)`
+        ? `Qty Market Size ${monthsSelected === 12 ? "setahun" : `${monthsSelected} bln`}`
         : c.key === "actual_sales"
           ? `Actual sales${refYear !== null ? ` ${refYear}` : ""} (Rp)`
           : c.label;
@@ -569,7 +579,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = 12 bulan. Market Size/m dan Qty Market Size/m = nilai setahun × bagian hari kerja bulan yang dipilih. Actual Sales hanya tersedia per tahun, jadi Market share tidak dihitung kalau Bulan dipilih."
+            info="Kosong = setahun penuh. Market Size bulan terpilih = jumlah kebutuhan part bulan-bulan itu (jam operasi unit per bulan mengikuti hari kerja kalender, unit baru dihitung mulai bulan belinya). Market share bulan terpilih memakai Actual per bulan dari sinkron web Sales."
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
@@ -640,13 +650,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             />
           </div>
         </div>
-        {((refYear !== null && !actualYearHas) || !comparable) && (
+        {refYear !== null && !comparable && (
           <div className="detail-filters-info" style={{ padding: "0 16px 10px" }}>
-            {refYear !== null && !actualYearHas && "Belum ada Actual Sales untuk tahun ini. "}
-            {!comparable &&
-              (actualHasProduct
-                ? "Market share tidak dihitung kalau filter Bulan atau Model dipilih (Actual Sales hanya tersedia per tahun per Product)."
-                : "Market share tidak dihitung kalau filter Bulan, Product, atau Model dipilih (Actual Sales belum per Product — upload laporan Actual Sales per Product).")}
+            Market share tidak dihitung: {plan.whyNot(refYear)}
           </div>
         )}
         <div className="table-scroll">

@@ -112,6 +112,8 @@ export async function POST(request: Request) {
         customer_name: r.cn || "",
         product: productOf(r.p),
         amount: num(r.amt),
+        // Rincian bulanan (feed Sales versi baru); null kalau feed lama belum punya.
+        amount_by_month: Array.isArray(r.mm) && r.mm.length === 12 ? r.mm.map(num) : null,
         source_filename: batchTag,
         uploaded_at: now
       }));
@@ -126,7 +128,10 @@ export async function POST(request: Request) {
       if (rpc.error && !isMissingFn(rpc.error)) throw new Error(`Gagal menyimpan Actual ${year}: ${rpc.error.message}`);
       if (rpc.error) {
         // Cadangan (migration v19 belum dijalankan): cara lama bertahap.
-        await replaceRows(admin, "actual_sales_year", { year }, rows, batchTag);
+        // Kolom amount_by_month (v20) mungkin belum ada → buang dari baris supaya insert tidak gagal.
+        const hasMonthly = !(await admin.from("actual_sales_year").select("amount_by_month").limit(1)).error;
+        const safeRows = hasMonthly ? rows : rows.map(({ amount_by_month: _m, ...r }) => r);
+        await replaceRows(admin, "actual_sales_year", { year }, safeRows, batchTag);
         const cnt = await admin.from("actual_sales_year").select("id", { count: "exact", head: true });
         const meta = await admin.from("app_meta").upsert({
           key: "actual_sales_year",

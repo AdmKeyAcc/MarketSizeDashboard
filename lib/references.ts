@@ -20,6 +20,10 @@ export type AppSettings = {
   default_months_year: number;
   /** Potongan harga non kontrak (0,5 = harga nett 50% dari harga tertera). */
   non_contract_discount: number;
+  /** Hari kerja kalender Januari–Desember (app_settings workdays_01..workdays_12). Dipakai untuk
+   * menyebar jam operasi setahun ke tiap bulan: bulan dengan hari kerja lebih sedikit (mis. Februari,
+   * bulan Lebaran) mendapat jam lebih sedikit. Totalnya tetap sama. */
+  workdays_by_month: number[];
 };
 
 export type References = {
@@ -33,7 +37,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   default_hm_day: 8,
   default_workdays_month: 22,
   default_months_year: 12,
-  non_contract_discount: 0.5
+  non_contract_discount: 0.5,
+  workdays_by_month: [22, 20, 22, 22, 21, 22, 23, 21, 22, 22, 21, 22]
 };
 
 export const DEFAULT_REFERENCES: References = {
@@ -128,7 +133,10 @@ export function buildReferences(
     non_contract_discount: (() => {
       const n = Number(raw.non_contract_discount);
       return Number.isFinite(n) && n >= 0 && n < 1 ? n : DEFAULT_SETTINGS.non_contract_discount;
-    })()
+    })(),
+    workdays_by_month: DEFAULT_SETTINGS.workdays_by_month.map((d, i) =>
+      pos(raw[`workdays_${String(i + 1).padStart(2, "0")}`], d, 31)
+    )
   };
 
   return { productAlias, kaTypes, settings };

@@ -14,7 +14,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 export const DEFAULT_EXCLUDED_BRANCHES = ["JKT", "SBY", "SMG", "BDG"];
 
 export type FeedInfo = { min_year: number | null; max_year: number | null; max_date: string | null; rows: number };
-export type FeedYearRow = { ka: string; cg: string; cn: string; p: string; amt: number; qty: number };
+export type FeedYearRow = { ka: string; cg: string; cn: string; p: string; amt: number; qty: number; mm?: number[] | null };
 export type FeedMonthRow = { cg: string; cn: string; p: string; pn: string; pd: string | null; amt: number; qty: number };
 
 let client: SupabaseClient | null = null;

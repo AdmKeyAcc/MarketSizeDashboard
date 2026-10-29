@@ -3,12 +3,11 @@ import {
   buildPriceResolver,
   canonicalProduct,
   addUnitHm,
-  computePartMarketSize,
   custKey,
   emptyUnitHm,
   defaultWorkdaysOf,
   mergeUnitHm,
-  partAnnualHm,
+  partMonthlyQty,
   type UnitHm,
   type WorkdaysOf,
   normModel,
@@ -17,6 +16,7 @@ import {
 } from "@/lib/calculations";
 import type { ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
+import { sumPeriod } from "@/lib/period";
 
 /* ------------------------------------------------------------------ */
 /* Dimensi hierarki                                                    */
@@ -62,13 +62,17 @@ export type CustInfo = {
   actual: Map<number, number>;
   /** Actual Sales per Product (canonical; "" = laporan tanpa Product) lalu per tahun. */
   actualByProduct: Map<string, Map<number, number>>;
+  /** Actual per Product → tahun → 12 angka bulanan (hanya kalau data Actual punya rincian bulan, mis. hasil sinkron). */
+  actualMonthsByProduct: Map<string, Map<number, Float64Array>>;
   units: UioUnit[];
   /** Ejaan Customer Group di Data Harga (harga kontrak) kalau group ini punya harga kontrak. */
   priceGroup: string;
 };
 
-/** Satu baris fakta = Market Size satu customer untuk satu Product + Model pada tahun acuan (setahun penuh). */
-export type Fact = { product: string; model: string; ms: number; qty: number; uio: number };
+/** Satu baris fakta = Market Size satu customer untuk satu Product + Model pada tahun acuan.
+ * ms / qty = setahun penuh (qty dibulatkan per part); msM / qtyM = per bulan Jan–Des (belum dibulatkan) untuk periode
+ * sebagian tahun (filter Bulan / tahun berjalan). */
+export type Fact = { product: string; model: string; ms: number; qty: number; uio: number; msM: Float64Array; qtyM: Float64Array };
 
 const tierRank = (t: string) => kaRank(t);
 export const byKaOrder = (a: string, b: string) => tierRank(a) - tierRank(b) || a.localeCompare(b);
@@ -93,7 +97,7 @@ export function buildCustomerIndex(
     let c = m.get(key);
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
       m.set(key, c);
     }
     return c;
@@ -122,6 +126,13 @@ export function buildCustomerIndex(
     let bp = c.actualByProduct.get(pk);
     if (!bp) c.actualByProduct.set(pk, (bp = new Map()));
     bp.set(r.year, (bp.get(r.year) || 0) + r.amount);
+    if (Array.isArray(r.amount_by_month) && r.amount_by_month.length === 12) {
+      let mp = c.actualMonthsByProduct.get(pk);
+      if (!mp) c.actualMonthsByProduct.set(pk, (mp = new Map()));
+      let arr = mp.get(r.year);
+      if (!arr) mp.set(r.year, (arr = new Float64Array(12)));
+      for (let i = 0; i < 12; i++) arr[i] += Number(r.amount_by_month[i]) || 0;
+    }
     if (r.ka_type) {
       let k = kaAmount.get(c.key);
       if (!k) kaAmount.set(c.key, (k = new Map()));
@@ -213,15 +224,28 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
         if (modelSet && !modelSet.has(p.model)) return;
         if (pnSet && !pnSet.has(p.part_number || "")) return;
         if (nameSet && !nameSet.has(p.part_name || "")) return;
-        const { annualHm } = partAnnualHm(hrs, p.hm_day, p.product, d.workdaysOf);
         const price = d.priceOf(p.part_number, c.priceGroup || c.group, p.pricelist);
-        const { qty, amount } = computePartMarketSize({ annualHm, freqReplacementHm: p.freq_replacement_hm, qtyPerUnit: p.qty_per_unit, uio, price });
+        // Kebutuhan per bulan → setahun = jumlah 12 bulan, dibulatkan ke part utuh (sama dengan rumus setahun).
+        const qtyM = partMonthlyQty(hrs!, p.hm_day, p.freq_replacement_hm, p.qty_per_unit);
+        let sum = 0;
+        for (let m = 0; m < 12; m++) sum += qtyM[m];
+        const qty = Math.round(sum);
+        const amount = price * qty;
         const k = `${p.product}|${p.model}`;
-        const e = out.get(k);
-        if (e) {
-          e.ms += amount;
-          e.qty += qty;
-        } else out.set(k, { product: p.product, model: p.model, ms: amount, qty, uio });
+        let e = out.get(k);
+        if (!e) out.set(k, (e = { product: p.product, model: p.model, ms: 0, qty: 0, uio, msM: new Float64Array(12), qtyM: new Float64Array(12) }));
+        e.ms += amount;
+        e.qty += qty;
+        // Qty setahun (sudah dibulatkan) dibagi ke tiap bulan sesuai porsi jam operasinya,
+        // sehingga Σ 12 bulan = angka setahun persis.
+        if (qty > 0 && sum > 0) {
+          const k2 = qty / sum;
+          for (let m = 0; m < 12; m++) {
+            const q = qtyM[m] * k2;
+            e.qtyM[m] += q;
+            e.msM[m] += q * price;
+          }
+        }
       });
     });
   });
@@ -257,7 +281,7 @@ export function customerPasses(c: CustInfo, f: FilterState): boolean {
   return true;
 }
 
-function dimValue(dim: HierDim, c: CustInfo, fact?: Fact): string {
+function dimValue(dim: HierDim, c: CustInfo, fact?: Pick<Fact, "product" | "model">): string {
   switch (dim) {
     case "kaType": return c.ka;
     case "group": return c.group;
@@ -278,15 +302,28 @@ export type TreeResult = {
   customers: number;
 };
 
+/** Actual satu customer × product × tahun untuk periode: `actualMonths` null = total tahun (tahun berjalan: total
+ * sampai bulan terakhir data), array = jumlah bulan-bulan itu dari rincian bulanan (0 kalau tidak ada rinciannya). */
+export function actualFor(c: CustInfo, pk: string, year: number, actualMonths: number[] | null): number {
+  if (!actualMonths) return c.actualByProduct.get(pk)?.get(year) || 0;
+  const arr = c.actualMonthsByProduct.get(pk)?.get(year);
+  if (!arr) return 0;
+  let s = 0;
+  for (const m of actualMonths) s += arr[m] || 0;
+  return s;
+}
+
 /** Bangun pohon: Market Size (dan qty/UIO) dari fakta, Actual dari customer.
- * `factor` = bagian tahun yang dibandingkan (mis. Jan–Agu = 0,66); `actualOk` false → semua Actual "-". */
+ * `months` = bulan periode Market Size (null = setahun penuh); `actualMonths` = bulan periode Actual
+ * (null = total tahun); `actualOk` false → semua Actual "-". */
 export function buildTree(
   custs: CustInfo[],
   factsOf: (key: string) => Fact[] | undefined,
   levels: HierDim[],
   filters: FilterState,
   year: number,
-  factor: number,
+  months: number[] | null,
+  actualMonths: number[] | null,
   actualOk: boolean
 ): TreeResult {
   const roots = new Map<string, TreeNode>();
@@ -312,9 +349,9 @@ export function buildTree(
     const actualParts: [string, number][] = [];
     let actual = 0;
     if (actualOk) {
-      c.actualByProduct.forEach((byYear, pk) => {
+      c.actualByProduct.forEach((_byYear, pk) => {
         if (prodSet && !prodSet.has(pk)) return;
-        const v = byYear.get(year) || 0;
+        const v = actualFor(c, pk, year, actualMonths);
         if (v === 0) return;
         actualParts.push([pk, v]);
         actual += v;
@@ -325,8 +362,8 @@ export function buildTree(
     totalActual += actual;
 
     facts.forEach((fa) => {
-      const ms = fa.ms * factor;
-      const qty = fa.qty * factor;
+      const ms = sumPeriod(fa.msM, months, fa.ms);
+      const qty = sumPeriod(fa.qtyM, months, fa.qty);
       totalMs += ms; totalQty += qty; totalUio += fa.uio;
       let parent: TreeNode | null = null;
       levels.forEach((dim, i) => {
@@ -341,7 +378,7 @@ export function buildTree(
       for (let i = 0; i < levels.length; i++) {
         const dim = levels[i];
         if (!isActualDim(dim)) break;
-        const n = nodeOf(all, parent, dim, dimValue(dim, c, pk ? { product: pk, model: "", ms: 0, qty: 0, uio: 0 } : undefined), i);
+        const n = nodeOf(all, parent, dim, dimValue(dim, c, pk ? { product: pk, model: "" } : undefined), i);
         n.actual = (n.actual || 0) + amount;
         if (!parent) roots.set(n.id, n);
         parent = n;
@@ -431,23 +468,29 @@ export function marketRowsFromFacts(
   factsByYear: Map<number, Map<string, Fact[]>>,
   years: number[],
   filters: FilterState,
-  opts: { factorOf: (year: number) => number; monthsOf: (year: number) => number; actualComparable: boolean }
+  opts: {
+    monthsOf: (year: number) => number[] | null;
+    actualMonthsOf: (year: number) => number[] | null;
+    actualOkOf: (year: number) => boolean;
+  }
 ): MarketSizeYearRow[] {
   const prodSet = filters.product.length > 0 ? new Set(filters.product.map((p) => canonicalProduct(p))) : null;
   const passed = custs.filter((c) => customerPasses(c, filters));
   return years.map((year) => {
     const facts = factsByYear.get(year);
-    const factor = opts.factorOf(year);
+    const months = opts.monthsOf(year);
+    const actualMonths = opts.actualMonthsOf(year);
+    const ok = opts.actualOkOf(year);
     let ms = 0, qty = 0, actual = 0;
     passed.forEach((c) => {
       (facts?.get(c.key) || []).forEach((f) => {
-        ms += f.ms * factor;
-        qty += f.qty * factor;
+        ms += sumPeriod(f.msM, months, f.ms);
+        qty += sumPeriod(f.qtyM, months, f.qty);
       });
-      if (opts.actualComparable) {
-        c.actualByProduct.forEach((byYear, pk) => {
+      if (ok) {
+        c.actualByProduct.forEach((_byYear, pk) => {
           if (prodSet && !prodSet.has(pk)) return;
-          actual += byYear.get(year) || 0;
+          actual += actualFor(c, pk, year, actualMonths);
         });
       }
     });
@@ -457,8 +500,8 @@ export function marketRowsFromFacts(
       market_qty: Math.round(qty),
       actual_sales: Math.round(actual),
       actual_qty: 0,
-      period_months: opts.monthsOf(year),
-      actual_comparable: opts.actualComparable
+      period_months: months ? months.length : 12,
+      actual_comparable: ok
     };
   });
 }

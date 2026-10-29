@@ -138,6 +138,8 @@ export type ActualSalesYear = {
   customer_group: string;
   customer_name: string;
   amount: number;
+  /** Rincian Jan–Des (12 angka) kalau tersedia (hasil sinkron web Sales); null untuk upload laporan tahunan. */
+  amount_by_month?: number[] | null;
 };
 
 export type DataMeta = {

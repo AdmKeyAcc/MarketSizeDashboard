@@ -14,14 +14,9 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
   const marketShare = comparable && ms > 0 ? act / ms : NaN;
   const gap = ms - act;
 
-  // Filter yang membuat Actual tidak bisa dibandingkan (laporan Actual hanya sampai level Customer × Product, setahun penuh).
-  const blockers: string[] = [];
-  if (filters.bulan.length > 0) blockers.push("Bulan");
-  if (filters.modelUnit.length > 0) blockers.push("Model Unit");
-  const whyNot =
-    blockers.length > 0
-      ? `Actual tidak tersedia per ${blockers.join(" / ")} (laporan Actual sampai level Customer × Product, setahun). Kosongkan filter tsb untuk melihat Actual.`
-      : "Laporan Actual Sales belum diupload / belum punya data tahun ini.";
+  // Alasan Actual tidak bisa dibandingkan — aturan yang sama dengan chart & tabel hierarki (lib/period.ts).
+  const notOk = marketSizeYearRows.find((r) => r.actual_comparable === false);
+  const whyNot = (notOk ? state.plan.whyNot(notOk.year) : "") || "Belum ada data Actual Sales untuk periode ini.";
 
   if (state.marketComputing) {
     const pct = state.factsProgress !== null ? ` ${Math.round(state.factsProgress * 100)}%` : "";

@@ -37,7 +37,7 @@ on conflict (id) do nothing;
 
 -- 3) Fungsi feed
 --   p_kind = 'info'  → rentang data: {min_year, max_year, max_date, rows}
---   p_kind = 'year'  → per tahun: KA Type × Customer Group × Customer × Product → Rp & Qty
+--   p_kind = 'year'  → per tahun: KA Type × Customer Group × Customer × Product → Rp & Qty (+ mm: Rp per bulan)
 --   p_kind = 'month' → per bulan: Customer Group × Customer × Product × Material → Rp & Qty
 --   p_exclude        → daftar business_area yang dikecualikan (mis. {JKT,SBY,SMG,BDG})
 create or replace function public.ms_feed(
@@ -81,7 +81,22 @@ begin
                trim(coalesce(m.cust_name, ''))                as cn,
                trim(coalesce(m.product, ''))                  as p,
                sum(coalesce(m.amount_in_local_currency, 0))   as amt,
-               sum(coalesce(m.quantity, 0))                   as qty
+               sum(coalesce(m.quantity, 0))                   as qty,
+               -- rincian Januari–Desember (12 angka) untuk Market Share per bulan
+               jsonb_build_array(
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 1), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 2), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 3), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 4), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 5), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 6), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 7), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 8), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 9), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 10), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 11), 0),
+                 coalesce(sum(m.amount_in_local_currency) filter (where m.month = 12), 0)
+               )                                              as mm
           from public.master m
          where m.year = p_year
            and coalesce(m.business_area, '') <> all (coalesce(p_exclude, '{}'))

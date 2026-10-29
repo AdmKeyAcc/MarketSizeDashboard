@@ -113,6 +113,11 @@ async function fetchActualSalesYear(supabase: SupabaseClient): Promise<ActualSal
 }
 
 async function fetchActualSalesYearOnce(supabase: SupabaseClient): Promise<ActualSalesYear[]> {
+  // Kolom amount_by_month (rincian bulanan, migration v20) dibaca kalau sudah ada.
+  const probe = await supabase.from("actual_sales_year").select("amount_by_month").limit(1);
+  const cols = probe.error
+    ? "year, ka_type, product, customer_group, customer_name, amount"
+    : "year, ka_type, product, customer_group, customer_name, amount, amount_by_month";
   const head = await supabase.from("actual_sales_year").select("id", { count: "exact", head: true });
   // Tabel belum dibuat (migration v12 belum dijalankan) -> anggap kosong, jangan menjatuhkan dashboard.
   if (head.error || !head.count) return [];
@@ -125,11 +130,15 @@ async function fetchActualSalesYearOnce(supabase: SupabaseClient): Promise<Actua
       starts.slice(i, i + CONCURRENCY).map(async (from, k) => {
         const { data, error } = await supabase
           .from("actual_sales_year")
-          .select("year, ka_type, product, customer_group, customer_name, amount")
+          .select(cols)
           .order("id", { ascending: true })
           .range(from, from + PAGE_SIZE - 1);
         if (error) throw new Error(`actual_sales_year: ${error.message}`);
-        out[i + k] = ((data ?? []) as unknown as ActualSalesYear[]).map((r) => ({ ...r, amount: Number(r.amount) || 0 }));
+        out[i + k] = ((data ?? []) as unknown as ActualSalesYear[]).map((r) => ({
+          ...r,
+          amount: Number(r.amount) || 0,
+          amount_by_month: Array.isArray(r.amount_by_month) ? r.amount_by_month.map((v) => Number(v) || 0) : null
+        }));
       })
     );
   }
