@@ -27,7 +27,12 @@ const PRICE_CONTRACT = "Contract (SCPL)";
 const PRICE_NON = "Non Contract";
 
 /** Satu baris tabel = satu Customer Group; tombol + membuka baris per Customer di bawahnya. */
-type Row = GroupRow & { id: string; grp: string; cname: string; branch: string; pss: string; katype: string; pkind: string; kaList: string[]; allNames: string };
+type Row = GroupRow & {
+  id: string; grp: string; cname: string; branch: string; pss: string; katype: string; pkind: string;
+  /** Product / Model yang ada di baris ini (Market Size terbesar dulu) — mengikuti filter Product / Model unit. */
+  product: string; model: string;
+  kaList: string[]; allNames: string;
+};
 type RowM = Row & { qty_period: number; share_den: number };
 type SortKey = keyof RowM;
 type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; width?: number };
@@ -48,6 +53,8 @@ const LABEL_COLS: ColDef[] = [
   { key: "cname", label: "Customer Name", kind: "text", width: 36 },
   { key: "branch", label: "Branch", kind: "text", width: 18 },
   { key: "pss", label: "PSS", kind: "text", width: 22 },
+  { key: "product", label: "Product", kind: "text", width: 22 },
+  { key: "model", label: "Model unit", kind: "text", width: 26 },
   { key: "pkind", label: "Harga", kind: "text", width: 16 }
 ];
 
@@ -110,6 +117,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     kaAmount: Map<string, number>; // KA Type dari laporan Actual Sales -> total nilai
     actual: Map<number, number>; // tahun -> Rp
     actualM: Map<number, Float64Array>; // tahun -> Rp per bulan (kalau data Actual punya rincian bulan)
+    actualProd: Map<number, Map<string, number>>; // tahun -> Product -> Rp (untuk kolom Product)
     units: UioUnit[];
     branches: Map<string, number>; // Branch -> bobot (Master Customer = 1000, tiap unit UIO = 1)
     pssNames: Map<string, number>;
@@ -132,6 +140,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           kaAmount: new Map(),
           actual: new Map(),
           actualM: new Map(),
+          actualProd: new Map(),
           units: [],
           branches: new Map(),
           pssNames: new Map()
@@ -162,6 +171,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       // Filter Product: Actual hanya dari Product yang dipilih.
       if (prodSet && !prodSet.has(canonicalProduct(r.product))) return;
       g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
+      let pm = g.actualProd.get(r.year);
+      if (!pm) g.actualProd.set(r.year, (pm = new Map()));
+      if (r.product) addCount(pm, canonicalProduct(r.product), r.amount);
       if (Array.isArray(r.amount_by_month) && r.amount_by_month.length === 12) {
         let arr = g.actualM.get(r.year);
         if (!arr) g.actualM.set(r.year, (arr = new Float64Array(12)));
@@ -300,7 +312,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       const key = normGroup(g.name);
       let t = merged.get(key);
       if (!t) {
-        t = { key, name: g.name, custName: "", custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), actualM: new Map(), units: [], branches: new Map(), pssNames: new Map() };
+        t = { key, name: g.name, custName: "", custNames: new Set(), tiers: new Set(), kaAmount: new Map(), actual: new Map(), actualM: new Map(), actualProd: new Map(), units: [], branches: new Map(), pssNames: new Map() };
         merged.set(key, t);
       }
       g.custNames.forEach((n) => t!.custNames.add(n));
@@ -311,6 +323,11 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         let a = t!.actualM.get(y);
         if (!a) t!.actualM.set(y, (a = new Float64Array(12)));
         for (let i = 0; i < 12; i++) a[i] += arr[i];
+      });
+      g.actualProd.forEach((pm, y) => {
+        let a = t!.actualProd.get(y);
+        if (!a) t!.actualProd.set(y, (a = new Map()));
+        pm.forEach((v, k) => addCount(a!, k, v));
       });
       g.branches.forEach((v, k) => t!.branches.set(k, (t!.branches.get(k) || 0) + v));
       g.pssNames.forEach((v, k) => t!.pssNames.set(k, (t!.pssNames.get(k) || 0) + v));
@@ -352,6 +369,14 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             ctx: detailCtx
           });
     const agg = aggregateGroup(g.name, nCust, list);
+    // Product & Model di baris ini: dari Market Size (part yang dihitung), Product juga dari Actual tahun acuan.
+    const prodW = new Map<string, number>();
+    const modelW = new Map<string, number>();
+    list.forEach((d) => {
+      addCount(prodW, d.product, d.amount_market_size);
+      addCount(modelW, d.model, d.amount_market_size);
+    });
+    if (refYear !== null) g.actualProd.get(refYear)?.forEach((v, k) => addCount(prodW, k, v));
     const ka = kaOf(g);
     const cname = isCustomer ? g.custName : nCust > 1 ? `${nCust.toLocaleString("id-ID")} customer` : Array.from(g.custNames)[0] || "";
     return {
@@ -362,6 +387,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       cname,
       branch: topList(g.branches),
       pss: topList(g.pssNames),
+      product: topList(prodW),
+      model: topList(modelW),
       katype: ka.join(", "),
       kaList: ka,
       pkind: priceKindOf(g),
@@ -620,6 +647,13 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       <div className="panel">
         <div className="panel-head">
           <h2>Summary per Customer Group</h2>
+          {refYear !== null && (
+            <span className="detail-filters-info" title="Tahun & bulan yang dipakai tabel ini (dari filter Tahun / Bulan)">
+              Periode: {fBulan.length > 0 ? `${refYear} · ${fBulan.length === 12 ? "setahun" : fBulan.join(", ")}` : plan.labelOf(refYear)}
+              {fProduct.length > 0 ? ` · Product: ${fProduct.join(", ")}` : ""}
+              {fModel.length > 0 ? ` · Model: ${fModel.length > 3 ? `${fModel.slice(0, 3).join(", ")} +${fModel.length - 3}` : fModel.join(", ")}` : ""}
+            </span>
+          )}
           <div className="panel-tools">
             <button
               type="button"
@@ -641,7 +675,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             </button>
             <input
               className="search-input"
-              placeholder="Cari group, customer, branch, PSS…"
+              placeholder="Cari group, customer, branch, PSS, product, model…"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
