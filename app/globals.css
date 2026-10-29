@@ -308,3 +308,11 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 /* Scorecard saat Market Size masih dihitung */
 .kpi-loading { color: var(--ink-mute); animation: kpi-pulse 1.2s ease-in-out infinite; }
 @keyframes kpi-pulse { 50% { opacity: .35; } }
+/* update-11: mode upload UIO, sinkron lanjutan */
+.upload-mode { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 8px; font-size: 12.5px; line-height: 1.45; }
+.upload-mode label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.upload-mode label.on { border-color: var(--blue-600); background: var(--blue-100); }
+.upload-mode input { margin-top: 2px; }
+.link-btn.small { font-size: 12px; }
+.link-btn.muted-btn { color: var(--ink-soft); }
+.sync-advanced { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }

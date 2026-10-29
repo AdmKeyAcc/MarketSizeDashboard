@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { adminPinConfigured, pinDelay, pinOk, PIN_NOT_SET } from "@/lib/adminPin";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,13 +16,6 @@ const LABEL: Record<ClearTarget, string> = {
   parts: "Master Part"
 };
 
-function pinOk(given: unknown): boolean {
-  const expected = process.env.ADMIN_PIN || "";
-  const g = Buffer.from(String(given ?? ""));
-  const e = Buffer.from(expected);
-  return expected.length > 0 && g.length === e.length && timingSafeEqual(g, e);
-}
-
 /**
  * Menghapus SELURUH isi satu jenis data. Dilindungi PIN admin (env ADMIN_PIN di Vercel),
  * karena website belum punya login. Tidak bisa dibatalkan — upload ulang file untuk mengembalikan.
@@ -30,15 +23,9 @@ function pinOk(given: unknown): boolean {
 export async function POST(request: Request) {
   try {
     const body = ((await request.json().catch(() => ({}))) || {}) as { target?: ClearTarget; pin?: unknown };
-    if (!process.env.ADMIN_PIN) {
-      return NextResponse.json(
-        { error: "PIN admin belum diatur. Tambahkan ADMIN_PIN di Vercel → Settings → Environment Variables, lalu redeploy." },
-        { status: 503 }
-      );
-    }
+    if (!adminPinConfigured()) return NextResponse.json({ error: PIN_NOT_SET }, { status: 503 });
     if (!pinOk(body.pin)) {
-      // Jeda kecil supaya PIN tidak bisa ditebak cepat-cepat.
-      await new Promise((r) => setTimeout(r, 1200));
+      await pinDelay();
       return NextResponse.json({ error: "PIN salah." }, { status: 401 });
     }
     const target = body.target;
@@ -64,6 +51,7 @@ export async function POST(request: Request) {
       const r = target === "price_contract" ? await q.eq("price_type", "contract") : await q.neq("price_type", "contract");
       if (r.error) throw r.error;
       deleted = r.count ?? 0;
+      await admin.from("app_meta").delete().eq("key", target);
       const left = await admin.from("price_list").select("id", { count: "exact", head: true });
       if (!left.error && (left.count ?? 0) === 0) await admin.from("app_meta").delete().eq("key", "price_list");
     }

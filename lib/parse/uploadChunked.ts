@@ -106,19 +106,70 @@ export async function uploadActualSalesYear(
  * Hasilnya berisi ringkasan pemeriksaan (kolom/isi kosong atau tidak valid) untuk ditampilkan
  * ke pengguna, dan fungsi `commit` untuk benar-benar menyimpan kalau pengguna melanjutkan.
  */
+export type UioUploadMode = "replace" | "merge";
 export type UioPrepared = {
   validation: import("@/lib/parse/uioUnits").UioValidation;
+  /** Jumlah unit yang akan disimpan. */
   rowCount: number;
   sheet: string;
+  mode: UioUploadMode;
+  /** Mode tambah/perbarui: perbandingan dengan isi database berdasarkan Serial Number. */
+  merge?: { updated: number; added: number; noSerial: number; existing: number };
   commit: (onProgress?: (text: string) => void) => Promise<Result>;
 };
-export async function prepareUioUpload(file: File): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
+
+/** Kunci Product::Serial yang sudah ada di database (untuk mode tambah/perbarui). */
+async function existingUioKeys(): Promise<Set<string>> {
+  const { supabaseBrowser } = await import("@/lib/supabase/client");
+  const keys = new Set<string>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseBrowser.from("uio_units").select("dedupe_key").order("id").range(from, from + 999);
+    if (error) throw new Error("Gagal membaca Data UIO yang sudah ada: " + error.message);
+    (data || []).forEach((r: { dedupe_key: string | null }) => {
+      if (r.dedupe_key && !r.dedupe_key.startsWith("no-serial::")) keys.add(r.dedupe_key);
+    });
+    if (!data || data.length < 1000) break;
+  }
+  return keys;
+}
+
+export async function prepareUioUpload(
+  file: File,
+  mode: UioUploadMode = "replace"
+): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
   try {
     const XLSX = await import("@e965/xlsx");
     const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
     const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR });
+    const { uioSerialKey } = await import("@/lib/uioKey");
+
+    // Mode tambah/perbarui: hanya unit dengan Serial Number valid (bisa dicocokkan) yang disimpan.
+    let merge: UioPrepared["merge"];
+    if (mode === "merge") {
+      const existing = await existingUioKeys();
+      const seen = new Set<string>();
+      let updated = 0, added = 0, noSerial = 0;
+      const keep = parsed.rows.filter((r) => {
+        const k = uioSerialKey(r.product, r.serial_number);
+        if (!k) {
+          noSerial++;
+          return false;
+        }
+        if (!seen.has(k)) {
+          seen.add(k);
+          if (existing.has(k)) updated++;
+          else added++;
+        }
+        return true;
+      });
+      parsed.rows = keep;
+      merge = { updated, added, noSerial, existing: existing.size };
+      if (keep.length === 0) {
+        return { ok: false, message: `Tidak ada unit dengan Serial Number yang bisa dicocokkan (${noSerial} baris tanpa Serial Number). Mode tambah/perbarui butuh Serial Number.` };
+      }
+    }
 
     const commit = async (onProgress?: (text: string) => void): Promise<Result> => {
       try {
@@ -134,12 +185,12 @@ export async function prepareUioUpload(file: File): Promise<{ ok: true; prep: Ui
         const mapped = canonicalizeUnits(parsed.rows, canon);
 
         const url = "/api/upload/uio-units-chunk";
-        await post(url, { action: "start", replace: true });
+        await post(url, { action: "start", replace: mode === "replace", mode });
         for (let i = 0; i < mapped.rows.length; i += CHUNK) {
           onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
-          await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name });
+          await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name, mode });
         }
-        await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName });
+        const fin = await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName, mode });
         return {
           ok: true,
           message: {
@@ -151,14 +202,17 @@ export async function prepareUioUpload(file: File): Promise<{ ok: true; prep: Ui
             sheet: parsed.sheetName,
             exact: mapped.exact,
             remapped: mapped.remapped,
-            unmatched: mapped.unmatched
+            unmatched: mapped.unmatched,
+            mode,
+            merge,
+            totalInDb: fin?.rowCount ?? null
           }
         };
       } catch (err) {
         return { ok: false, message: errMessage(err) };
       }
     };
-    return { ok: true, prep: { validation: parsed.validation, rowCount: parsed.rows.length, sheet: parsed.sheetName, commit } };
+    return { ok: true, prep: { validation: parsed.validation, rowCount: parsed.rows.length, sheet: parsed.sheetName, mode, merge, commit } };
   } catch (err) {
     return { ok: false, message: errMessage(err) };
   }

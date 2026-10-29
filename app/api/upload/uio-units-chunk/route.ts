@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { uioSerialKey } from "@/lib/uioKey";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,9 +11,16 @@ type Row = {
   serial_number?: unknown; pss_name?: unknown; customer_code?: unknown; customer_type?: unknown;
   hm_day?: unknown; day_month?: unknown; month_year?: unknown; month_inv?: unknown;
 };
-type Body = { action?: "start" | "rows" | "finish"; rows?: Row[]; filename?: string; total?: number; sheet?: string; replace?: boolean };
-
-const PLACEHOLDER_SERIALS = new Set(["-", "", "N/A", "NA", "TIDAK ADA", "NAN", "NONE", "#N/A"]);
+type Body = {
+  action?: "start" | "rows" | "finish";
+  rows?: Row[];
+  filename?: string;
+  total?: number;
+  sheet?: string;
+  replace?: boolean;
+  /** "replace" = ganti semua (default); "merge" = tambah / perbarui per Serial Number. */
+  mode?: "replace" | "merge";
+};
 const s = (v: unknown): string | null => {
   if (v === null || v === undefined) return null;
   const t = String(v).trim();
@@ -26,9 +34,7 @@ const n = (v: unknown): number | null => {
 
 /** Serial Number valid = kunci satu unit fisik; tanpa serial valid dapat kunci acak (selalu baris baru). */
 function dedupeKey(product: string | null, serial: string | null): string {
-  const t = (serial || "").trim().toUpperCase();
-  if (t.length >= 3 && !PLACEHOLDER_SERIALS.has(t)) return `${product ?? ""}::${t}`;
-  return `no-serial::${randomUUID()}`;
+  return uioSerialKey(product, serial) ?? `no-serial::${randomUUID()}`;
 }
 
 /** Upload Data UIO bertahap (file dibaca di browser, dikirim per potongan supaya tidak kena batas ukuran request Vercel). */
@@ -47,13 +53,21 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "finish") {
+      // Jumlah unit di database (mode tambah/perbarui: bukan jumlah baris file).
+      const cnt = await supabase.from("uio_units").select("id", { count: "exact", head: true });
       const up = await supabase.from("app_meta").upsert({
         key: "uio_units",
-        value: { filename: s(body.filename) || "Data UIO", row_count: Number(body.total) || 0, sheet: s(body.sheet) },
+        value: {
+          filename: s(body.filename) || "Data UIO",
+          row_count: cnt.error ? Number(body.total) || 0 : cnt.count ?? 0,
+          uploaded_rows: Number(body.total) || 0,
+          mode: body.mode === "merge" ? "merge" : "replace",
+          sheet: s(body.sheet)
+        },
         updated_at: now
       });
       if (up.error) throw up.error;
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, rowCount: cnt.error ? null : cnt.count ?? null });
     }
 
     const rows = Array.isArray(body.rows) ? body.rows : [];
@@ -66,7 +80,10 @@ export async function POST(request: Request) {
       const product = s(r.product)?.toUpperCase() ?? null;
       if (!product) return;
       const serial = s(r.serial_number);
-      const key = dedupeKey(product, serial);
+      const validKey = uioSerialKey(product, serial);
+      // Mode tambah/perbarui: unit tanpa Serial Number valid tidak bisa dicocokkan → tidak disimpan (mencegah data ganda).
+      if (body.mode === "merge" && !validKey) return;
+      const key = validKey ?? dedupeKey(product, serial);
       byKey.set(key, {
         dedupe_key: key,
         year: n(r.year),

@@ -39,6 +39,8 @@ export async function POST(request: Request) {
       "part_number,customer_group"
     );
 
+    // Per jenis harga (untuk info "upload terakhir" di tiap slot), plus key lama "price_list".
+    await supabase.from("app_meta").upsert({ key: "price_non_contract", value: { filename: file.name, row_count: rows.length, type: "non_contract", discount: settings.non_contract_discount }, updated_at: now });
     await supabase.from("app_meta").upsert({
       key: "price_list",
       value: { filename: file.name, row_count: rows.length, type: "non_contract", discount: settings.non_contract_discount },

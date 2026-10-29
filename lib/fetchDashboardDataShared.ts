@@ -21,7 +21,7 @@ const PAGE_SIZE = 1000;
  * back short — fetching only the first 1000 rows of a 70k-row table would
  * silently make every chart built from it wrong.
  */
-async function fetchAll<T>(
+export async function fetchAll<T>(
   supabase: SupabaseClient,
   table: string,
   orderBy = "id",
@@ -168,29 +168,35 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchActualSalesYear(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),
     fetchAll<PriceListEntry>(supabase, "price_list"),
-    fetchAll<{ key: string; value: { filename?: string | null; ytd_year?: number | null; ytd_month?: string | null; synced_at?: string | null; max_date?: string | null } }>(supabase, "app_meta", "key"),
+    fetchAll<{ key: string; updated_at?: string | null; value: { filename?: string | null; mode?: string | null; ytd_year?: number | null; ytd_month?: string | null; synced_at?: string | null; max_date?: string | null } }>(supabase, "app_meta", "key"),
     fetchReferences(supabase)
   ]);
 
   const findMeta = (key: string) => metaRows.find((m) => m.key === key)?.value ?? {};
+  const updatedAt = (key: string) => metaRows.find((m) => m.key === key)?.updated_at ?? null;
 
   const meta: DataMeta = {
     kalkulator_filename: (findMeta("kalkulator").filename as string) ?? null,
-    kalkulator_updated_at: null,
+    kalkulator_updated_at: updatedAt("kalkulator"),
     customers_filename: (findMeta("customers").filename as string) ?? null,
-    customers_updated_at: null,
+    customers_updated_at: updatedAt("customers"),
     actual_sales_filename: (findMeta("actual_sales").filename as string) ?? null,
-    actual_sales_updated_at: null,
+    actual_sales_updated_at: updatedAt("actual_sales"),
     uio_units_filename: (findMeta("uio_units").filename as string) ?? null,
-    uio_units_updated_at: null,
+    uio_units_updated_at: updatedAt("uio_units"),
     price_list_filename: (findMeta("price_list").filename as string) ?? null,
-    price_list_updated_at: null,
+    price_list_updated_at: updatedAt("price_list"),
     actual_year_filename: (findMeta("actual_sales_year").filename as string) ?? null,
     actual_year_ytd_year: ((findMeta("actual_sales_year") as { ytd_year?: number | null }).ytd_year) ?? null,
     actual_year_ytd_month: ((findMeta("actual_sales_year") as { ytd_month?: string | null }).ytd_month) ?? null,
     actual_year_synced_at: ((findMeta("actual_sales_year") as { synced_at?: string | null }).synced_at) ?? null,
     actual_year_max_date: ((findMeta("actual_sales_year") as { max_date?: string | null }).max_date) ?? null,
-    actual_tx_count: actualTxCount
+    actual_tx_count: actualTxCount,
+    price_contract_filename: (findMeta("price_contract").filename as string) ?? null,
+    price_contract_updated_at: updatedAt("price_contract"),
+    price_non_contract_filename: (findMeta("price_non_contract").filename as string) ?? null,
+    price_non_contract_updated_at: updatedAt("price_non_contract"),
+    uio_units_mode: (findMeta("uio_units").mode as "replace" | "merge" | null) ?? null
   };
   const actualSalesTx: ActualSalesTx[] = [];
 

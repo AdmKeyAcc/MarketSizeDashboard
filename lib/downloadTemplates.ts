@@ -39,6 +39,44 @@ async function downloadWorkbook(
   URL.revokeObjectURL(url);
 }
 
+export type SheetSpec = {
+  name: string;
+  headers: string[];
+  widths: number[];
+  rows: (string | number | null)[][];
+  /** Format angka per kolom (indeks kolom → format Excel, mis. "#,##0"). */
+  numFmt?: Record<number, string>;
+};
+
+/** Tulis satu atau beberapa sheet (header berwarna, baris judul dibekukan) lalu unduh. */
+export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  sheets.forEach((sh) => {
+    const ws = wb.addWorksheet(sh.name, { views: [{ state: "frozen", ySplit: 1 }] });
+    ws.columns = sh.headers.map((header, i) => ({ header, key: `c${i}`, width: sh.widths[i] ?? 16 }));
+    ws.addRows(sh.rows);
+    Object.entries(sh.numFmt || {}).forEach(([i, f]) => {
+      ws.getColumn(Number(i) + 1).numFmt = f;
+    });
+    ws.getRow(1).eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.alignment = { vertical: "middle", horizontal: "left" };
+    });
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadUioTemplate() {
   // Hanya baris header (tanpa contoh data) — urutan kolom sama dengan tabel
   // "Detail UIO" di Dashboard. Product wajib terisi; kolom lain boleh kosong.
