@@ -49,12 +49,12 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
   return (
     <div className="kpis">
       <div className="kpi blue">
-        <div className="kpi-label">Market size</div>
+        <div className="kpi-label">Market Size</div>
         <div className="kpi-value mono">{fmtIDR(ms)}</div>
         <div className="kpi-sub">{periodLabel}</div>
       </div>
       <div className="kpi red">
-        <div className="kpi-label">Actual sales</div>
+        <div className="kpi-label">Actual Sales</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(act) : "–"}</div>
         <div className="kpi-sub" title={state.data.actualExcluded.products.length > 0 ? `Tidak dihitung (belum ada Market Size): ${state.data.actualExcluded.products.join(", ")}` : undefined}>
           {comparable ? `${periodLabel} · produk ber-Master Part` : whyNot}
@@ -66,7 +66,7 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
         <div className="kpi-sub">{comparable ? "Actual sales ÷ market size" : "Perlu Actual yang sebanding"}</div>
       </div>
       <div className="kpi">
-        <div className="kpi-label">Gap (peluang)</div>
+        <div className="kpi-label">Gap (Opportunity)</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(gap) : "–"}</div>
         <div className="kpi-sub">{comparable ? "Market size − actual sales" : "Perlu Actual yang sebanding"}</div>
       </div>

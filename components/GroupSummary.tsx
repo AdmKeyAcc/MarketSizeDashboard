@@ -40,12 +40,12 @@ type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; 
 const METRIC_COLS: ColDef[] = [
   { key: "customers", label: "Customer", kind: "num", width: 12 },
   { key: "uio", label: "UIO (unit)", kind: "num", width: 12 },
-  { key: "qty_market_size", label: "Qty market size", kind: "computed", width: 16 },
-  { key: "qty_period", label: "Qty Market Size periode", kind: "computed", width: 20 },
+  { key: "qty_market_size", label: "Qty Market Size", kind: "computed", width: 16 },
+  { key: "qty_period", label: "Qty Market Size (period)", kind: "computed", width: 20 },
   { key: "amount_market_size", label: "Market Size (Rp)", kind: "computed", width: 20 },
-  { key: "amount_period", label: "Market Size periode (Rp)", kind: "computed", width: 24 },
-  { key: "actual_sales", label: "Actual sales (Rp)", kind: "num", width: 20 },
-  { key: "market_share", label: "Market share", kind: "computed", width: 14 }
+  { key: "amount_period", label: "Market Size (period) (Rp)", kind: "computed", width: 24 },
+  { key: "actual_sales", label: "Actual Sales (Rp)", kind: "num", width: 20 },
+  { key: "market_share", label: "Market Share", kind: "computed", width: 14 }
 ];
 const LABEL_COLS: ColDef[] = [
   { key: "grp", label: "Customer Group", kind: "text", width: 32 },
@@ -55,7 +55,7 @@ const LABEL_COLS: ColDef[] = [
   { key: "pss", label: "PSS", kind: "text", width: 22 },
   { key: "product", label: "Product", kind: "text", width: 22 },
   { key: "model", label: "Model unit", kind: "text", width: 26 },
-  { key: "pkind", label: "Harga", kind: "text", width: 16 }
+  { key: "pkind", label: "Price Type", kind: "text", width: 16 }
 ];
 
 const normGroup = (g: string | null | undefined) => (g || "").trim().toUpperCase();
@@ -524,8 +524,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   function filterNote(): string {
     const parts: string[] = [];
     const add = (label: string, a: string[]) => a.length && parts.push(`${label}: ${a.join(", ")}`);
-    add("Tahun", fTahun);
-    add("Bulan", fBulan);
+    add("Year", fTahun);
+    add("Month", fBulan);
     add("Product", fProduct);
     add("Model unit", fModel);
     add("Customer Group", cGroup);
@@ -533,7 +533,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     add("Branch", cBranch);
     add("PSS", cPss);
     add("KA Type", cKa);
-    add("Harga", cPrice);
+    add("Price Type", cPrice);
     if (refYear !== null) parts.push(`Tahun acuan: ${refYear}${isYtd ? ` (Actual sampai ${ytdMonth})` : ""}`);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
     return parts.join(" | ");
@@ -549,11 +549,11 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   const headLabel = (c: ColDef) =>
     c.key === "amount_period"
-      ? `Market Size ${monthsSelected === 12 ? "setahun" : `${monthsSelected} bln`} (Rp)`
+      ? `Market Size ${monthsSelected === 12 ? "/year" : `${monthsSelected} months`} (Rp)`
       : c.key === "qty_period"
-        ? `Qty Market Size ${monthsSelected === 12 ? "setahun" : `${monthsSelected} bln`}`
+        ? `Qty Market Size ${monthsSelected === 12 ? "/year" : `${monthsSelected} months`}`
         : c.key === "actual_sales"
-          ? `Actual sales${refYear !== null ? ` ${refYear}` : ""} (Rp)`
+          ? `Actual Sales${refYear !== null ? ` ${refYear}` : ""} (Rp)`
           : c.label;
 
   async function onExport() {
@@ -595,18 +595,18 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         </div>
         <div className="detail-filters">
           <MultiSelectField
-            label="Tahun"
+            label="Year"
             values={fTahun}
             options={tahunOpts}
             onChange={wrap(setFTahun)}
             info="Kosong = tahun terbaru yang punya data UIO. Actual Sales dan Market Size memakai tahun ini."
           />
           <MultiSelectField
-            label="Bulan"
+            label="Month"
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = setahun penuh. Market Size bulan terpilih = jumlah kebutuhan part bulan-bulan itu (jam operasi unit per bulan mengikuti hari kerja kalender, unit baru dihitung mulai bulan belinya). Market share bulan terpilih memakai Actual per bulan dari sinkron web Sales."
+            info="Kosong = /year (12 bulan). Market Size bulan terpilih = jumlah kebutuhan part bulan-bulan itu (jam operasi unit per bulan mengikuti hari kerja kalender, unit baru dihitung mulai bulan belinya). Market share bulan terpilih memakai Actual per bulan dari sinkron web Sales."
           />
           <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
           <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
@@ -649,7 +649,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           <h2>Summary per Customer Group</h2>
           {refYear !== null && (
             <span className="detail-filters-info" title="Tahun & bulan yang dipakai tabel ini (dari filter Tahun / Bulan)">
-              Periode: {fBulan.length > 0 ? `${refYear} · ${fBulan.length === 12 ? "setahun" : fBulan.join(", ")}` : plan.labelOf(refYear)}
+              Periode: {fBulan.length > 0 ? `${refYear} · ${fBulan.length === 12 ? "/year" : fBulan.join(", ")}` : plan.labelOf(refYear)}
               {fProduct.length > 0 ? ` · Product: ${fProduct.join(", ")}` : ""}
               {fModel.length > 0 ? ` · Model: ${fModel.length > 3 ? `${fModel.slice(0, 3).join(", ")} +${fModel.length - 3}` : fModel.join(", ")}` : ""}
             </span>

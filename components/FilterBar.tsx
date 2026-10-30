@@ -234,8 +234,8 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
         )}
 
         <div className="filterbar-row">
-          <MultiSelectField label="Tahun" values={filters.tahun} options={options.tahun} onChange={(v) => setFilter("tahun", v)} />
-          <MultiSelectField label="Bulan" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
+          <MultiSelectField label="Year" values={filters.tahun} options={options.tahun} onChange={(v) => setFilter("tahun", v)} />
+          <MultiSelectField label="Month" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
           <MultiSelectField label="Branch" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
           <MultiSelectField
             label="Customer Group"

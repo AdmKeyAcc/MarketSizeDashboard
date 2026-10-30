@@ -70,7 +70,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   const actualOk = refYear !== null && actualOkOf(refYear);
   const refMonths = refYear !== null ? plan.monthsOf(refYear) : null;
   const periodLabel =
-    filters.bulan.length > 0 ? filters.bulan.join(", ") : refMonths ? `Januari–${ytdMonth}` : "setahun penuh";
+    filters.bulan.length > 0 ? filters.bulan.join(", ") : refMonths ? `Januari–${ytdMonth}` : "/year";
 
   // ---- Market Size per customer & tahun datang dari mesin hitung bersama (juga dipakai chart & KPI) ----
   const custs = state.custIndex;
@@ -165,7 +165,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   };
 
   const SORTS: { key: SortKey; label: string }[] = [
-    { key: "name", label: "Nama" },
+    { key: "name", label: "Name" },
     { key: "ms", label: "Market Size" },
     { key: "actual", label: "Actual" }
   ];
@@ -271,7 +271,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
               <table className="ht-table" style={{ zoom: zoom / 100 }}>
                 <thead>
                   <tr className="th-top">
-                    <th className="c-name" rowSpan={2}>Hierarki</th>
+                    <th className="c-name" rowSpan={2}>Hierarchy</th>
                     <th className="c-uio" rowSpan={2}>UIO {refYear}</th>
                     {years.map((y) => (
                       <th key={y} className={`c-yr yg${y === refYear ? " cur" : ""}`} colSpan={3}>{yearLabel(y)}</th>

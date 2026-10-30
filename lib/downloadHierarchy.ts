@@ -16,7 +16,7 @@ export type HierarchyExportInput = {
 };
 
 const FILTER_LABELS: [keyof FilterState, string][] = [
-  ["tahun", "Tahun"], ["bulan", "Bulan"], ["area", "Branch"], ["customerGroup", "Customer Group"],
+  ["tahun", "Year"], ["bulan", "Month"], ["area", "Branch"], ["customerGroup", "Customer Group"],
   ["customerName", "Customer Name"], ["pss", "PSS"], ["tier", "KA Type"], ["product", "Product"],
   ["modelUnit", "Model Unit"], ["partNumber", "Part Number"], ["partName", "Part Name"]
 ];
@@ -35,7 +35,7 @@ export async function downloadHierarchyXlsx(inp: HierarchyExportInput) {
   const ws = wb.addWorksheet("Market Size vs Actual", { views: [{ state: "frozen", xSplit: 1, ySplit: 1 }] });
   ws.properties.outlineProperties = { summaryBelow: false, summaryRight: false };
 
-  const headers = ["HIERARKI DATA", `UIO ${refYear}`];
+  const headers = ["DATA HIERARCHY", `UIO ${refYear}`];
   years.forEach((y) => headers.push(`Market Size ${yearLabel(y)}`, `Actual ${y}`, `% Share ${y}`));
   headers.push(`Variance ${refYear}`);
   ws.columns = headers.map((h, i) => ({ header: h, key: `c${i}`, width: i === 0 ? 48 : h.startsWith("%") ? 12 : 20 }));
@@ -105,7 +105,7 @@ export async function downloadHierarchyXlsx(inp: HierarchyExportInput) {
   put("Tahun ditampilkan", years.join(", "));
   put("Periode", periodLabel);
   put("Level hierarki", levels.map((l) => HIER_LABELS[l]).join(" > "));
-  put("Urutan", `${sortKey === "name" ? "Nama" : sortKey === "ms" ? "Market Size" : "Actual"} (${sortDir === "desc" ? "besar ke kecil" : "kecil ke besar"})`);
+  put("Urutan", `${sortKey === "name" ? "Name" : sortKey === "ms" ? "Market Size" : "Actual"} (${sortDir === "desc" ? "besar ke kecil" : "kecil ke besar"})`);
   info.addRow([]);
   FILTER_LABELS.forEach(([k, label]) => put(label, filters[k].length > 0 ? filters[k].join(", ") : "Semua"));
   info.addRow([]);

@@ -12,6 +12,7 @@ type SummaryState = ReturnType<typeof useCalculatorSummary>;
 type NumOv = number | null;
 
 const fmtDec = (n: number, d = 1) => n.toLocaleString("id-ID", { maximumFractionDigits: d });
+const MONTH_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const keyOf = (p: Part) => `${p.part_number || ""}¦${p.part_name}`;
 
 /** Input angka dengan nilai otomatis + kemungkinan diisi manual ("pakai otomatis" untuk kembali). */
@@ -144,7 +145,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
       qtyMarketSize: r.qty,
       contractPrice: r.price,
       amountMarketSize: r.amount,
-      period: "setahun",
+      period: "/year",
       amountPeriod: r.amount,
       qtyPeriod: r.qty,
       year,
@@ -209,7 +210,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
           </select>
         </div>
         <div className="calc-field span-2">
-          <label>Part · {fmtInt(partOptions.length)} part di model ini</label>
+          <label>Part · {fmtInt(partOptions.length)} parts in this model</label>
           <select value={partKey} onChange={(e) => setPartKey(e.target.value)}>
             {partOptions.map((p, i) => (
               <option key={`${keyOf(p)}-${i}`} value={keyOf(p)}>
@@ -229,8 +230,8 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             <AutoField label="Month / Year" auto={res.avg.monthYear} value={ov.monthYear ?? null} onChange={setO("monthYear")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
 
             <AutoField label="Qty per unit" auto={basePart.qty_per_unit} value={qtyEdit} onChange={setQtyEdit} decimals={2} autoNote="dari Master Part" />
-            <AutoField label="Frekuensi ganti (HM)" auto={basePart.freq_replacement_hm} value={freqEdit} onChange={setFreqEdit} decimals={0} autoNote="dari Master Part" />
-            <AutoField label="Harga per pcs (Rp)" className="span-2" auto={res.priceAuto} value={ov.price ?? null} onChange={setO("price")} decimals={0} money autoNote={priceNote} />
+            <AutoField label="Replacement Freq (HM)" auto={basePart.freq_replacement_hm} value={freqEdit} onChange={setFreqEdit} decimals={0} autoNote="dari Master Part" />
+            <AutoField label="Price per pcs (Rp)" className="span-2" auto={res.priceAuto} value={ov.price ?? null} onChange={setO("price")} decimals={0} money autoNote={priceNote} />
           </div>
 
           {noUnits && !ov.uio && (
@@ -244,28 +245,28 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             <div className="calc-stat">
               <div className="cs-label">Annual HM / unit</div>
               <div className="cs-value">{fmtInt(res.annualHm)}</div>
-              <div className="cs-sub">jam operasi setahun</div>
+              <div className="cs-sub">operating hours /year</div>
             </div>
             <div className="calc-stat">
-              <div className="cs-label">Qty setahun</div>
+              <div className="cs-label">Qty /year</div>
               <div className="cs-value">{fmtInt(res.qty)} pcs</div>
-              <div className="cs-sub">≈ {fmtDec(res.qty / 12, 1)} pcs / bulan</div>
+              <div className="cs-sub">≈ {fmtDec(res.qty / 12, 1)} pcs /month</div>
             </div>
             <div className="calc-stat">
-              <div className="cs-label">Harga per pcs</div>
+              <div className="cs-label">Price per pcs</div>
               <div className="cs-value">{fmtIDRFull(res.price)}</div>
               <div className="cs-sub">{ov.price != null ? "diisi manual" : res.customers > 1 ? "rata-rata tertimbang" : res.priceLabel}</div>
             </div>
             <div className="calc-stat main">
-              <div className="cs-label">Market Size setahun</div>
+              <div className="cs-label">Market Size /year</div>
               <div className="cs-value">{fmtIDRFull(res.amount)}</div>
-              <div className="cs-sub">≈ {fmtIDRFull(res.amount / 12)} / bulan</div>
+              <div className="cs-sub">≈ {fmtIDRFull(res.amount / 12)} /month</div>
             </div>
           </div>
           <div className="calc-formula">
             Rumus: {fmtInt(res.annualHm)} jam × {fmtInt(res.uio)} unit ÷ {fmtInt(part!.freq_replacement_hm)} HM × {fmtDec(part!.qty_per_unit, 2)} pcs ={" "}
             {fmtDec(part!.freq_replacement_hm > 0 ? (res.annualHm * res.uio * part!.qty_per_unit) / part!.freq_replacement_hm : 0, 1)} → <b>{fmtInt(res.qty)} pcs</b>{" "}
-            × {fmtIDRFull(res.price)} = <b>{fmtIDRFull(res.amount)}</b> setahun
+            × {fmtIDRFull(res.price)} = <b>{fmtIDRFull(res.amount)}</b> /year
             {res.customers > 1 && !ov.uio && <span className="muted"> · qty dibulatkan per customer, sama dengan Dashboard</span>}
           </div>
 
@@ -278,7 +279,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                     <th></th>
                     {MONTH_ORDER.map((m, i) => (
                       <th key={m}>
-                        {m.slice(0, 3)}
+                        {MONTH_EN[i]}
                       </th>
                     ))}
                   </tr>
@@ -363,11 +364,11 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                   <th>Part Number</th>
                   <th>UIO</th>
                   <th>Annual HM / unit</th>
-                  <th>Frek (HM)</th>
+                  <th>Replacement Freq (HM)</th>
                   <th>Qty / unit</th>
-                  <th>Qty setahun</th>
-                  <th>Harga</th>
-                  <th>Market Size setahun</th>
+                  <th>Qty /year</th>
+                  <th>Price</th>
+                  <th>Market Size /year</th>
                   <th></th>
                 </tr>
               </thead>

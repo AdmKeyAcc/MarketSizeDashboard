@@ -48,11 +48,11 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
     <div className="panel">
       <div className="panel-head">
         <h2>
-          Market Size per Tahun
+          Market Size per Year
           {partialYears.length > 0 && (
             <span
               className="info-dot"
-              title={`Tahun yang Actual Sales-nya belum penuh setahun dibandingkan dengan Market Size periode yang sama: ${partialYears
+              title={`Tahun yang Actual Sales-nya belum penuh 1 tahun (/year) dibandingkan dengan Market Size periode yang sama: ${partialYears
                 .map((r) => `${r.year} (${r.period_months} bulan)`)
                 .join(", ")}.`}
             >

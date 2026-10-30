@@ -230,7 +230,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     if (monthRaw !== null && monthNum === null) {
       flag("month-bad", "Month Inv", "penting", "Month Inv tidak valid (harus 1–12 atau nama bulan) — dianggap kosong", rowNo);
     } else if (monthNum === null) {
-      if (has("month")) flag("month-empty", "Month Inv", "penting", "Month Inv kosong — unit dianggap beroperasi setahun penuh di tahun belinya", rowNo);
+      if (has("month")) flag("month-empty", "Month Inv", "penting", "Month Inv kosong — unit dianggap beroperasi penuh /year di tahun belinya", rowNo);
     } else if (yearNum === thisYear && monthNum > thisMonth) {
       flag("month-future", "Month Inv", "penting", "Month Inv setelah bulan ini (masa depan)", rowNo);
     }

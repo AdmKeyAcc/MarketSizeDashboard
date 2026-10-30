@@ -12,20 +12,20 @@ function toRow(it: CalcSummaryItem, i: number): ExportRow {
     "Model Unit": it.model,
     "Part Name": it.partName,
     "Part Number": it.partNumber || "",
-    "Tahun UIO": it.year ?? "",
-    "Jumlah Customer": it.customers ?? "",
+    "UIO Year": it.year ?? "",
+    "Customers": it.customers ?? "",
     "UIO (Unit)": it.uio,
     "HM / Day": r1(it.hmDay),
     "Day / Month": r1(it.dayMonth),
     "Month / Year": r1(it.monthYear),
     "Annual HM / Unit": Math.round(it.annualHm),
-    "Frekuensi Ganti (HM)": it.freqReplacementHm,
+    "Replacement Freq (HM)": it.freqReplacementHm,
     "Qty / Unit": it.qtyPerUnit,
-    "Qty Market Size Setahun": Math.round(it.qtyMarketSize),
-    "Harga per Pcs (Rp)": Math.round(it.contractPrice),
-    "Sumber Harga": it.priceSource || "",
-    "Market Size Setahun (Rp)": Math.round(it.amountMarketSize),
-    Ditambahkan: new Date(it.addedAt).toLocaleString("id-ID")
+    "Qty Market Size /year": Math.round(it.qtyMarketSize),
+    "Price per Pcs (Rp)": Math.round(it.contractPrice),
+    "Price Source": it.priceSource || "",
+    "Market Size /year (Rp)": Math.round(it.amountMarketSize),
+    "Added At": new Date(it.addedAt).toLocaleString("id-ID")
   };
 }
 
@@ -40,8 +40,8 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
   const blank: ExportRow = Object.fromEntries(Object.keys(rows[0] ?? {}).map((k) => [k, ""]));
   rows.push({
     ...blank,
-    "Sumber Harga": "TOTAL",
-    "Market Size Setahun (Rp)": Math.round(items.reduce((s, it) => s + (it.amountMarketSize || 0), 0))
+    "Price Source": "TOTAL",
+    "Market Size /year (Rp)": Math.round(items.reduce((s, it) => s + (it.amountMarketSize || 0), 0))
   });
 
   const ws = XLSX.utils.json_to_sheet(rows);

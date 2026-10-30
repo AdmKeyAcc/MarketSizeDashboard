@@ -5,7 +5,6 @@
  * dashboard), supaya benar-benar posisi terkini.
  */
 import { saveWorkbook, type SheetSpec } from "@/lib/downloadTemplates";
-import { MONTH_ORDER } from "@/lib/types";
 
 export type DownloadKind = "uio" | "contract" | "non_contract" | "parts" | "actual";
 
@@ -90,10 +89,10 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
   const rows = [...input].sort(
     (a, b) => Number(a.year) - Number(b.year) || byText(a.ka_type, a.customer_group, a.customer_name, a.product).localeCompare(byText(b.ka_type, b.customer_group, b.customer_name, b.product))
   );
-  const bulan = MONTH_ORDER.map((m) => m.slice(0, 3));
+  const bulan = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return {
     name: "Actual Sales",
-    headers: ["Tahun", "KA Type", "Customer Group", "Customer Name", "Product", "Total (Rp)", ...bulan],
+    headers: ["Year", "KA Type", "Customer Group", "Customer Name", "Product", "Total (Rp)", ...bulan],
     widths: [8, 18, 22, 30, 14, 16, ...bulan.map(() => 13)],
     rows: rows.map((r) => {
       const mm = Array.isArray(r.amount_by_month) ? (r.amount_by_month as unknown[]).map((x) => Number(x) || 0) : null;
