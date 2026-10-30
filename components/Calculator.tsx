@@ -202,11 +202,30 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   }
 
   const noUnits = !!res && res.uioAuto === 0;
+  // Keterangan harga singkat (satu baris) supaya baris field tetap sejajar.
+  const priceNote = (() => {
+    if (!res) return "";
+    const ps = res.priceSources;
+    const kinds = [ps.contract && `${ps.contract} kontrak`, ps.non_contract && `${ps.non_contract} non kontrak`, ps.pricelist && `${ps.pricelist} pricelist`].filter(
+      Boolean
+    ) as string[];
+    return kinds.length > 1 ? `Rata-rata · ${kinds.join(", ")}` : res.priceLabel;
+  })();
+  const resetPart = () => {
+    setPnEdit(null);
+    setQtyEdit(null);
+    setFreqEdit(null);
+  };
+  const sel = (i: number) => (months && months.includes(i) ? "sel" : undefined);
 
   return (
-    <div className="panel">
-      <h2>Kalkulator Market Size — satu part</h2>
-      <div className="calc-row">
+    <div className="panel calc">
+      <div className="panel-head">
+        <h2>Kalkulator Market Size — satu part</h2>
+      </div>
+
+      {/* ---------- Input ---------- */}
+      <div className="calc-grid">
         <div className="calc-field">
           <label>Product</label>
           <select value={product} onChange={(e) => setProduct(e.target.value)}>
@@ -227,8 +246,8 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             ))}
           </select>
         </div>
-        <div className="calc-field" style={{ flex: 2 }}>
-          <label>Part ({fmtInt(partOptions.length)} part di model ini)</label>
+        <div className="calc-field span-2">
+          <label>Part · {fmtInt(partOptions.length)} part di model ini</label>
           <select value={partKey} onChange={(e) => setPartKey(e.target.value)}>
             {partOptions.map((p, i) => (
               <option key={`${keyOf(p)}-${i}`} value={keyOf(p)}>
@@ -237,11 +256,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             ))}
           </select>
         </div>
-      </div>
 
-      <div className="calc-row">
         <div className="calc-field">
-          <label>Tahun (UIO sampai tahun)</label>
+          <label>Tahun (UIO s/d)</label>
           <select value={year ?? ""} onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}>
             {uioYears.length === 0 && <option value="">–</option>}
             {uioYears.map((y) => (
@@ -292,7 +309,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
 
       {basePart && res && (
         <>
-          <div className="calc-row">
+          <div className="calc-grid calc-grid-inputs">
             <div className="calc-field">
               <label>Part Number</label>
               <input type="text" className={pnEdit !== null ? "manual" : undefined} value={part!.part_number || ""} onChange={(e) => setPnEdit(e.target.value)} />
@@ -300,99 +317,71 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                 {partEdited ? (
                   <>
                     Diubah dari Master Part{" "}
-                    <button
-                      type="button"
-                      className="link-btn"
-                      onClick={() => {
-                        setPnEdit(null);
-                        setQtyEdit(null);
-                        setFreqEdit(null);
-                      }}
-                    >
+                    <button type="button" className="link-btn" onClick={resetPart}>
                       kembalikan
                     </button>
                   </>
                 ) : (
-                  "Menentukan harga (Data Harga)"
+                  "dari Master Part"
                 )}
               </div>
             </div>
             <div className="calc-field">
               <label>Qty per unit</label>
               <input type="number" min={0} className={qtyEdit !== null ? "manual" : undefined} value={part!.qty_per_unit} onChange={(e) => setQtyEdit(Number(e.target.value) || 0)} />
+              <div className="calc-hint">dari Master Part</div>
             </div>
             <div className="calc-field">
               <label>Frekuensi ganti (HM)</label>
               <input type="number" min={1} className={freqEdit !== null ? "manual" : undefined} value={part!.freq_replacement_hm} onChange={(e) => setFreqEdit(Number(e.target.value) || 1)} />
+              <div className="calc-hint">dari Master Part</div>
             </div>
-          </div>
+            <AutoField label="Harga per pcs (Rp)" auto={res.priceAuto} value={ov.price ?? null} onChange={setO("price")} decimals={0} money autoNote={priceNote} />
 
-          <div className="calc-row">
-            <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`${fmtInt(res.customers)} customer`} />
+            <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`Data UIO · ${fmtInt(res.customers)} customer`} />
             <AutoField label="HM / Day" auto={res.avg.hmDay} value={ov.hmDay ?? null} onChange={setO("hmDay")} step={0.5} autoNote={noUnits ? "Master Part / default" : "rata-rata Data UIO"} />
             <AutoField label="Day / Month" auto={res.avg.dayMonth} value={ov.dayMonth ?? null} onChange={setO("dayMonth")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
             <AutoField label="Month / Year" auto={res.avg.monthYear} value={ov.monthYear ?? null} onChange={setO("monthYear")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
           </div>
 
-          <div className="calc-row" style={{ maxWidth: 520 }}>
-            <AutoField
-              label="Harga per pcs (Rp)"
-              auto={res.priceAuto}
-              value={ov.price ?? null}
-              onChange={setO("price")}
-              decimals={0}
-              money
-              autoNote={res.priceLabel + (res.priceSources.contract + res.priceSources.non_contract + res.priceSources.pricelist > 1 ? " · rata-rata tertimbang" : "")}
-            />
-          </div>
-
           {noUnits && !ov.uio && (
-            <div className="hier-note" style={{ margin: "0 0 10px" }}>
+            <div className="hier-note" style={{ margin: "4px 0 12px" }}>
               Tidak ada unit {product} {model} di Data UIO untuk pilihan ini (s/d {year ?? "–"}, {scopeLabel}), jadi Market Size = 0. Ubah tahun / customer, atau isi UIO
               manual untuk simulasi.
             </div>
           )}
 
-          <div className="formula-flow">
-            <div className="formula-step">
-              <div className="fs-label">Annual HM / unit</div>
-              <div className="fs-value">{fmtInt(res.annualHm)}</div>
+          {/* ---------- Hasil ---------- */}
+          <div className="calc-result">
+            <div className="calc-stat">
+              <div className="cs-label">Annual HM / unit</div>
+              <div className="cs-value">{fmtInt(res.annualHm)}</div>
+              <div className="cs-sub">jam operasi setahun</div>
             </div>
-            <div className="formula-op">× UIO {fmtInt(res.uio)} ÷ Frek {fmtInt(part!.freq_replacement_hm)} × Qty {fmtDec(part!.qty_per_unit, 2)} →</div>
-            <div className="formula-step">
-              <div className="fs-label">Qty setahun</div>
-              <div className="fs-value">{fmtInt(res.qty)}</div>
+            <div className="calc-stat">
+              <div className="cs-label">Qty {periodLabel}</div>
+              <div className="cs-value">{months ? fmtDec(qtyPeriod, 1) : fmtInt(res.qty)} pcs</div>
+              <div className="cs-sub">{months ? `setahun ${fmtInt(res.qty)} pcs` : `≈ ${fmtDec(res.qty / 12, 1)} pcs / bulan`}</div>
             </div>
-            <div className="formula-op">×</div>
-            <div className="formula-step">
-              <div className="fs-label">Harga</div>
-              <div className="fs-value">{fmtIDRFull(res.price)}</div>
+            <div className="calc-stat">
+              <div className="cs-label">Harga per pcs</div>
+              <div className="cs-value">{fmtIDRFull(res.price)}</div>
+              <div className="cs-sub">{ov.price != null ? "diisi manual" : res.customers > 1 ? "rata-rata tertimbang" : res.priceLabel}</div>
             </div>
-            <div className="formula-op">=</div>
-            <div className="formula-result">
-              <div className="fs-label">Market Size setahun</div>
-              <div className="fs-value">{fmtIDRFull(res.amount)}</div>
-            </div>
-          </div>
-          <div className="calc-period">
-            {months && (
-              <div>
-                <span className="fs-label">Market Size {periodLabel}</span>
-                <b>{fmtIDRFull(msPeriod)}</b>
-                <span className="muted"> · qty {fmtDec(qtyPeriod, 1)}</span>
+            <div className="calc-stat main">
+              <div className="cs-label">Market Size {periodLabel}</div>
+              <div className="cs-value">{fmtIDRFull(msPeriod)}</div>
+              <div className="cs-sub">
+                {months ? `setahun ${fmtIDRFull(res.amount)}` : `≈ ${fmtIDRFull(msPeriod / nMonths)} / bulan`}
               </div>
-            )}
-            <div>
-              <span className="fs-label">Rata-rata / bulan</span>
-              <b>{fmtIDRFull(msPeriod / nMonths)}</b>
             </div>
           </div>
-          {res.customers > 1 && !ov.uio && (
-            <div className="calc-hint" style={{ marginTop: 6 }}>
-              Qty dibulatkan per customer (sama dengan Dashboard), jadi Qty setahun bisa sedikit berbeda dari Annual HM × UIO ÷ Frek × Qty yang dihitung
-              sekaligus.
-            </div>
-          )}
+          <div className="calc-formula">
+            Rumus: {fmtInt(res.annualHm)} jam × {fmtInt(res.uio)} unit ÷ {fmtInt(part!.freq_replacement_hm)} HM × {fmtDec(part!.qty_per_unit, 2)} pcs ={" "}
+            {fmtDec(part!.freq_replacement_hm > 0 ? (res.annualHm * res.uio * part!.qty_per_unit) / part!.freq_replacement_hm : 0, 1)} → <b>{fmtInt(res.qty)} pcs</b>{" "}
+            × {fmtIDRFull(res.price)} = <b>{fmtIDRFull(res.amount)}</b> setahun
+            {res.customers > 1 && !ov.uio && <span className="muted"> · qty dibulatkan per customer, sama dengan Dashboard</span>}
+          </div>
 
           <details className="calc-months">
             <summary>Rincian per bulan</summary>
@@ -402,7 +391,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                   <tr>
                     <th></th>
                     {MONTH_ORDER.map((m, i) => (
-                      <th key={m} className={months && months.includes(i) ? "sel" : undefined}>
+                      <th key={m} className={sel(i)}>
                         {m.slice(0, 3)}
                       </th>
                     ))}
@@ -412,7 +401,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                   <tr>
                     <td>Qty</td>
                     {Array.from(res.qtyM).map((q, i) => (
-                      <td key={i} className={months && months.includes(i) ? "sel" : undefined}>
+                      <td key={i} className={sel(i)}>
                         {fmtDec(q, 1)}
                       </td>
                     ))}
@@ -420,7 +409,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                   <tr>
                     <td>Market Size (Rp)</td>
                     {Array.from(res.amountM).map((a, i) => (
-                      <td key={i} className={"mono" + (months && months.includes(i) ? " sel" : "")}>
+                      <td key={i} className={"mono " + (sel(i) || "")}>
                         {fmtIDRFull(a)}
                       </td>
                     ))}
@@ -432,10 +421,8 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
         </>
       )}
 
-      <div className="btn-row" style={{ alignItems: "center" }}>
-        <button className="btn btn-primary" onClick={addThis} disabled={!res}>
-          + Tambah part ini ke daftar
-        </button>
+      <div className="calc-actions">
+        {flash && <span className="added-flash">{flash}</span>}
         <button
           className="btn btn-ghost"
           onClick={addAllModel}
@@ -444,7 +431,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
         >
           + Tambah semua part {model} ({fmtInt(partOptions.length)})
         </button>
-        {flash && <span className="added-flash">{flash}</span>}
+        <button className="btn btn-primary" onClick={addThis} disabled={!res}>
+          + Tambah part ini ke daftar
+        </button>
       </div>
     </div>
   );
