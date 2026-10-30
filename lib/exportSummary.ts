@@ -5,27 +5,32 @@ type ExportRow = Record<string, string | number>;
 /** Builds one plain row (Indonesian column headers) per summary item, in
  * the order columns should appear in the exported sheet. */
 function toRow(it: CalcSummaryItem, i: number): ExportRow {
+  const r1 = (n: number | undefined) => (typeof n === "number" ? Math.round(n * 10) / 10 : "");
   return {
     No: i + 1,
     Product: it.product,
     "Model Unit": it.model,
-    "Tahun UIO": it.year ?? "",
-    "Customer Group": it.customerGroup || "Semua",
-    "Customer": it.customerName || "Semua",
     "Part Name": it.partName,
     "Part Number": it.partNumber || "",
-    "Qty / Unit": it.qtyPerUnit,
-    "Pricelist (Rp)": Math.round(it.pricelist),
-    "Frekuensi Ganti (HM)": it.freqReplacementHm,
-    "HM / Hari": it.hmDay,
+    "Tahun UIO": it.year ?? "",
+    "Customer Group": it.customerGroup || "Semua",
+    Customer: it.customerName || "Semua",
+    "Jumlah Customer": it.customers ?? "",
     "UIO (Unit)": it.uio,
-    "Diskon Efektif (%)": Math.round(it.discount * 100),
-    "Annual HM": Math.round(it.annualHm),
-    "Qty Market Size": Math.round(it.qtyMarketSize),
-    "Harga Dipakai (Rp)": Math.round(it.contractPrice),
+    "HM / Day": r1(it.hmDay),
+    "Day / Month": r1(it.dayMonth),
+    "Month / Year": r1(it.monthYear),
+    "Annual HM / Unit": Math.round(it.annualHm),
+    "Frekuensi Ganti (HM)": it.freqReplacementHm,
+    "Qty / Unit": it.qtyPerUnit,
+    "Qty Market Size Setahun": Math.round(it.qtyMarketSize),
+    "Harga per Pcs (Rp)": Math.round(it.contractPrice),
     "Sumber Harga": it.priceSource || "",
-    "Amount Market Size (Rp)": Math.round(it.amountMarketSize),
-    "Ditambahkan": new Date(it.addedAt).toLocaleString("id-ID")
+    "Market Size Setahun (Rp)": Math.round(it.amountMarketSize),
+    Periode: it.period || "setahun",
+    "Qty Periode": r1(it.qtyPeriod ?? it.qtyMarketSize),
+    "Market Size Periode (Rp)": Math.round(it.amountPeriod ?? it.amountMarketSize),
+    Ditambahkan: new Date(it.addedAt).toLocaleString("id-ID")
   };
 }
 
@@ -36,36 +41,18 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
   const XLSX = await import("@e965/xlsx");
 
   const rows: ExportRow[] = items.map(toRow);
-  const total = items.reduce((s, it) => s + (it.amountMarketSize || 0), 0);
+  // Baris TOTAL: semua kolom kosong kecuali total Market Size.
+  const blank: ExportRow = Object.fromEntries(Object.keys(rows[0] ?? {}).map((k) => [k, ""]));
+  const samePeriod = new Set(items.map((it) => it.period || "setahun")).size === 1;
   rows.push({
-    No: "",
-    Product: "",
-    "Model Unit": "",
-    "Tahun UIO": "",
-    "Customer Group": "",
-    "Customer": "",
-    "Part Name": "",
-    "Part Number": "",
-    "Qty / Unit": "",
-    "Pricelist (Rp)": "",
-    "Frekuensi Ganti (HM)": "",
-    "HM / Hari": "",
-    "UIO (Unit)": "",
-    "Diskon Efektif (%)": "",
-    "Annual HM": "",
-    "Qty Market Size": "",
-    "Harga Dipakai (Rp)": "",
+    ...blank,
     "Sumber Harga": "TOTAL",
-    "Amount Market Size (Rp)": Math.round(total),
-    "Ditambahkan": ""
+    "Market Size Setahun (Rp)": Math.round(items.reduce((s, it) => s + (it.amountMarketSize || 0), 0)),
+    "Market Size Periode (Rp)": samePeriod ? Math.round(items.reduce((s, it) => s + (it.amountPeriod ?? it.amountMarketSize ?? 0), 0)) : "periode berbeda"
   });
 
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws["!cols"] = [
-    { wch: 4 }, { wch: 12 }, { wch: 16 }, { wch: 9 }, { wch: 22 }, { wch: 26 }, { wch: 28 }, { wch: 16 },
-    { wch: 9 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 9 }, { wch: 12 }, { wch: 12 }, { wch: 16 },
-    { wch: 22 }, { wch: 18 }, { wch: 18 }
-  ];
+  ws["!cols"] = [4, 12, 16, 28, 18, 9, 22, 26, 10, 9, 9, 10, 11, 13, 14, 9, 14, 16, 30, 20, 12, 10, 20, 18].map((wch) => ({ wch }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Summary Kalkulator");
 

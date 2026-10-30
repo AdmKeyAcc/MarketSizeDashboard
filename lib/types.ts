@@ -52,20 +52,32 @@ export type CalcSummaryItem = {
   partName: string;
   partNumber: string | null;
   qtyPerUnit: number;
-  pricelist: number;
   freqReplacementHm: number;
+  /** Rata-rata per unit yang dipakai (otomatis dari Data UIO atau diisi manual). */
   hmDay: number;
+  dayMonth?: number;
+  monthYear?: number;
   uio: number;
-  discount: number;
+  /** Jumlah customer yang dihitung (0 = rumus sederhana / tidak ada unit). */
+  customers?: number;
+  /** Annual HM rata-rata per unit. */
   annualHm: number;
   qtyMarketSize: number;
+  /** Harga per pcs yang dipakai (rata-rata tertimbang kalau harga beda per customer group). */
   contractPrice: number;
   amountMarketSize: number;
+  /** Periode (mis. "setahun", "Maret", "3 bulan") dan Market Size / Qty periode itu. */
+  period?: string;
+  amountPeriod?: number;
+  qtyPeriod?: number;
   /** Konteks perhitungan (opsional — item lama di localStorage tidak punya). */
   year?: number | null;
   customerGroup?: string;
   customerName?: string;
   priceSource?: string;
+  /** Kolom lama (sebelum update-14) — tidak dipakai lagi. */
+  pricelist?: number;
+  discount?: number;
 };
 
 /** Satu baris histori: direkam otomatis setiap kali upload kalkulator
