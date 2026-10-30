@@ -23,7 +23,8 @@ function AutoField({
   autoNote,
   step = 1,
   decimals = 1,
-  money = false
+  money = false,
+  className = ""
 }: {
   label: string;
   auto: number;
@@ -33,10 +34,11 @@ function AutoField({
   step?: number;
   decimals?: number;
   money?: boolean;
+  className?: string;
 }) {
   const shown = value ?? Math.round(auto * 10 ** decimals) / 10 ** decimals;
   return (
-    <div className="calc-field">
+    <div className={`calc-field ${className}`}>
       <label>{label}</label>
       <input
         type="number"
@@ -88,10 +90,8 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
 
   // ---- konteks (sama dengan filter Dashboard / Summary) ----
   const uioYears = useMemo(() => uioYearsAvailable(data.uioUnits), [data.uioUnits]);
-  const [year, setYear] = useState<number | null>(null);
-  useEffect(() => {
-    if (year === null || !uioYears.includes(year)) setYear(uioYears.length ? uioYears[uioYears.length - 1] : null);
-  }, [uioYears, year]);
+  // Hitung cepat: selalu populasi UIO terbaru (semua unit s/d tahun terakhir di Data UIO).
+  const year = uioYears.length ? uioYears[uioYears.length - 1] : null;
 
   // ---- data part (bisa diedit; kosong = nilai Master Part) ----
   const [qtyEdit, setQtyEdit] = useState<NumOv>(null);
@@ -223,32 +223,19 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
       {basePart && res && (
         <>
           <div className="calc-grid calc-grid-inputs">
-            <div className="calc-field">
-              <label>Tahun (UIO s/d)</label>
-              <select value={year ?? ""} onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}>
-                {uioYears.length === 0 && <option value="">–</option>}
-                {uioYears.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-              <div className="calc-hint">unit dengan Year Inv s/d tahun ini</div>
-            </div>
-            <AutoField label="Qty per unit" auto={basePart.qty_per_unit} value={qtyEdit} onChange={setQtyEdit} decimals={2} autoNote="dari Master Part" />
-            <AutoField label="Frekuensi ganti (HM)" auto={basePart.freq_replacement_hm} value={freqEdit} onChange={setFreqEdit} decimals={0} autoNote="dari Master Part" />
-            <AutoField label="Harga per pcs (Rp)" auto={res.priceAuto} value={ov.price ?? null} onChange={setO("price")} decimals={0} money autoNote={priceNote} />
-
-            <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`Data UIO · ${fmtInt(res.customers)} customer`} />
+            <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`Data UIO${year !== null ? ` s/d ${year}` : ""} · ${fmtInt(res.customers)} customer`} />
             <AutoField label="HM / Day" auto={res.avg.hmDay} value={ov.hmDay ?? null} onChange={setO("hmDay")} step={0.5} autoNote={noUnits ? "Master Part / default" : "rata-rata Data UIO"} />
             <AutoField label="Day / Month" auto={res.avg.dayMonth} value={ov.dayMonth ?? null} onChange={setO("dayMonth")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
             <AutoField label="Month / Year" auto={res.avg.monthYear} value={ov.monthYear ?? null} onChange={setO("monthYear")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
+
+            <AutoField label="Qty per unit" auto={basePart.qty_per_unit} value={qtyEdit} onChange={setQtyEdit} decimals={2} autoNote="dari Master Part" />
+            <AutoField label="Frekuensi ganti (HM)" auto={basePart.freq_replacement_hm} value={freqEdit} onChange={setFreqEdit} decimals={0} autoNote="dari Master Part" />
+            <AutoField label="Harga per pcs (Rp)" className="span-2" auto={res.priceAuto} value={ov.price ?? null} onChange={setO("price")} decimals={0} money autoNote={priceNote} />
           </div>
 
           {noUnits && !ov.uio && (
             <div className="hier-note" style={{ margin: "4px 0 12px" }}>
-              Tidak ada unit {product} {model} di Data UIO untuk pilihan ini (s/d {year ?? "–"}), jadi Market Size = 0. Ubah tahun / customer, atau isi UIO
-              manual untuk simulasi.
+              Tidak ada unit {product} {model} di Data UIO, jadi Market Size = 0. Isi UIO manual untuk simulasi.
             </div>
           )}
 
@@ -374,7 +361,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                   <th>Model</th>
                   <th>Part Name</th>
                   <th>Part Number</th>
-                  <th>Tahun</th>
                   <th>UIO</th>
                   <th>Annual HM / unit</th>
                   <th>Frek (HM)</th>
@@ -392,7 +378,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                     <td>{it.model}</td>
                     <td>{it.partName}</td>
                     <td>{it.partNumber || "–"}</td>
-                    <td>{it.year ?? "–"}</td>
                     <td>{fmtInt(it.uio)}</td>
                     <td>{fmtInt(it.annualHm)}</td>
                     <td>{fmtInt(it.freqReplacementHm)}</td>
@@ -410,7 +395,7 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={11} style={{ textAlign: "right", fontWeight: 600 }}>
+                  <td colSpan={10} style={{ textAlign: "right", fontWeight: 600 }}>
                     Total
                   </td>
                   <td className="mono" style={{ fontWeight: 600 }}>

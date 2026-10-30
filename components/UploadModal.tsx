@@ -64,7 +64,7 @@ function DownloadButton({ kind, busy, label = "⬇ Download data saat ini", titl
   return (
     <button
       type="button"
-      className="link-btn"
+      className="slot-btn"
       disabled={busy || state === "loading"}
       title={title ?? "Unduh isi database saat ini dalam format template — bisa diedit lalu di-upload lagi."}
       onClick={async () => {
@@ -163,8 +163,8 @@ function ClearControl({ count, countUnit, busy, onClear }: { count: number; coun
   if (count === 0) return null;
   if (!open) {
     return (
-      <button type="button" className="link-btn danger" disabled={busy} onClick={() => setOpen(true)}>
-        Hapus data
+      <button type="button" className="slot-btn danger" disabled={busy} onClick={() => setOpen(true)}>
+        ✕ Hapus data
       </button>
     );
   }
@@ -215,19 +215,20 @@ function ModeChoice({ name, mode, onChange, matchBy, busy }: { name: string; mod
     <div className="upload-mode">
       <div className="upload-mode-opts" role="radiogroup" aria-label="Cara upload">
         <span className="upload-mode-label">Cara upload:</span>
-        <label className={mode === "merge" ? "on" : ""}>
+        <label
+          className={mode === "merge" ? "on" : ""}
+          title={`Dicocokkan per ${matchBy}: yang sudah ada diperbarui, yang baru ditambahkan, data lain tidak diubah.`}
+        >
           <input type="radio" name={name} checked={mode === "merge"} disabled={busy} onChange={() => onChange("merge")} />
           Tambah / perbarui
         </label>
-        <label className={mode === "replace" ? "on replace" : ""}>
+        <label
+          className={mode === "replace" ? "on replace" : ""}
+          title="Isi file menjadi data lengkap: data lama yang tidak ada di file dihapus (setelah isi file tersimpan)."
+        >
           <input type="radio" name={name} checked={mode === "replace"} disabled={busy} onChange={() => onChange("replace")} />
           Ganti semua
         </label>
-      </div>
-      <div className="upload-mode-hint">
-        {mode === "merge"
-          ? `Dicocokkan per ${matchBy}: yang sudah ada diperbarui, yang baru ditambahkan, data lain tidak diubah.`
-          : "File dianggap berisi data lengkap: data lama yang tidak ada di file dihapus (setelah isi file tersimpan)."}
       </div>
     </div>
   );
@@ -329,9 +330,11 @@ function Slot({
             e.target.value = "";
           }}
         />
+      </div>
+      <div className="slot-actions">
         {onTemplate && (
-          <button className="link-btn" onClick={onTemplate}>
-            Unduh template
+          <button type="button" className="slot-btn" onClick={onTemplate}>
+            ⤓ Unduh template
           </button>
         )}
         {download && count > 0 && <DownloadButton kind={download} busy={busy} />}
@@ -595,10 +598,10 @@ export default function UploadModal({
                 `${dataUntil ? ` · data sampai ${dataUntil.toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}`
               : "● Belum pernah sinkron"}
           </div>
-          <div className="upload-row">
+          <div className="slot-actions">
             <button
               type="button"
-              className="link-btn small"
+              className="slot-btn"
               disabled={busy}
               title="Tidak wajib — sinkron otomatis jalan tiap jam. Pakai kalau baru input di web Sales dan ingin langsung terlihat."
               onClick={() => run(setStSync, () => syncActualSales("recent", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
