@@ -47,17 +47,6 @@ const fmtDate = (iso: string | null | undefined) => {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 };
 
-async function verifyPin(pin: string): Promise<string | null> {
-  try {
-    const res = await fetch("/api/admin/verify-pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
-    if (res.ok) return null;
-    const j = await res.json().catch(() => ({}));
-    return j.error || "PIN tidak bisa dicek.";
-  } catch (err) {
-    return (err as Error).message || "Gagal terhubung ke server.";
-  }
-}
-
 /** Tombol "Download data saat ini" — isi database terbaru, format sama dengan template upload. */
 function DownloadButton({ kind, busy, label = "⬇ Download data saat ini", title }: { kind: DownloadKind; busy: boolean; label?: string; title?: string }) {
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
@@ -373,8 +362,6 @@ export default function UploadModal({
     parts: "merge"
   });
   const setMode = (k: keyof typeof modes) => (m: Mode) => setModes((prev) => ({ ...prev, [k]: m }));
-  const [advOpen, setAdvOpen] = useState(false);
-  const [syncPin, setSyncPin] = useState("");
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
@@ -611,48 +598,16 @@ export default function UploadModal({
             {counts.actualSales > 0 && (
               <DownloadButton kind="actual" busy={busy} title="Unduh Actual per tahun × customer × product (dengan rincian bulan) untuk dicocokkan dengan web Sales." />
             )}
-            <button type="button" className="link-btn small muted-btn" onClick={() => setAdvOpen((v) => !v)}>
-              {advOpen ? "▾" : "▸"} Lanjutan
+            <button
+              type="button"
+              className="slot-btn"
+              disabled={busy}
+              title="Mengisi ulang Actual semua tahun sejak 2018 (beberapa menit). Perlu setelah update aturan/rumus atau kalau data lama di web Sales dikoreksi."
+              onClick={() => run(setStSync, () => syncActualSales("all", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+            >
+              ⟳ Sinkron ulang semua tahun
             </button>
           </div>
-          {advOpen && (
-            <div className="sync-advanced">
-              <div>
-                <b>Sinkron ulang semua tahun</b> — mengisi ulang Actual sejak 2018 (beberapa menit). Perlu hanya setelah update
-                rumus/aturan (mis. cabang yang dikecualikan diubah) atau data lama di web Sales dikoreksi.
-              </div>
-              <div className="upload-row">
-                <input
-                  type="password"
-                  className="pin-input"
-                  placeholder="PIN admin"
-                  value={syncPin}
-                  disabled={busy}
-                  onChange={(e) => setSyncPin(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="danger-btn"
-                  disabled={busy || !syncPin}
-                  onClick={() =>
-                    run(
-                      setStSync,
-                      async () => {
-                        setStSync({ text: "Memeriksa PIN…", ok: true });
-                        const err = await verifyPin(syncPin);
-                        if (err) return { ok: false, message: err };
-                        setSyncPin("");
-                        return syncActualSales("all", (t) => setStSync({ text: t, ok: true }));
-                      },
-                      (m) => `Berhasil. ${m}`
-                    )
-                  }
-                >
-                  Sinkron ulang semua tahun
-                </button>
-              </div>
-            </div>
-          )}
           {stSync && <div className={"upload-status " + (stSync.ok ? "ok" : "err")}>{stSync.text}</div>}
         </div>
       </div>
