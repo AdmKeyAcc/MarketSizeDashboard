@@ -5,9 +5,7 @@ import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
 import { fmtIDRFull, fmtInt, uioYearsAvailable, uniq } from "@/lib/calculations";
 import { calcPart, scopeCustomers, type CalcOverrides, type CalcResult } from "@/lib/calcEngine";
-import { periodOf, sumPeriod } from "@/lib/period";
 import { exportSummaryToExcel } from "@/lib/exportSummary";
-import { MultiSelectField } from "@/components/FilterBar";
 import { MONTH_ORDER, type CalcSummaryItem, type Part } from "@/lib/types";
 
 type SummaryState = ReturnType<typeof useCalculatorSummary>;
@@ -94,31 +92,14 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   useEffect(() => {
     if (year === null || !uioYears.includes(year)) setYear(uioYears.length ? uioYears[uioYears.length - 1] : null);
   }, [uioYears, year]);
-  const [bulan, setBulan] = useState<string[]>([]);
-  const [group, setGroup] = useState("");
-  const [custName, setCustName] = useState("");
-  const groupOpts = useMemo(() => uniq(data.uioUnits.map((u) => (u.customer_group || "").trim())).filter(Boolean).sort(), [data.uioUnits]);
-  const nameOpts = useMemo(
-    () =>
-      uniq(
-        data.uioUnits
-          .filter((u) => !group || (u.customer_group || "").trim().toUpperCase() === group.toUpperCase())
-          .map((u) => (u.customer_name || "").trim())
-      )
-        .filter(Boolean)
-        .sort(),
-    [data.uioUnits, group]
-  );
 
   // ---- data part (bisa diedit; kosong = nilai Master Part) ----
-  const [pnEdit, setPnEdit] = useState<string | null>(null);
   const [qtyEdit, setQtyEdit] = useState<NumOv>(null);
   const [freqEdit, setFreqEdit] = useState<NumOv>(null);
   // ---- jam operasi / UIO / harga (kosong = otomatis) ----
   const [ov, setOv] = useState<CalcOverrides>({});
   const setO = (k: keyof CalcOverrides) => (v: NumOv) => setOv((p) => ({ ...p, [k]: v }));
   useEffect(() => {
-    setPnEdit(null);
     setQtyEdit(null);
     setFreqEdit(null);
     setOv({});
@@ -126,29 +107,18 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
 
   const part: Part | undefined = basePart && {
     ...basePart,
-    part_number: pnEdit ?? basePart.part_number,
     qty_per_unit: qtyEdit ?? basePart.qty_per_unit,
     freq_replacement_hm: freqEdit ?? basePart.freq_replacement_hm
   };
-  const partEdited = pnEdit !== null || qtyEdit !== null || freqEdit !== null;
-
-  const custs = useMemo(
-    () => scopeCustomers(data.uioUnits, data.priceList, { group, customer: custName }),
-    [data.uioUnits, data.priceList, group, custName]
-  );
-  const scope = { year, group, customer: custName };
+  // Semua customer (hitung per customer, sama dengan total Dashboard); harga otomatis per Customer Group masing-masing.
+  const custs = useMemo(() => scopeCustomers(data.uioUnits, data.priceList, { group: "", customer: "" }), [data.uioUnits, data.priceList]);
+  const scope = { year, group: "", customer: "" };
   const res: CalcResult | null = useMemo(
     () => (part ? calcPart(part, custs, data.priceList, scope, ov) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [part?.part_number, part?.qty_per_unit, part?.freq_replacement_hm, part?.hm_day, part?.product, part?.model, custs, data.priceList, year, group, custName, ov]
+    [part?.part_number, part?.qty_per_unit, part?.freq_replacement_hm, part?.hm_day, part?.product, part?.model, custs, data.priceList, year, ov]
   );
 
-  const months = periodOf(0, bulan, { year: null, month: null }).months;
-  const nMonths = months ? months.length : 12;
-  const periodLabel = months ? (months.length === 1 ? MONTH_ORDER[months[0]] : `${months.length} bulan`) : "setahun";
-  const msPeriod = res ? sumPeriod(res.amountM, months, res.amount) : 0;
-  const qtyPeriod = res ? sumPeriod(res.qtyM, months, res.qty) : 0;
-  const scopeLabel = custName || group || "Semua customer";
 
   const [flash, setFlash] = useState("");
   useEffect(() => {
@@ -174,12 +144,10 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
       qtyMarketSize: r.qty,
       contractPrice: r.price,
       amountMarketSize: r.amount,
-      period: periodLabel,
-      amountPeriod: sumPeriod(r.amountM, months, r.amount),
-      qtyPeriod: sumPeriod(r.qtyM, months, r.qty),
+      period: "setahun",
+      amountPeriod: r.amount,
+      qtyPeriod: r.qty,
       year,
-      customerGroup: group,
-      customerName: custName,
       priceSource: r.priceLabel
     };
   }
@@ -211,12 +179,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
     ) as string[];
     return kinds.length > 1 ? `Rata-rata · ${kinds.join(", ")}` : res.priceLabel;
   })();
-  const resetPart = () => {
-    setPnEdit(null);
-    setQtyEdit(null);
-    setFreqEdit(null);
-  };
-  const sel = (i: number) => (months && months.includes(i) ? "sel" : undefined);
 
   return (
     <div className="panel calc">
@@ -256,86 +218,25 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             ))}
           </select>
         </div>
-
-        <div className="calc-field">
-          <label>Tahun (UIO s/d)</label>
-          <select value={year ?? ""} onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}>
-            {uioYears.length === 0 && <option value="">–</option>}
-            {uioYears.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="calc-field calc-field-multi">
-          <MultiSelectField
-            label="Bulan"
-            values={bulan}
-            options={state.options.bulan}
-            onChange={setBulan}
-            info="Kosong = setahun. Market Size bulan terpilih mengikuti hari kerja kalender; unit baru dihitung mulai bulan belinya (Month Inv)."
-          />
-        </div>
-        <div className="calc-field">
-          <label>Customer Group</label>
-          <select
-            value={group}
-            onChange={(e) => {
-              setGroup(e.target.value);
-              setCustName("");
-            }}
-          >
-            <option value="">Semua</option>
-            {groupOpts.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="calc-field">
-          <label>Customer</label>
-          <select value={custName} onChange={(e) => setCustName(e.target.value)}>
-            <option value="">Semua</option>
-            {nameOpts.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       {basePart && res && (
         <>
           <div className="calc-grid calc-grid-inputs">
             <div className="calc-field">
-              <label>Part Number</label>
-              <input type="text" className={pnEdit !== null ? "manual" : undefined} value={part!.part_number || ""} onChange={(e) => setPnEdit(e.target.value)} />
-              <div className="calc-hint">
-                {partEdited ? (
-                  <>
-                    Diubah dari Master Part{" "}
-                    <button type="button" className="link-btn" onClick={resetPart}>
-                      kembalikan
-                    </button>
-                  </>
-                ) : (
-                  "dari Master Part"
-                )}
-              </div>
+              <label>Tahun (UIO s/d)</label>
+              <select value={year ?? ""} onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}>
+                {uioYears.length === 0 && <option value="">–</option>}
+                {uioYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <div className="calc-hint">unit dengan Year Inv s/d tahun ini</div>
             </div>
-            <div className="calc-field">
-              <label>Qty per unit</label>
-              <input type="number" min={0} className={qtyEdit !== null ? "manual" : undefined} value={part!.qty_per_unit} onChange={(e) => setQtyEdit(Number(e.target.value) || 0)} />
-              <div className="calc-hint">dari Master Part</div>
-            </div>
-            <div className="calc-field">
-              <label>Frekuensi ganti (HM)</label>
-              <input type="number" min={1} className={freqEdit !== null ? "manual" : undefined} value={part!.freq_replacement_hm} onChange={(e) => setFreqEdit(Number(e.target.value) || 1)} />
-              <div className="calc-hint">dari Master Part</div>
-            </div>
+            <AutoField label="Qty per unit" auto={basePart.qty_per_unit} value={qtyEdit} onChange={setQtyEdit} decimals={2} autoNote="dari Master Part" />
+            <AutoField label="Frekuensi ganti (HM)" auto={basePart.freq_replacement_hm} value={freqEdit} onChange={setFreqEdit} decimals={0} autoNote="dari Master Part" />
             <AutoField label="Harga per pcs (Rp)" auto={res.priceAuto} value={ov.price ?? null} onChange={setO("price")} decimals={0} money autoNote={priceNote} />
 
             <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`Data UIO · ${fmtInt(res.customers)} customer`} />
@@ -346,7 +247,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
 
           {noUnits && !ov.uio && (
             <div className="hier-note" style={{ margin: "4px 0 12px" }}>
-              Tidak ada unit {product} {model} di Data UIO untuk pilihan ini (s/d {year ?? "–"}, {scopeLabel}), jadi Market Size = 0. Ubah tahun / customer, atau isi UIO
+              Tidak ada unit {product} {model} di Data UIO untuk pilihan ini (s/d {year ?? "–"}), jadi Market Size = 0. Ubah tahun / customer, atau isi UIO
               manual untuk simulasi.
             </div>
           )}
@@ -359,9 +260,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
               <div className="cs-sub">jam operasi setahun</div>
             </div>
             <div className="calc-stat">
-              <div className="cs-label">Qty {periodLabel}</div>
-              <div className="cs-value">{months ? fmtDec(qtyPeriod, 1) : fmtInt(res.qty)} pcs</div>
-              <div className="cs-sub">{months ? `setahun ${fmtInt(res.qty)} pcs` : `≈ ${fmtDec(res.qty / 12, 1)} pcs / bulan`}</div>
+              <div className="cs-label">Qty setahun</div>
+              <div className="cs-value">{fmtInt(res.qty)} pcs</div>
+              <div className="cs-sub">≈ {fmtDec(res.qty / 12, 1)} pcs / bulan</div>
             </div>
             <div className="calc-stat">
               <div className="cs-label">Harga per pcs</div>
@@ -369,11 +270,9 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
               <div className="cs-sub">{ov.price != null ? "diisi manual" : res.customers > 1 ? "rata-rata tertimbang" : res.priceLabel}</div>
             </div>
             <div className="calc-stat main">
-              <div className="cs-label">Market Size {periodLabel}</div>
-              <div className="cs-value">{fmtIDRFull(msPeriod)}</div>
-              <div className="cs-sub">
-                {months ? `setahun ${fmtIDRFull(res.amount)}` : `≈ ${fmtIDRFull(msPeriod / nMonths)} / bulan`}
-              </div>
+              <div className="cs-label">Market Size setahun</div>
+              <div className="cs-value">{fmtIDRFull(res.amount)}</div>
+              <div className="cs-sub">≈ {fmtIDRFull(res.amount / 12)} / bulan</div>
             </div>
           </div>
           <div className="calc-formula">
@@ -391,7 +290,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                   <tr>
                     <th></th>
                     {MONTH_ORDER.map((m, i) => (
-                      <th key={m} className={sel(i)}>
+                      <th key={m}>
                         {m.slice(0, 3)}
                       </th>
                     ))}
@@ -401,7 +300,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                   <tr>
                     <td>Qty</td>
                     {Array.from(res.qtyM).map((q, i) => (
-                      <td key={i} className={sel(i)}>
+                      <td key={i}>
                         {fmtDec(q, 1)}
                       </td>
                     ))}
@@ -409,7 +308,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
                   <tr>
                     <td>Market Size (Rp)</td>
                     {Array.from(res.amountM).map((a, i) => (
-                      <td key={i} className={"mono " + (sel(i) || "")}>
+                      <td key={i} className="mono">
                         {fmtIDRFull(a)}
                       </td>
                     ))}
@@ -443,8 +342,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
   const { items, removeItem, clearAll } = summaryState;
   const [exporting, setExporting] = useState(false);
   const total = items.reduce((s, it) => s + (it.amountMarketSize || 0), 0);
-  const totalPeriod = items.reduce((s, it) => s + (it.amountPeriod ?? it.amountMarketSize ?? 0), 0);
-  const samePeriod = new Set(items.map((it) => it.period || "setahun")).size === 1;
 
   async function handleExport() {
     if (items.length === 0 || exporting) return;
@@ -478,7 +375,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                   <th>Part Name</th>
                   <th>Part Number</th>
                   <th>Tahun</th>
-                  <th>Customer</th>
                   <th>UIO</th>
                   <th>Annual HM / unit</th>
                   <th>Frek (HM)</th>
@@ -486,8 +382,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                   <th>Qty setahun</th>
                   <th>Harga</th>
                   <th>Market Size setahun</th>
-                  <th>Periode</th>
-                  <th>Market Size periode</th>
                   <th></th>
                 </tr>
               </thead>
@@ -499,7 +393,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                     <td>{it.partName}</td>
                     <td>{it.partNumber || "–"}</td>
                     <td>{it.year ?? "–"}</td>
-                    <td>{it.customerName || it.customerGroup || "Semua"}</td>
                     <td>{fmtInt(it.uio)}</td>
                     <td>{fmtInt(it.annualHm)}</td>
                     <td>{fmtInt(it.freqReplacementHm)}</td>
@@ -507,8 +400,6 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
                     <td>{fmtInt(it.qtyMarketSize)}</td>
                     <td title={it.priceSource || ""}>{fmtIDRFull(it.contractPrice)}</td>
                     <td className="mono">{fmtIDRFull(it.amountMarketSize)}</td>
-                    <td>{it.period || "setahun"}</td>
-                    <td className="mono">{fmtIDRFull(it.amountPeriod ?? it.amountMarketSize)}</td>
                     <td>
                       <button className="row-remove-btn" title="Hapus dari daftar" onClick={() => removeItem(it.id)}>
                         ✕
@@ -519,15 +410,11 @@ function AddedPartsSummary({ summaryState }: { summaryState: SummaryState }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={12} style={{ textAlign: "right", fontWeight: 600 }}>
+                  <td colSpan={11} style={{ textAlign: "right", fontWeight: 600 }}>
                     Total
                   </td>
                   <td className="mono" style={{ fontWeight: 600 }}>
                     {fmtIDRFull(total)}
-                  </td>
-                  <td></td>
-                  <td className="mono" style={{ fontWeight: 600 }} title={samePeriod ? "" : "Periode antar baris berbeda"}>
-                    {samePeriod ? fmtIDRFull(totalPeriod) : "periode berbeda"}
                   </td>
                   <td></td>
                 </tr>

@@ -13,8 +13,6 @@ function toRow(it: CalcSummaryItem, i: number): ExportRow {
     "Part Name": it.partName,
     "Part Number": it.partNumber || "",
     "Tahun UIO": it.year ?? "",
-    "Customer Group": it.customerGroup || "Semua",
-    Customer: it.customerName || "Semua",
     "Jumlah Customer": it.customers ?? "",
     "UIO (Unit)": it.uio,
     "HM / Day": r1(it.hmDay),
@@ -27,9 +25,6 @@ function toRow(it: CalcSummaryItem, i: number): ExportRow {
     "Harga per Pcs (Rp)": Math.round(it.contractPrice),
     "Sumber Harga": it.priceSource || "",
     "Market Size Setahun (Rp)": Math.round(it.amountMarketSize),
-    Periode: it.period || "setahun",
-    "Qty Periode": r1(it.qtyPeriod ?? it.qtyMarketSize),
-    "Market Size Periode (Rp)": Math.round(it.amountPeriod ?? it.amountMarketSize),
     Ditambahkan: new Date(it.addedAt).toLocaleString("id-ID")
   };
 }
@@ -43,16 +38,14 @@ export async function exportSummaryToExcel(items: CalcSummaryItem[]) {
   const rows: ExportRow[] = items.map(toRow);
   // Baris TOTAL: semua kolom kosong kecuali total Market Size.
   const blank: ExportRow = Object.fromEntries(Object.keys(rows[0] ?? {}).map((k) => [k, ""]));
-  const samePeriod = new Set(items.map((it) => it.period || "setahun")).size === 1;
   rows.push({
     ...blank,
     "Sumber Harga": "TOTAL",
-    "Market Size Setahun (Rp)": Math.round(items.reduce((s, it) => s + (it.amountMarketSize || 0), 0)),
-    "Market Size Periode (Rp)": samePeriod ? Math.round(items.reduce((s, it) => s + (it.amountPeriod ?? it.amountMarketSize ?? 0), 0)) : "periode berbeda"
+    "Market Size Setahun (Rp)": Math.round(items.reduce((s, it) => s + (it.amountMarketSize || 0), 0))
   });
 
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws["!cols"] = [4, 12, 16, 28, 18, 9, 22, 26, 10, 9, 9, 10, 11, 13, 14, 9, 14, 16, 30, 20, 12, 10, 20, 18].map((wch) => ({ wch }));
+  ws["!cols"] = [4, 12, 16, 28, 18, 9, 10, 9, 9, 10, 11, 13, 14, 9, 14, 16, 30, 20, 18].map((wch) => ({ wch }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Summary Kalkulator");
 

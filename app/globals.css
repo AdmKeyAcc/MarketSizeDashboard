@@ -324,17 +324,12 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .calc-field input.manual { border-color: var(--blue-600); background: var(--blue-100); }
 .calc-months { margin-top: 10px; font-size: 12.5px; }
 .calc-months summary { cursor: pointer; color: var(--blue-600); font-weight: 500; padding: 4px 0; }
-.calc-months th.sel, .calc-months td.sel { background: var(--blue-100); }
 /* Calculator layout (update-16): grid 4 kolom yang sejajar */
 .calc-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; margin-bottom: 12px; }
 .calc-grid .calc-field { min-width: 0; }
 .calc-grid .span-2 { grid-column: span 2; }
 .calc-grid-inputs { padding-top: 14px; border-top: 1px solid var(--border); }
 .calc-grid .calc-hint { min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.calc-field-multi .field { margin: 0; min-width: 0; max-width: none; flex: none; width: 100%; }
-.calc-field-multi .field label { display: flex; align-items: center; gap: 5px; height: 17px; font-size: 12px; font-weight: 400; color: var(--ink-soft); text-transform: none; letter-spacing: 0; margin-bottom: 4px; }
-.calc-field-multi .info-dot { width: 13px; height: 13px; font-size: 9px; }
-.calc-field-multi .msf-trigger { padding: 7px 9px; border-radius: var(--radius-sm); font-weight: 400; font-size: inherit; line-height: inherit; min-height: 37px; }
 .calc-result { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; margin-top: 4px; }
 .calc-stat { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); min-width: 0; }
 .calc-stat .cs-label { font-size: 11.5px; color: var(--ink-mute); }
