@@ -321,8 +321,6 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .link-btn.muted-btn { color: var(--ink-soft); }
 .sync-advanced { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 12.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
 /* Calculator (update-14) */
-.calc-section-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--ink-soft); margin: 14px 0 8px; }
-.calc-section-sub { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink-mute); }
 .calc-field input.manual { border-color: var(--blue-600); background: var(--blue-100); }
 .calc-field-multi { min-width: 180px; }
 .calc-period { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 10px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; }

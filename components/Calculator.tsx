@@ -206,12 +206,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   return (
     <div className="panel">
       <h2>Kalkulator Market Size — satu part</h2>
-      <div className="calc-note">
-        Rumus dan data sama dengan Dashboard & Summary: dihitung per customer dari Data UIO, harga mengikuti Customer Group masing-masing
-        (kontrak → non kontrak → pricelist). Angka di sini = angka Dashboard untuk filter yang sama. Isi kolom secara manual untuk simulasi.
-      </div>
-
-      <div className="calc-section-title">1. Part</div>
       <div className="calc-row">
         <div className="calc-field">
           <label>Product</label>
@@ -245,7 +239,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
         </div>
       </div>
 
-      <div className="calc-section-title">2. Periode & customer</div>
       <div className="calc-row">
         <div className="calc-field">
           <label>Tahun (UIO sampai tahun)</label>
@@ -299,27 +292,30 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
 
       {basePart && res && (
         <>
-          <div className="calc-section-title">
-            3. Data part <span className="calc-section-sub">dari Master Part</span>
-            {partEdited && (
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => {
-                  setPnEdit(null);
-                  setQtyEdit(null);
-                  setFreqEdit(null);
-                }}
-              >
-                ↺ kembalikan ke Master Part
-              </button>
-            )}
-          </div>
           <div className="calc-row">
             <div className="calc-field">
               <label>Part Number</label>
               <input type="text" className={pnEdit !== null ? "manual" : undefined} value={part!.part_number || ""} onChange={(e) => setPnEdit(e.target.value)} />
-              <div className="calc-hint">Menentukan harga (Data Harga)</div>
+              <div className="calc-hint">
+                {partEdited ? (
+                  <>
+                    Diubah dari Master Part{" "}
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        setPnEdit(null);
+                        setQtyEdit(null);
+                        setFreqEdit(null);
+                      }}
+                    >
+                      kembalikan
+                    </button>
+                  </>
+                ) : (
+                  "Menentukan harga (Data Harga)"
+                )}
+              </div>
             </div>
             <div className="calc-field">
               <label>Qty per unit</label>
@@ -331,9 +327,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             </div>
           </div>
 
-          <div className="calc-section-title">
-            4. Unit & jam operasi <span className="calc-section-sub">rata-rata dari Data UIO {year !== null ? `s/d ${year}` : ""} · {scopeLabel}</span>
-          </div>
           <div className="calc-row">
             <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`${fmtInt(res.customers)} customer`} />
             <AutoField label="HM / Day" auto={res.avg.hmDay} value={ov.hmDay ?? null} onChange={setO("hmDay")} step={0.5} autoNote={noUnits ? "Master Part / default" : "rata-rata Data UIO"} />
@@ -341,7 +334,6 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
             <AutoField label="Month / Year" auto={res.avg.monthYear} value={ov.monthYear ?? null} onChange={setO("monthYear")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
           </div>
 
-          <div className="calc-section-title">5. Harga</div>
           <div className="calc-row" style={{ maxWidth: 520 }}>
             <AutoField
               label="Harga per pcs (Rp)"
