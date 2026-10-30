@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-type Body = { unit?: "info" | "year" | "month"; year?: unknown; month?: unknown; source?: unknown };
+type Body = { unit?: "info" | "year" | "month" | "qty"; year?: unknown; month?: unknown; source?: unknown };
 
 const SOURCE = "Sinkron otomatis dari web Sales";
 const CHUNK = 1000;
@@ -98,6 +98,13 @@ export async function POST(request: Request) {
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
       return NextResponse.json({ error: "Tahun tidak valid." }, { status: 400 });
     }
+    // Ringkasan Actual Qty satu tahun (migration v21) — dipanggil SEKALI setelah semua bulan tahun itu selesai.
+    if (body.unit === "qty") {
+      const rq = await admin.rpc("ms_refresh_actual_qty", { p_year: year });
+      if (rq.error && !isMissingFn(rq.error)) throw new Error(`Gagal meringkas Actual Qty ${year}: ${rq.error.message}`);
+      return NextResponse.json({ ok: true, unit: "qty", year, rows: typeof rq.data === "number" ? rq.data : 0 });
+    }
+
     // Alias product (TYT → TOYOTA, MASSEY FERGUSON → MF, …) dari tabel product_alias.
     applyReferences(await fetchReferences(admin));
     const now = new Date().toISOString();
@@ -180,13 +187,10 @@ export async function POST(request: Request) {
           updated_at: now
         });
       }
-      // Ringkasan Actual Qty (hanya part di Master Part) untuk tahun ini — migration v21; dilewati kalau belum ada.
-      const rq = await admin.rpc("ms_refresh_actual_qty", { p_year: year });
-      if (rq.error && !isMissingFn(rq.error)) throw new Error(`Gagal meringkas Actual Qty ${year}: ${rq.error.message}`);
       return NextResponse.json({ ok: true, unit: "month", year, month, rows: rows.length });
     }
 
-    return NextResponse.json({ error: "unit harus info / year / month." }, { status: 400 });
+    return NextResponse.json({ error: "unit harus info / year / month / qty." }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message || "Sinkron gagal." }, { status: 500 });
   }

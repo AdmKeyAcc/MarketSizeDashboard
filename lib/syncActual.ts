@@ -43,24 +43,55 @@ export async function syncActualSales(mode: "recent" | "all", onProgress?: (t: s
     let yearRows = 0;
     let txRows = 0;
     const totals = new Map<number, number>();
-    const errors: string[] = [];
+    const label = (u: { unit: string; year: number; month?: number }) => (u.unit === "year" ? `Tahun ${u.year}` : u.unit === "qty" ? `Qty ${u.year}` : `${u.month}/${u.year}`);
+    const runUnit = async (u: { unit: "year" | "month" | "qty"; year: number; month?: number }) => {
+      const r = await call<{ rows: number; total?: number }>(u);
+      if (u.unit === "year") {
+        yearRows += r.rows;
+        totals.set(u.year, r.total || 0);
+      } else if (u.unit === "month") txRows += r.rows;
+    };
+    let failed: { unit: "year" | "month"; year: number; month?: number }[] = [];
     const CONCURRENCY = 3;
     for (let i = 0; i < units.length; i += CONCURRENCY) {
       await Promise.all(
         units.slice(i, i + CONCURRENCY).map(async (u) => {
           try {
-            const r = await call<{ rows: number; total?: number }>(u);
-            if (u.unit === "year") {
-              yearRows += r.rows;
-              totals.set(u.year, r.total || 0);
-            } else txRows += r.rows;
-          } catch (err) {
-            errors.push(`${u.unit === "year" ? `Tahun ${u.year}` : `${u.month}/${u.year}`}: ${(err as Error).message}`);
+            await runUnit(u);
+          } catch {
+            failed.push(u);
           }
           done++;
           onProgress?.(`Sinkron ${done} / ${units.length} bagian (tahun ${years[0]}–${years[years.length - 1]})…`);
         })
       );
+    }
+
+    // Bagian yang gagal (mis. database sedang sibuk) dicoba lagi satu per satu, maksimal 2 kali.
+    const errors: string[] = [];
+    for (let attempt = 1; attempt <= 2 && failed.length > 0; attempt++) {
+      const retry = failed;
+      failed = [];
+      for (let k = 0; k < retry.length; k++) {
+        onProgress?.(`Mengulang ${k + 1} / ${retry.length} bagian yang gagal (percobaan ${attempt})…`);
+        await new Promise((r) => setTimeout(r, 1500));
+        try {
+          await runUnit(retry[k]);
+        } catch (err) {
+          if (attempt === 2) errors.push(`${label(retry[k])}: ${(err as Error).message}`);
+          failed.push(retry[k]);
+        }
+      }
+    }
+
+    // Ringkasan Actual Qty: sekali per tahun, setelah semua bulannya selesai (satu per satu supaya database tidak terbebani).
+    for (let k = 0; k < years.length; k++) {
+      onProgress?.(`Meringkas Actual Qty ${years[k]} (${k + 1} / ${years.length})…`);
+      try {
+        await runUnit({ unit: "qty", year: years[k] });
+      } catch (err) {
+        errors.push(`${label({ unit: "qty", year: years[k] })}: ${(err as Error).message}`);
+      }
     }
 
     const lastTotal = totals.get(info.max_year);
