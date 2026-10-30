@@ -14,7 +14,7 @@ import {
   type FilterState,
   type MarketSizeYearRow
 } from "@/lib/calculations";
-import type { ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
+import type { ActualQtyYear, ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
 import { sumPeriod } from "@/lib/period";
 
@@ -64,6 +64,8 @@ export type CustInfo = {
   actualByProduct: Map<string, Map<number, number>>;
   /** Actual per Product → tahun → 12 angka bulanan (hanya kalau data Actual punya rincian bulan, mis. hasil sinkron). */
   actualMonthsByProduct: Map<string, Map<number, Float64Array>>;
+  /** Actual Qty (hanya part di Master Part) per Product → tahun → { total, 12 bulan }. */
+  actualQtyByProduct: Map<string, Map<number, { qty: number; m: Float64Array | null }>>;
   units: UioUnit[];
   /** Ejaan Customer Group di Data Harga (harga kontrak) kalau group ini punya harga kontrak. */
   priceGroup: string;
@@ -82,7 +84,8 @@ export function buildCustomerIndex(
   customers: Customer[],
   uioUnits: UioUnit[],
   actualYear: ActualSalesYear[],
-  priceList: PriceListEntry[]
+  priceList: PriceListEntry[],
+  actualQty: ActualQtyYear[] = []
 ): CustInfo[] {
   const m = new Map<string, CustInfo>();
   const kaAmount = new Map<string, Map<string, number>>();
@@ -97,7 +100,7 @@ export function buildCustomerIndex(
     let c = m.get(key);
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
       m.set(key, c);
     }
     return c;
@@ -138,6 +141,20 @@ export function buildCustomerIndex(
       if (!k) kaAmount.set(c.key, (k = new Map()));
       k.set(r.ka_type, (k.get(r.ka_type) || 0) + Math.abs(r.amount));
     }
+  });
+  actualQty.forEach((r) => {
+    const c = get(r.customer_group, r.customer_name);
+    if (!c) return;
+    const pk = canonicalProduct(r.product);
+    let bp = c.actualQtyByProduct.get(pk);
+    if (!bp) c.actualQtyByProduct.set(pk, (bp = new Map()));
+    const e = bp.get(r.year) || { qty: 0, m: null as Float64Array | null };
+    e.qty += r.qty;
+    if (Array.isArray(r.qty_by_month) && r.qty_by_month.length === 12) {
+      if (!e.m) e.m = new Float64Array(12);
+      for (let i = 0; i < 12; i++) e.m[i] += Number(r.qty_by_month[i]) || 0;
+    }
+    bp.set(r.year, e);
   });
   m.forEach((c) => {
     // KA Type: dari laporan Actual Sales (yang terbesar kalau satu customer muncul di dua KA Type), selain itu dari Master Customer.
@@ -304,6 +321,17 @@ export type TreeResult = {
 
 /** Actual satu customer × product × tahun untuk periode: `actualMonths` null = total tahun (tahun berjalan: total
  * sampai bulan terakhir data), array = jumlah bulan-bulan itu dari rincian bulanan (0 kalau tidak ada rinciannya). */
+/** Actual Qty customer untuk satu Product & tahun (seluruh tahun, atau jumlah bulan terpilih). */
+export function actualQtyFor(c: CustInfo, pk: string, year: number, actualMonths: number[] | null): number {
+  const e = c.actualQtyByProduct.get(pk)?.get(year);
+  if (!e) return 0;
+  if (!actualMonths) return e.qty;
+  if (!e.m) return 0;
+  let s = 0;
+  for (const m of actualMonths) s += e.m[m] || 0;
+  return s;
+}
+
 export function actualFor(c: CustInfo, pk: string, year: number, actualMonths: number[] | null): number {
   if (!actualMonths) return c.actualByProduct.get(pk)?.get(year) || 0;
   const arr = c.actualMonthsByProduct.get(pk)?.get(year);
@@ -481,7 +509,7 @@ export function marketRowsFromFacts(
     const months = opts.monthsOf(year);
     const actualMonths = opts.actualMonthsOf(year);
     const ok = opts.actualOkOf(year);
-    let ms = 0, qty = 0, actual = 0;
+    let ms = 0, qty = 0, actual = 0, actualQty = 0;
     passed.forEach((c) => {
       (facts?.get(c.key) || []).forEach((f) => {
         ms += sumPeriod(f.msM, months, f.ms);
@@ -492,6 +520,10 @@ export function marketRowsFromFacts(
           if (prodSet && !prodSet.has(pk)) return;
           actual += actualFor(c, pk, year, actualMonths);
         });
+        c.actualQtyByProduct.forEach((_byYear, pk) => {
+          if (prodSet && !prodSet.has(pk)) return;
+          actualQty += actualQtyFor(c, pk, year, actualMonths);
+        });
       }
     });
     return {
@@ -499,7 +531,7 @@ export function marketRowsFromFacts(
       market_size: Math.round(ms),
       market_qty: Math.round(qty),
       actual_sales: Math.round(actual),
-      actual_qty: 0,
+      actual_qty: Math.round(actualQty),
       period_months: months ? months.length : 12,
       actual_comparable: ok
     };

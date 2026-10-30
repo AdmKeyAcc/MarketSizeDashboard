@@ -154,6 +154,18 @@ export type ActualSalesYear = {
   amount_by_month?: number[] | null;
 };
 
+/** Actual Qty per tahun × customer × product (tabel actual_qty_year, migration v21): hanya Part Number yang ada
+ * di Master Part, supaya sebanding dengan Market Size (qty). */
+export type ActualQtyYear = {
+  year: number;
+  customer_group: string;
+  customer_name: string;
+  product: string;
+  qty: number;
+  /** 12 angka Jan–Des. */
+  qty_by_month: number[] | null;
+};
+
 export type DataMeta = {
   /** Data tahun terbaru di Actual Sales tahunan baru sampai bulan ini (null = setahun penuh). */
   actual_year_ytd_year?: number | null;
@@ -197,6 +209,8 @@ export type DashboardData = {
   actualSalesTx: ActualSalesTx[];
   /** Actual Sales tahunan per customer; kosong kalau belum di-upload. */
   actualSalesYear: ActualSalesYear[];
+  /** Actual Qty (hanya part di Master Part); kosong kalau migration v21 belum dijalankan. */
+  actualQtyYear: ActualQtyYear[];
   uioUnits: UioUnit[];
   priceList: PriceListEntry[];
   meta: DataMeta;

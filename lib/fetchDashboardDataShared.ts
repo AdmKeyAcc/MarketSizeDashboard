@@ -8,7 +8,8 @@ import type {
   ActualSalesTx,
   ActualSalesYear,
   UioUnit,
-  PriceListEntry
+  PriceListEntry,
+  ActualQtyYear
 } from "@/lib/types";
 import { buildReferences, type References } from "@/lib/references";
 
@@ -160,8 +161,36 @@ export async function fetchReferences(supabase: SupabaseClient): Promise<Referen
   return buildReferences(aliasRows, kaRows, settingRows);
 }
 
+/** Ringkasan Actual Qty (actual_qty_year, migration v21). Tabel belum ada → kosong. */
+async function fetchActualQtyYear(supabase: SupabaseClient): Promise<ActualQtyYear[]> {
+  const out: ActualQtyYear[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("actual_qty_year")
+      .select("year, customer_group, customer_name, product, qty, qty_by_month")
+      .order("year")
+      .order("customer_group")
+      .order("customer_name")
+      .order("product")
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return [];
+    (data || []).forEach((r: { year: number; customer_group: string | null; customer_name: string | null; product: string; qty: unknown; qty_by_month: unknown }) =>
+      out.push({
+        year: Number(r.year),
+        customer_group: r.customer_group || "",
+        customer_name: r.customer_name || "",
+        product: r.product,
+        qty: Number(r.qty) || 0,
+        qty_by_month: Array.isArray(r.qty_by_month) ? (r.qty_by_month as unknown[]).map((v) => Number(v) || 0) : null
+      })
+    );
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, customers, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references] = await Promise.all([
+  const [parts, customers, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references, actualQtyYear] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<Customer>(supabase, "customers"),
     countActualSalesTx(supabase),
@@ -169,7 +198,8 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchAll<UioUnit>(supabase, "uio_units"),
     fetchAll<PriceListEntry>(supabase, "price_list"),
     fetchAll<{ key: string; updated_at?: string | null; value: { filename?: string | null; mode?: string | null; ytd_year?: number | null; ytd_month?: string | null; synced_at?: string | null; max_date?: string | null } }>(supabase, "app_meta", "key"),
-    fetchReferences(supabase)
+    fetchReferences(supabase),
+    fetchActualQtyYear(supabase)
   ]);
 
   const findMeta = (key: string) => metaRows.find((m) => m.key === key)?.value ?? {};
@@ -206,5 +236,5 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
 
   // actual_sales (bulanan lama) sudah dihapus — Actual dari actual_sales_year (sinkron web Sales).
   const actualSales: ActualSalesRow[] = [];
-  return { parts, customers, actualSales, actualSalesTx, actualSalesYear, uioUnits, priceList, meta, references };
+  return { parts, customers, actualSales, actualSalesTx, actualSalesYear, actualQtyYear, uioUnits, priceList, meta, references };
 }

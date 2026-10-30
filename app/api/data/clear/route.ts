@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       if (r.error) throw r.error;
       deleted = r.count ?? 0;
       await admin.from("app_meta").delete().eq("key", "kalkulator");
+      await admin.rpc("ms_refresh_actual_qty", { p_year: null });
     } else {
       const q = admin.from("price_list").delete({ count: "exact" });
       const r = target === "price_contract" ? await q.eq("price_type", "contract") : await q.neq("price_type", "contract");

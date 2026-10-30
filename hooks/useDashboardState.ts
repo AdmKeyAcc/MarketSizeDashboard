@@ -175,8 +175,8 @@ export function useDashboardState(initialData: DashboardData) {
 
   // ---- satu mesin hitung untuk tabel hierarki, chart, dan KPI: Market Size per customer × Product × Model per tahun ----
   const custIndex = useMemo(
-    () => buildCustomerIndex(realCustomers, data.uioUnits, data.actualSalesYear, data.priceList),
-    [realCustomers, data.uioUnits, data.actualSalesYear, data.priceList]
+    () => buildCustomerIndex(realCustomers, data.uioUnits, data.actualSalesYear, data.priceList, data.actualQtyYear || []),
+    [realCustomers, data.uioUnits, data.actualSalesYear, data.priceList, data.actualQtyYear]
   );
   const factYears = useMemo(() => {
     const ys = new Set<number>();

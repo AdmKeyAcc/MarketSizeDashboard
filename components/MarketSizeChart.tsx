@@ -43,6 +43,8 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
   const actualData = marketSizeYearRows.map((r) => (isQty ? r.actual_qty : r.actual_sales));
   const partialYears = marketSizeYearRows.filter((r) => r.period_months < 12);
   const fmtVal = (v: number) => (isQty ? `${fmtInt(v)} pcs` : fmtIDRFull(v));
+  // Actual Qty berasal dari actual_qty_year (migration v21 + sinkron). Belum ada → beri tahu, bukan nol diam-diam.
+  const noActualQty = isQty && (state.data.actualQtyYear || []).length === 0;
 
   return (
     <div className="panel">
@@ -86,6 +88,17 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
           Belum ada Data UIO atau Actual Sales yang diupload, jadi Market Size per tahun belum bisa dihitung.
         </div>
       ) : (
+        <>
+        {noActualQty && (
+          <div className="hier-note" style={{ margin: "0 0 10px" }}>
+            Actual Qty belum tersedia — jalankan migration v21 lalu klik “Sinkron ulang semua tahun” di menu Upload.
+          </div>
+        )}
+        {isQty && !noActualQty && (
+          <div className="detail-filters-info" style={{ margin: "0 0 8px" }}>
+            Actual Qty = jumlah pcs terjual untuk Part Number yang ada di Master Part (sebanding dengan Market Size qty).
+          </div>
+        )}
         <div className="chart-wrap-tall">
           <Chart
             type="bar"
@@ -94,7 +107,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
               datasets: [
                 {
                   type: "bar" as const,
-                  label: isQty ? "Actual sales (qty)" : "Actual sales",
+                  label: isQty ? "Actual Sales (qty)" : "Actual Sales",
                   data: actualData,
                   backgroundColor: colors.red,
                   borderRadius: 4,
@@ -105,7 +118,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                 },
                 {
                   type: "line" as const,
-                  label: isQty ? "Market size (qty)" : "Market size",
+                  label: isQty ? "Market Size (qty)" : "Market Size",
                   data: marketData,
                   borderColor: colors.blue,
                   backgroundColor: colors.blue,
@@ -142,6 +155,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
             }}
           />
         </div>
+        </>
       )}
     </div>
   );

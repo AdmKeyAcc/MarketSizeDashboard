@@ -61,6 +61,8 @@ export async function POST(request: Request) {
         if (d2.error) throw d2.error;
         removed = (d1.count ?? 0) + (d2.count ?? 0);
       }
+      // Daftar part berubah → Actual Qty (hanya part di Master Part) dihitung ulang. Diabaikan kalau migration v21 belum ada.
+      await supabase.rpc("ms_refresh_actual_qty", { p_year: null });
       const cnt = await supabase.from("parts").select("id", { count: "exact", head: true });
       await supabase.from("app_meta").upsert({
         key: "kalkulator",

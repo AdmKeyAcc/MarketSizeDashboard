@@ -180,6 +180,9 @@ export async function POST(request: Request) {
           updated_at: now
         });
       }
+      // Ringkasan Actual Qty (hanya part di Master Part) untuk tahun ini — migration v21; dilewati kalau belum ada.
+      const rq = await admin.rpc("ms_refresh_actual_qty", { p_year: year });
+      if (rq.error && !isMissingFn(rq.error)) throw new Error(`Gagal meringkas Actual Qty ${year}: ${rq.error.message}`);
       return NextResponse.json({ ok: true, unit: "month", year, month, rows: rows.length });
     }
 
