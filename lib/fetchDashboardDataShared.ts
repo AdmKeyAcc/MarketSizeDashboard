@@ -164,24 +164,32 @@ export async function fetchReferences(supabase: SupabaseClient): Promise<Referen
 /** Ringkasan Actual Qty (actual_qty_year, migration v21). Tabel belum ada → kosong. */
 async function fetchActualQtyYear(supabase: SupabaseClient): Promise<ActualQtyYear[]> {
   const out: ActualQtyYear[] = [];
+  // Kolom Rupiah (migration v23) dibaca kalau sudah ada.
+  const probe = await supabase.from("actual_qty_year").select("amount").limit(1);
+  const cols = probe.error
+    ? "year, customer_group, customer_name, product, qty, qty_by_month"
+    : "year, customer_group, customer_name, product, qty, qty_by_month, amount, amount_by_month";
+  const hasAmount = !probe.error;
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from("actual_qty_year")
-      .select("year, customer_group, customer_name, product, qty, qty_by_month")
+      .select(cols)
       .order("year")
       .order("customer_group")
       .order("customer_name")
       .order("product")
       .range(from, from + PAGE_SIZE - 1);
     if (error) return [];
-    (data || []).forEach((r: { year: number; customer_group: string | null; customer_name: string | null; product: string; qty: unknown; qty_by_month: unknown }) =>
+    ((data || []) as unknown as { year: number; customer_group: string | null; customer_name: string | null; product: string; qty: unknown; qty_by_month: unknown; amount?: unknown; amount_by_month?: unknown }[]).forEach((r) =>
       out.push({
         year: Number(r.year),
         customer_group: r.customer_group || "",
         customer_name: r.customer_name || "",
         product: r.product,
         qty: Number(r.qty) || 0,
-        qty_by_month: Array.isArray(r.qty_by_month) ? (r.qty_by_month as unknown[]).map((v) => Number(v) || 0) : null
+        qty_by_month: Array.isArray(r.qty_by_month) ? (r.qty_by_month as unknown[]).map((v) => Number(v) || 0) : null,
+        amount: hasAmount ? Number(r.amount) || 0 : null,
+        amount_by_month: hasAmount && Array.isArray(r.amount_by_month) ? (r.amount_by_month as unknown[]).map((v) => Number(v) || 0) : null
       })
     );
     if (!data || data.length < PAGE_SIZE) break;

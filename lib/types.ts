@@ -164,6 +164,9 @@ export type ActualQtyYear = {
   qty: number;
   /** 12 angka Jan–Des. */
   qty_by_month: number[] | null;
+  /** Rupiah part-part tsb (migration v23); null kalau kolom belum ada. */
+  amount?: number | null;
+  amount_by_month?: number[] | null;
 };
 
 export type DataMeta = {

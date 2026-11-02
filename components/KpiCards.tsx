@@ -56,8 +56,17 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       <div className="kpi red">
         <div className="kpi-label">Actual Sales</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(act) : "–"}</div>
-        <div className="kpi-sub" title={state.data.actualExcluded.products.length > 0 ? `Tidak dihitung (belum ada Market Size): ${state.data.actualExcluded.products.join(", ")}` : undefined}>
-          {comparable ? `${periodLabel} · produk ber-Master Part` : whyNot}
+        <div
+          className="kpi-sub"
+          title={
+            state.data.actualScope === "part"
+              ? "Hanya penjualan Part Number yang ada di Master Part (sama dengan cakupan Market Size). Penjualan part lain tidak dihitung."
+              : state.data.actualExcluded.products.length > 0
+                ? `Tidak dihitung (belum ada Market Size): ${state.data.actualExcluded.products.join(", ")}`
+                : undefined
+          }
+        >
+          {comparable ? `${periodLabel} · ${state.data.actualScope === "part" ? "part" : "produk"} ber-Master Part` : whyNot}
         </div>
       </div>
       <div className="kpi green">

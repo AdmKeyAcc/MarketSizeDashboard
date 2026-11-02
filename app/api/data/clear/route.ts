@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { adminPinConfigured, pinDelay, pinOk, PIN_NOT_SET } from "@/lib/adminPin";
 
+/** Hitung ulang ringkasan Actual per part (migration v21/v23) per tahun — sekaligus untuk semua tahun bisa kena batas waktu. */
+async function refreshActualPartsAllYears(supabase: ReturnType<typeof getSupabaseAdmin>) {
+  const last = new Date().getFullYear();
+  for (let y = 2015; y <= last; y++) {
+    const r = await supabase.rpc("ms_refresh_actual_qty", { p_year: y });
+    if (r.error) break; // fungsi belum ada (migration belum dijalankan) atau gagal → lewati
+  }
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -46,7 +55,7 @@ export async function POST(request: Request) {
       if (r.error) throw r.error;
       deleted = r.count ?? 0;
       await admin.from("app_meta").delete().eq("key", "kalkulator");
-      await admin.rpc("ms_refresh_actual_qty", { p_year: null });
+      await refreshActualPartsAllYears(admin);
     } else {
       const q = admin.from("price_list").delete({ count: "exact" });
       const r = target === "price_contract" ? await q.eq("price_type", "contract") : await q.neq("price_type", "contract");

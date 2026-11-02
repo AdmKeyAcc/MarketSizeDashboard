@@ -34,9 +34,46 @@ import { useYearFacts } from "@/hooks/useYearFacts";
  * Actual Product lain (mis. IKD, BKT, OIL, battery) tidak punya pasangan Market Size — kalau ikut
  * dijumlahkan, share jadi terlalu tinggi. Disaring sekali di sini supaya KPI, chart, tabel hierarki
  * dan Summary memakai angka yang sama. */
-function comparableActual(data: DashboardData): DashboardData & { actualExcluded: { products: string[]; amount: number } } {
+/**
+ * Actual Sales yang dibandingkan dengan Market Size.
+ *  - Kalau ringkasan Actual per part tersedia (actual_qty_year + kolom Rupiah, migration v23): Actual = penjualan
+ *    HANYA Part Number yang ada di Master Part → cakupan part sama persis dengan Market Size.
+ *    KA Type tetap diambil dari laporan Actual per customer.
+ *  - Kalau belum: Actual per customer × product, hanya product yang ada di Master Part (aturan lama).
+ */
+function comparableActual(
+  data: DashboardData
+): DashboardData & { actualExcluded: { products: string[]; amount: number }; actualScope: "part" | "product" } {
   const msProducts = new Set(data.parts.map((p) => canonicalProduct(p.product)));
-  if (msProducts.size === 0) return { ...data, actualExcluded: { products: [], amount: 0 } };
+  const partRows = (data.actualQtyYear || []).filter((r) => typeof r.amount === "number");
+  if (partRows.length > 0 && msProducts.size > 0) {
+    const kaOf = new Map<string, Map<string, number>>();
+    let totalAll = 0;
+    data.actualSalesYear.forEach((r) => {
+      totalAll += r.amount || 0;
+      if (!r.ka_type) return;
+      const k = custKey(r.customer_group, r.customer_name);
+      let m = kaOf.get(k);
+      if (!m) kaOf.set(k, (m = new Map()));
+      m.set(r.ka_type, (m.get(r.ka_type) || 0) + Math.abs(r.amount || 0));
+    });
+    const topKa = (k: string) => {
+      const m = kaOf.get(k);
+      return m && m.size > 0 ? Array.from(m.entries()).sort((x, y) => y[1] - x[1])[0][0] : null;
+    };
+    const rows: DashboardData["actualSalesYear"] = partRows.map((r) => ({
+      year: r.year,
+      ka_type: topKa(custKey(r.customer_group, r.customer_name)),
+      customer_group: r.customer_group,
+      customer_name: r.customer_name,
+      product: r.product,
+      amount: r.amount || 0,
+      amount_by_month: Array.isArray(r.amount_by_month) && r.amount_by_month.length === 12 ? r.amount_by_month : null
+    }));
+    const kept = rows.reduce((t, r) => t + r.amount, 0);
+    return { ...data, actualSalesYear: rows, actualExcluded: { products: [], amount: Math.max(0, totalAll - kept) }, actualScope: "part" };
+  }
+  if (msProducts.size === 0) return { ...data, actualExcluded: { products: [], amount: 0 }, actualScope: "product" };
   const kept: DashboardData["actualSalesYear"] = [];
   const excluded = new Set<string>();
   let amount = 0;
@@ -48,7 +85,7 @@ function comparableActual(data: DashboardData): DashboardData & { actualExcluded
       amount += r.amount || 0;
     }
   });
-  return { ...data, actualSalesYear: kept, actualExcluded: { products: Array.from(excluded).sort(), amount } };
+  return { ...data, actualSalesYear: kept, actualExcluded: { products: Array.from(excluded).sort(), amount }, actualScope: "product" };
 }
 
 function enrichCustomersFromUio(data: DashboardData): DashboardData {

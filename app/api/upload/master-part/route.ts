@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { chunkedUpsert } from "@/lib/supabase/bulk";
 
+/** Hitung ulang ringkasan Actual per part (migration v21/v23) per tahun — sekaligus untuk semua tahun bisa kena batas waktu. */
+async function refreshActualPartsAllYears(supabase: ReturnType<typeof getSupabaseAdmin>) {
+  const last = new Date().getFullYear();
+  for (let y = 2015; y <= last; y++) {
+    const r = await supabase.rpc("ms_refresh_actual_qty", { p_year: y });
+    if (r.error) break; // fungsi belum ada (migration belum dijalankan) atau gagal → lewati
+  }
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -62,7 +71,7 @@ export async function POST(request: Request) {
         removed = (d1.count ?? 0) + (d2.count ?? 0);
       }
       // Daftar part berubah → Actual Qty (hanya part di Master Part) dihitung ulang. Diabaikan kalau migration v21 belum ada.
-      await supabase.rpc("ms_refresh_actual_qty", { p_year: null });
+      await refreshActualPartsAllYears(supabase);
       const cnt = await supabase.from("parts").select("id", { count: "exact", head: true });
       await supabase.from("app_meta").upsert({
         key: "kalkulator",
