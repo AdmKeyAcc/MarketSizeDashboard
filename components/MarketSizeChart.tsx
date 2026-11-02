@@ -40,7 +40,10 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
   const isQty = marketSizeView === "quantity";
   const labels = marketSizeYearRows.map((r) => String(r.year));
   const marketData = marketSizeYearRows.map((r) => (isQty ? r.market_qty : r.market_size));
-  const actualData = marketSizeYearRows.map((r) => (isQty ? r.actual_qty : r.actual_sales));
+  // Tahun yang data Actual-nya sama sekali tidak punya qty (mis. web Sales 2018–2019 tanpa quantity) → kosong, bukan 0.
+  const qtyYears = new Set((state.data.actualQtyYear || []).filter((r) => r.qty !== 0).map((r) => r.year));
+  const actualData = marketSizeYearRows.map((r) => (isQty ? (qtyYears.has(r.year) ? r.actual_qty : null) : r.actual_sales));
+  const noQtyYears = isQty ? marketSizeYearRows.filter((r) => r.actual_comparable && !qtyYears.has(r.year)).map((r) => r.year) : [];
   const partialYears = marketSizeYearRows.filter((r) => r.period_months < 12);
   const fmtVal = (v: number) => (isQty ? `${fmtInt(v)} pcs` : fmtIDRFull(v));
   // Actual Qty berasal dari actual_qty_year (migration v21 + sinkron). Belum ada → beri tahu, bukan nol diam-diam.
@@ -91,12 +94,13 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
         <>
         {noActualQty && (
           <div className="hier-note" style={{ margin: "0 0 10px" }}>
-            Actual Qty belum tersedia — jalankan migration v21 lalu klik “Sinkron ulang semua tahun” di menu Upload.
+            Actual Qty kosong: belum ada Part Number di Master Part yang cocok dengan kode material di data Sales (Actual Qty hanya
+            menghitung part yang ada di Master Part). Upload Master Part asli — ringkasan dihitung ulang otomatis.
           </div>
         )}
-        {isQty && !noActualQty && (
+        {isQty && !noActualQty && noQtyYears.length > 0 && (
           <div className="detail-filters-info" style={{ margin: "0 0 8px" }}>
-            Actual Qty = jumlah pcs terjual untuk Part Number yang ada di Master Part (sebanding dengan Market Size qty).
+            Actual Qty {noQtyYears.join(", ")} tidak tersedia — data penjualan tahun tersebut di web Sales tidak punya quantity.
           </div>
         )}
         <div className="chart-wrap-tall">
@@ -137,7 +141,7 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
               interaction: { mode: "index", intersect: false },
               plugins: {
                 legend: { position: "bottom", labels: { color: colors.ink, boxWidth: 12, padding: 16 } },
-                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtVal(c.parsed.y as number)}` } }
+                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y == null ? "tidak tersedia" : fmtVal(c.parsed.y as number)}` } }
               },
               scales: {
                 x: { ticks: { color: colors.ink }, grid: { display: false } },
