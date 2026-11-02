@@ -21,7 +21,7 @@ const MAX_LEVELS = 6;
 const WINDOW = 3;
 const CHILD_CAP = 200;
 const NONE = "";
-const DEFAULT_LEVELS: (HierDim | "")[] = ["kaType", "group", "customer", "", "", ""];
+const DEFAULT_LEVELS: (HierDim | "")[] = ["kaType", "", "", "", "", ""];
 
 type FlatRow = { node: TreeNodeM; hasKids: boolean } | { more: number; parent: string; depth: number };
 
