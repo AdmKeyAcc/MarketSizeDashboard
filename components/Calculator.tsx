@@ -175,7 +175,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   const priceNote = (() => {
     if (!res) return "";
     const ps = res.priceSources;
-    const kinds = [ps.contract && `${ps.contract} kontrak`, ps.non_contract && `${ps.non_contract} non kontrak`, ps.pricelist && `${ps.pricelist} pricelist`].filter(
+    const kinds = [ps.contract && `${ps.contract} kontrak`, ps.scpl && `${ps.scpl} SCPL`, ps.non_contract && `${ps.non_contract} non kontrak`, ps.pricelist && `${ps.pricelist} pricelist`].filter(
       Boolean
     ) as string[];
     return kinds.length > 1 ? `Rata-rata · ${kinds.join(", ")}` : res.priceLabel;

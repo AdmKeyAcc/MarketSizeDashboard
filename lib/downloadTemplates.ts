@@ -5,6 +5,8 @@
  * it can actually write cell styles — @e965/xlsx parses styles but silently
  * drops them when writing, so the header row never came out colored. */
 
+import { CONTRACT_PRICE_TYPE_OPTIONS, UIO_PRICE_TYPE_OPTIONS } from "@/lib/priceType";
+
 async function downloadWorkbook(
   sheetName: string,
   rows: Record<string, string | number>[],
@@ -46,7 +48,21 @@ export type SheetSpec = {
   rows: (string | number | null)[][];
   /** Format angka per kolom (indeks kolom → format Excel, mis. "#,##0"). */
   numFmt?: Record<number, string>;
+  /** Dropdown pilihan per kolom (indeks kolom → daftar pilihan), berlaku untuk baris data. */
+  lists?: Record<number, string[]>;
 };
+
+const colLetter = (i: number) => {
+  let n = i + 1, s = "";
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+};
+/** Baris yang diberi dropdown: semua baris data + cadangan untuk baris baru. */
+const LIST_ROWS = 20000;
 
 /** Tulis satu atau beberapa sheet (header berwarna, baris judul dibekukan) lalu unduh. */
 export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
@@ -58,6 +74,20 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
     ws.addRows(sh.rows);
     Object.entries(sh.numFmt || {}).forEach(([i, f]) => {
       ws.getColumn(Number(i) + 1).numFmt = f;
+    });
+    Object.entries(sh.lists || {}).forEach(([i, opts]) => {
+      const col = colLetter(Number(i));
+      const last = Math.max(LIST_ROWS, sh.rows.length + 1000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ws as any).dataValidations.add(`${col}2:${col}${last}`, {
+        type: "list",
+        allowBlank: true,
+        formulae: [`"${opts.join(",")}"`],
+        showErrorMessage: true,
+        errorStyle: "stop",
+        errorTitle: sh.headers[Number(i)],
+        error: `Pilih salah satu: ${opts.join(" / ")}`
+      });
     });
     ws.getRow(1).eachCell((cell) => {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
@@ -77,43 +107,27 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+export const UIO_HEADERS = ["Branch", "Pss Name", "Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Product", "Model", "Serial Number", "Year Inv", "Month Inv", "HM/Day", "Day/Month", "Month/Year"];
+export const UIO_WIDTHS = [14, 18, 14, 28, 22, 18, 14, 14, 16, 20, 10, 11, 10, 11, 12];
+export const UIO_PRICE_COL = 6;
+export const CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Part Number", "Harga"];
+export const CONTRACT_WIDTHS = [14, 28, 22, 18, 14, 20, 16];
+export const CONTRACT_PRICE_COL = 4;
+
 export async function downloadUioTemplate() {
-  // Hanya baris header (tanpa contoh data) — urutan kolom sama dengan tabel
-  // "Detail UIO" di Dashboard. Product wajib terisi; kolom lain boleh kosong.
-  await downloadWorkbook(
-    "Data UIO",
-    [
-      {
-        Branch: "",
-        "Pss Name": "",
-        "Cust. Code": "",
-        "Cust. Name": "",
-        "Cust. Group": "",
-        "Cust. Type": "",
-        Product: "",
-        Model: "",
-        "Serial Number": "",
-        "Year Inv": "",
-        "Month Inv": "",
-        "HM/Day": "",
-        "Day/Month": "",
-        "Month/Year": ""
-      }
-    ],
-    [14, 18, 14, 28, 22, 18, 14, 16, 20, 10, 11, 10, 11, 12],
-    "template_data_uio.xlsx",
-    true
+  // Hanya baris header (tanpa contoh data). Product wajib terisi; kolom lain boleh kosong.
+  // Price Type = dropdown Kontrak / SCPL / Non-Kontrak.
+  await saveWorkbook(
+    [{ name: "Data UIO", headers: UIO_HEADERS, widths: UIO_WIDTHS, rows: [], lists: { [UIO_PRICE_COL]: UIO_PRICE_TYPE_OPTIONS } }],
+    "template_data_uio.xlsx"
   );
 }
 
 export async function downloadContractPriceTemplate() {
-  // Data Harga Kontrak (SCPL) — harga sudah nett. Hanya header.
-  await downloadWorkbook(
-    "Data Harga Kontrak",
-    [{ "Cust. Code": "", "Cust. Name": "", "Cust. Group": "", "Cust. Type": "", "Part Number": "", Harga: "" }],
-    [14, 28, 22, 18, 20, 16],
-    "template_data_harga_kontrak.xlsx",
-    true
+  // Data Harga Kontrak / SCPL — harga sudah nett. Price Type = dropdown Kontrak / SCPL. Hanya header.
+  await saveWorkbook(
+    [{ name: "Data Harga Kontrak", headers: CONTRACT_HEADERS, widths: CONTRACT_WIDTHS, rows: [], numFmt: { 6: "#,##0" }, lists: { [CONTRACT_PRICE_COL]: CONTRACT_PRICE_TYPE_OPTIONS } }],
+    "template_data_harga_kontrak_scpl.xlsx"
   );
 }
 

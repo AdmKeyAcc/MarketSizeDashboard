@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { uioSerialKey } from "@/lib/uioKey";
+import { PRICE_TYPE_LABEL, normPriceType } from "@/lib/priceType";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -9,7 +10,7 @@ export const maxDuration = 60;
 type Row = {
   year?: unknown; product?: unknown; model?: unknown; customer_group?: unknown; customer_name?: unknown; branch?: unknown;
   serial_number?: unknown; pss_name?: unknown; customer_code?: unknown; customer_type?: unknown;
-  hm_day?: unknown; day_month?: unknown; month_year?: unknown; month_inv?: unknown;
+  hm_day?: unknown; day_month?: unknown; month_year?: unknown; month_inv?: unknown; price_type?: unknown;
 };
 type Body = {
   action?: "start" | "rows" | "finish";
@@ -114,13 +115,21 @@ export async function POST(request: Request) {
         hm_day: n(r.hm_day),
         day_month: n(r.day_month),
         month_year: n(r.month_year),
+        price_type: (() => {
+          const t = normPriceType(r.price_type);
+          return t ? PRICE_TYPE_LABEL[t] : null;
+        })(),
         source_filename: s(body.filename),
         uploaded_at: sinceOk ?? now
       });
     });
     const clean = Array.from(byKey.values());
     if (clean.length > 0) {
-      const up = await supabase.from("uio_units").upsert(clean, { onConflict: "dedupe_key" });
+      let up = await supabase.from("uio_units").upsert(clean, { onConflict: "dedupe_key" });
+      // Kolom price_type belum ada (migration v24 belum dijalankan) → simpan tanpa kolom itu.
+      if (up.error && /price_type/i.test(up.error.message || "")) {
+        up = await supabase.from("uio_units").upsert(clean.map(({ price_type: _p, ...r }) => r), { onConflict: "dedupe_key" });
+      }
       if (up.error) throw up.error;
     }
     return NextResponse.json({ ok: true, count: clean.length });

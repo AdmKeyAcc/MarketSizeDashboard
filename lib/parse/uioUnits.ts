@@ -1,5 +1,6 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
+import { PRICE_TYPE_LABEL, normPriceType } from "@/lib/priceType";
 
 /** One row of raw output from the parser — the API route turns this into a
  * uio_units row (adding the dedupe_key, since that needs upload-time logic
@@ -21,6 +22,8 @@ export type UioUnitParsed = {
   hm_day: number | null;
   day_month: number | null;
   month_year: number | null;
+  /** Price Type unit: "Kontrak" / "SCPL" / "Non-Kontrak"; null = kosong (aturan lama). */
+  price_type: string | null;
 };
 
 export type UioUnitsParseResult = {
@@ -31,6 +34,8 @@ export type UioUnitsParseResult = {
   /** Baris dengan tahun di bawah batas awal (minYear) yang dibuang. */
   beforeMinYear: number;
   sheetName: string;
+  /** Semua sheet yang berisi tabel unit (punya kolom Product), dengan jumlah barisnya — untuk pilihan sheet. */
+  sheets: { name: string; rows: number }[];
   /** Hasil pemeriksaan isi file — ditampilkan sebelum data disimpan. */
   validation: UioValidation;
 };
@@ -78,17 +83,54 @@ const COLS = {
   model: ["model", "modelunit", "modeldescription"],
   custGroup: ["custgroup", "customergroup"],
   custName: ["customername", "custname", "name1", "newcustomername", "cn"],
-  branch: ["branchuioconfirm", "branchuioconfirmation", "branch", "cabang", "soff", "salesoffice"],
+  branch: ["branchuioconfirm", "branchuioconfirmation", "branchuio", "branch", "cabang", "soff", "salesoffice"],
   serial: ["serialnumber", "unitserialnumber", "serialnumberunit", "nomorseri"],
   hmDay: ["hmday", "hmperhari"],
-  dayMonth: ["daymonth", "harikerjabulan", "dayspermonth"],
-  monthYear: ["monthyear", "bulantahun", "monthsperyear"]
+  dayMonth: ["daymonth", "activedaysmonth", "harikerjabulan", "dayspermonth"],
+  monthYear: ["monthyear", "bulantahun", "monthsperyear"],
+  priceType: ["pricetype", "tipeharga", "jenisharga", "pricecategory"]
 };
 const COL_LABEL: Record<keyof typeof COLS, string> = {
   year: "Year Inv", month: "Month Inv", product: "Product", model: "Model", custGroup: "Cust. Group",
   custName: "Cust. Name", branch: "Branch", serial: "Serial Number", hmDay: "HM/Day", dayMonth: "Day/Month",
-  monthYear: "Month/Year"
+  monthYear: "Month/Year", priceType: "Price Type"
 };
+
+const ALL_KEYS = new Set(Object.values(COLS).flat());
+
+/** Baca satu sheet sebagai tabel. Judul kolom tidak harus di baris 1: baris judul = baris pertama (dari 20 baris teratas)
+ * yang memuat minimal 3 judul kolom yang dikenal — jadi laporan dengan judul/keterangan di atas tabel tetap terbaca. */
+function readTable(ws: XLSX.WorkSheet): { rows: Record<string, unknown>[]; headerRow: number; hasProduct: boolean } {
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: true });
+  let headerRow = 0;
+  for (let r = 0; r < Math.min(aoa.length, 20); r++) {
+    const hits = (aoa[r] || []).filter((c) => c !== null && ALL_KEYS.has(normKey(String(c)))).length;
+    if (hits >= 3) {
+      headerRow = r;
+      break;
+    }
+  }
+  const head = (aoa[headerRow] || []).map((c, i) => (c === null || String(c).trim() === "" ? `__col${i}` : String(c)));
+  // Judul kolom kembar (mis. dua "Business Sector"): yang pertama dipakai.
+  const seen = new Set<string>();
+  const keys = head.map((h) => {
+    let k = h;
+    while (seen.has(k)) k += "_";
+    seen.add(k);
+    return k;
+  });
+  const rows: Record<string, unknown>[] = [];
+  for (let r = headerRow + 1; r < aoa.length; r++) {
+    const line = aoa[r] || [];
+    const o: Record<string, unknown> = {};
+    keys.forEach((k, i) => (o[k] = line[i] ?? null));
+    rows.push(o);
+  }
+  // Baris kosong di ujung bawah tidak dihitung.
+  while (rows.length > 0 && Object.values(rows[rows.length - 1]).every((v) => v === null || String(v).trim() === "")) rows.pop();
+  const hasProduct = head.some((h) => COLS.product.includes(normKey(h)));
+  return { rows, headerRow, hasProduct };
+}
 
 function normKey(k: string): string {
   return String(k).trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -123,16 +165,23 @@ function str(v: unknown): string | null {
  * "Populasi All Branch" — the population tab is normally the bigger one
  * and the one meant for upload).
  */
-export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: number } = {}): UioUnitsParseResult {
-  let best: { name: string; rows: Record<string, unknown>[] } | null = null;
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: null });
-    if (!best || rows.length > best.rows.length) best = { name, rows };
+export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: number; sheet?: string } = {}): UioUnitsParseResult {
+  const tables = wb.SheetNames.map((name) => ({ name, ...readTable(wb.Sheets[name]) }));
+  const withProduct = tables.filter((t) => t.hasProduct && t.rows.length > 0);
+  const sheets = withProduct.map((t) => ({ name: t.name, rows: t.rows.length }));
+  let best: { name: string; rows: Record<string, unknown>[]; headerRow: number } | null = null;
+  if (opts.sheet) {
+    const t = tables.find((x) => x.name === opts.sheet);
+    if (!t) throw new ParseError(`Sheet "${opts.sheet}" tidak ditemukan.`);
+    best = t;
+  } else {
+    // Sheet dengan baris terbanyak yang punya kolom Product (biasanya tab populasi).
+    for (const t of withProduct.length > 0 ? withProduct : tables) if (!best || t.rows.length > best.rows.length) best = t;
   }
   if (!best || best.rows.length === 0) {
     throw new ParseError("File kosong atau tidak terbaca.");
   }
+  const headerRow = best.headerRow;
 
   const parsed: UioUnitParsed[] = [];
   let skipped = 0;
@@ -158,7 +207,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const has = (f: keyof typeof COLS) => !missingColumns.includes(COL_LABEL[f]);
 
   best.rows.forEach((r, i) => {
-    const rowNo = i + 2; // nomor baris di Excel (baris 1 = judul kolom)
+    const rowNo = i + headerRow + 2; // nomor baris di Excel (judul kolom di baris headerRow + 1)
     const norm: Record<string, unknown> = {};
     Object.keys(r).forEach((k) => {
       norm[normKey(k)] = r[k];
@@ -179,6 +228,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const dayMonth = pick(norm, COLS.dayMonth);
     const monthYear = pick(norm, COLS.monthYear);
     const qty = num(pick(norm, ["invoicedquantity", "invoicedqty"]));
+    const priceTypeRaw = pick(norm, COLS.priceType);
 
     // Baris kosong total (mis. sisa format di bawah tabel) dilewati tanpa dilaporkan.
     if (Object.values(r).every((v) => v === null || v === undefined || String(v).trim() === "")) return;
@@ -250,6 +300,9 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     if (hm === null || hm <= 0 || hm > 24) flag("hm", "HM/Day", "info", "HM/Day kosong/tidak valid (harus 1–24) — dipakai nilai default", rowNo);
     if (dm === null || dm <= 0 || dm > 31) flag("dm", "Day/Month", "info", "Day/Month kosong/tidak valid (harus 1–31) — dipakai nilai default", rowNo);
     if (my === null || my <= 0 || my > 12) flag("my", "Month/Year", "info", "Month/Year kosong/tidak valid (harus 1–12) — dipakai nilai default", rowNo);
+    const pt = normPriceType(priceTypeRaw);
+    if (priceTypeRaw !== null && !pt) flag("pt-bad", "Price Type", "penting", "Price Type tidak dikenal (harus Kontrak / SCPL / Non-Kontrak) — dianggap kosong", rowNo);
+    else if (!pt && has("priceType")) flag("pt-empty", "Price Type", "info", "Price Type kosong — harga Kontrak/SCPL dipakai bila Customer Group-nya punya, selain itu Harga Non Kontrak", rowNo);
 
     parsed.push({
       year: yearNum,
@@ -265,7 +318,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       customer_type: str(custType),
       hm_day: hm,
       day_month: dm,
-      month_year: my
+      month_year: my,
+      price_type: pt ? PRICE_TYPE_LABEL[pt] : null
     });
   });
 
@@ -283,6 +337,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     returns,
     beforeMinYear,
     sheetName: best.name,
+    sheets,
     validation: { totalRows: best.rows.length, missingColumns, issues }
   };
 }

@@ -4,7 +4,8 @@
  * Data dibaca langsung dari Supabase saat tombol diklik (bukan dari data yang sudah dimuat
  * dashboard), supaya benar-benar posisi terkini.
  */
-import { saveWorkbook, type SheetSpec } from "@/lib/downloadTemplates";
+import { CONTRACT_HEADERS, CONTRACT_PRICE_COL, CONTRACT_WIDTHS, UIO_HEADERS, UIO_PRICE_COL, UIO_WIDTHS, saveWorkbook, type SheetSpec } from "@/lib/downloadTemplates";
+import { CONTRACT_PRICE_TYPE_OPTIONS, PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, normPriceType } from "@/lib/priceType";
 
 export type DownloadKind = "uio" | "contract" | "non_contract" | "parts" | "actual";
 
@@ -46,10 +47,15 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
     );
     return {
       name: "Data UIO",
-      headers: ["Branch", "Pss Name", "Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Product", "Model", "Serial Number", "Year Inv", "Month Inv", "HM/Day", "Day/Month", "Month/Year"],
-      widths: [14, 18, 14, 28, 22, 18, 14, 16, 20, 10, 11, 10, 11, 12],
+      headers: UIO_HEADERS,
+      widths: UIO_WIDTHS,
+      lists: { [UIO_PRICE_COL]: UIO_PRICE_TYPE_OPTIONS },
       rows: rows.map((r) => [
         v(r.branch), v(r.pss_name), v(r.customer_code), v(r.customer_name), v(r.customer_group), v(r.customer_type),
+        (() => {
+          const t = normPriceType(r.price_type);
+          return t ? PRICE_TYPE_LABEL[t] : null;
+        })(),
         v(r.product), v(r.model), v(r.serial_number), num(r.year), num(r.month_inv), num(r.hm_day), num(r.day_month), num(r.month_year)
       ])
     };
@@ -57,21 +63,25 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
 
   if (kind === "contract" || kind === "non_contract") {
     const contract = kind === "contract";
+    const isGroupPrice = (r: Any) => r.price_type === "contract" || r.price_type === "scpl";
     const rows = input
-      .filter((r) => (r.price_type === "contract") === contract)
+      .filter((r) => isGroupPrice(r) === contract)
       .sort((a, b) => byText(a.customer_group, a.part_number).localeCompare(byText(b.customer_group, b.part_number)));
     return {
       name: contract ? "Data Harga Kontrak" : "Data Harga Non Kontrak",
-      headers: ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Part Number", "Harga"],
-      widths: [14, 28, 22, 18, 20, 16],
+      headers: contract ? CONTRACT_HEADERS : ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Part Number", "Harga"],
+      widths: contract ? CONTRACT_WIDTHS : [14, 28, 22, 18, 20, 16],
+      lists: contract ? { [CONTRACT_PRICE_COL]: CONTRACT_PRICE_TYPE_OPTIONS } : undefined,
       rows: rows.map((r) => {
         // Non kontrak: tulis HARGA TERTERA (sebelum potongan) supaya upload ulang tidak memotong dua kali.
         const harga = contract
           ? num(r.price)
           : num(r.list_price) ?? (nonContractDiscount < 1 ? Math.round((Number(r.price) || 0) / (1 - nonContractDiscount)) : num(r.price));
-        return [v(r.customer_code), v(r.customer_name), contract ? v(r.customer_group) : null, v(r.customer_type), v(r.part_number), harga];
+        return contract
+          ? [v(r.customer_code), v(r.customer_name), v(r.customer_group), v(r.customer_type), r.price_type === "scpl" ? "SCPL" : "Kontrak", v(r.part_number), harga]
+          : [v(r.customer_code), v(r.customer_name), null, v(r.customer_type), v(r.part_number), harga];
       }),
-      numFmt: { 5: "#,##0" }
+      numFmt: contract ? { 6: "#,##0" } : { 5: "#,##0" }
     };
   }
 
@@ -92,7 +102,7 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
   const bulan = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return {
     name: "Actual Sales",
-    headers: ["Year", "KA Type", "Customer Group", "Customer Name", "Product", "Total (Rp)", ...bulan],
+    headers: ["Year", "Customer Type", "Customer Group", "Customer Name", "Product", "Total (Rp)", ...bulan],
     widths: [8, 18, 22, 30, 14, 16, ...bulan.map(() => 13)],
     rows: rows.map((r) => {
       const mm = Array.isArray(r.amount_by_month) ? (r.amount_by_month as unknown[]).map((x) => Number(x) || 0) : null;

@@ -20,7 +20,7 @@ type ClearTarget = "uio_units" | "price_contract" | "price_non_contract" | "part
 
 const LABEL: Record<ClearTarget, string> = {
   uio_units: "Data UIO",
-  price_contract: "Data Harga Kontrak",
+  price_contract: "Data Harga Kontrak / SCPL",
   price_non_contract: "Data Harga Non Kontrak",
   parts: "Master Part"
 };
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       await refreshActualPartsAllYears(admin);
     } else {
       const q = admin.from("price_list").delete({ count: "exact" });
-      const r = target === "price_contract" ? await q.eq("price_type", "contract") : await q.neq("price_type", "contract");
+      const r = target === "price_contract" ? await q.in("price_type", ["contract", "scpl"]) : await q.not("price_type", "in", "(contract,scpl)");
       if (r.error) throw r.error;
       deleted = r.count ?? 0;
       await admin.from("app_meta").delete().eq("key", target);

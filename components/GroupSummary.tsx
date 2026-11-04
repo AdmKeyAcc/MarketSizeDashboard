@@ -21,10 +21,10 @@ import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 import { comparePlan, periodOf, sumPeriod } from "@/lib/period";
 import { type UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
+import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, dominantPriceType, groupsWithGroupPrice, type PriceType } from "@/lib/priceType";
 
 const PAGE_SIZE = 20;
-const PRICE_CONTRACT = "Contract (SCPL)";
-const PRICE_NON = "Non Contract";
+const PRICE_OPTIONS = UIO_PRICE_TYPE_OPTIONS; // Kontrak, SCPL, Non-Kontrak
 
 /** Satu baris tabel = satu Customer Group; tombol + membuka baris per Customer di bawahnya. */
 type Row = GroupRow & {
@@ -49,7 +49,7 @@ const METRIC_COLS: ColDef[] = [
 ];
 const LABEL_COLS: ColDef[] = [
   { key: "grp", label: "Customer Group", kind: "text", width: 32 },
-  { key: "katype", label: "KA Type", kind: "text", width: 24 },
+  { key: "katype", label: "Customer Type", kind: "text", width: 24 },
   { key: "cname", label: "Customer Name", kind: "text", width: 36 },
   { key: "branch", label: "Branch", kind: "text", width: 18 },
   { key: "pss", label: "PSS", kind: "text", width: 22 },
@@ -88,8 +88,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [cName, setCName] = useState<string[]>([]); // Customer Name
   const [cBranch, setCBranch] = useState<string[]>([]); // Branch (cabang Master Customer / branch Data UIO)
   const [cPss, setCPss] = useState<string[]>([]); // PSS
-  const [cKa, setCKa] = useState<string[]>([]); // KA Type (KA NASIONAL, KA BRANCH GOLD, NKA, dst)
-  const [cPrice, setCPrice] = useState<string[]>([]); // Contract (SCPL) / Non Contract
+  const [cKa, setCKa] = useState<string[]>([]); // Customer Type (KA NASIONAL, KA BRANCH GOLD, NKA, dst)
+  const [cPrice, setCPrice] = useState<string[]>([]); // Price Type: Kontrak / SCPL / Non-Kontrak
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [childCache, setChildCache] = useState<Map<string, Row[]>>(new Map());
@@ -113,8 +113,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     name: string; // Customer Group
     custName: string; // Customer Name ("" kalau entitas gabungan group)
     custNames: Set<string>;
-    tiers: Set<string>; // dari Master Customer
-    kaAmount: Map<string, number>; // KA Type dari laporan Actual Sales -> total nilai
+    tiers: Set<string>; // dari Master Customer (atau Cust. Type di Data UIO)
+    masterTier?: boolean;
+    kaAmount: Map<string, number>; // Customer Type dari laporan Actual Sales -> total nilai
     actual: Map<number, number>; // tahun -> Rp
     actualM: Map<number, Float64Array>; // tahun -> Rp per bulan (kalau data Actual punya rincian bulan)
     actualProd: Map<number, Map<string, number>>; // tahun -> Product -> Rp (untuk kolom Product)
@@ -152,7 +153,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     customers.forEach((c) => {
       const g = get(c.customer_group || "", c.customer_name || "");
       if (!g) return;
-      if (c.tier) g.tiers.add(c.tier.trim().toUpperCase());
+      if (c.tier) {
+        g.tiers.add(c.tier.trim().toUpperCase());
+        g.masterTier = true;
+      }
       addCount(g.branches, normText(c.cabang), 1000);
       addCount(g.pssNames, normText(c.pss), 1000);
     });
@@ -160,6 +164,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       const g = get(u.customer_group || "", u.customer_name || "");
       if (!g) return;
       g.units.push(u);
+      // Customer Type dari kolom Cust. Type di Data UIO hanya kalau Master Customer tidak punya.
+      if (u.customer_type && !g.masterTier) g.tiers.add(u.customer_type.trim().toUpperCase());
       addCount(g.branches, normText(u.branch));
       addCount(g.pssNames, normText(u.pss_name));
     });
@@ -183,11 +189,18 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     return Array.from(m.values());
   }, [customers, data.uioUnits, data.actualSalesYear, fProduct]);
 
-  // Customer Group yang punya harga kontrak (SCPL); simpan ejaan persis di Data Harga untuk pencarian harga.
-  const contractNameByKey = useMemo(() => {
-    const m = new Map<string, string>();
+  // Customer Group yang punya harga Kontrak / SCPL; simpan ejaan persis di Data Harga untuk pencarian harga.
+  const contractNameByKey = useMemo(() => groupsWithGroupPrice(data.priceList), [data.priceList]);
+  /** Jenis harga yang dimiliki Customer Group di Data Harga (untuk customer yang Price Type-nya belum diisi). */
+  const groupPriceKinds = useMemo(() => {
+    const m = new Map<string, Set<PriceType>>();
     data.priceList.forEach((p) => {
-      if (p.price_type === "contract" && p.customer_group) m.set(normGroup(p.customer_group), p.customer_group);
+      const g = normGroup(p.customer_group);
+      if (!g) return;
+      const t: PriceType = p.price_type === "scpl" ? "scpl" : "contract";
+      let set = m.get(g);
+      if (!set) m.set(g, (set = new Set()));
+      set.add(t);
     });
     return m;
   }, [data.priceList]);
@@ -199,7 +212,27 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     if (fromActual.length > 0) return fromActual.sort(byTier);
     return Array.from(g.tiers).sort(byTier);
   };
-  const priceKindOf = (g: GInfo) => (contractNameByKey.has(normGroup(g.name)) ? PRICE_CONTRACT : PRICE_NON);
+  /** Price Type tiap customer di entitas ini: dari Data UIO (terbanyak per customer); kalau belum diisi → harga yang
+   * tersedia untuk Customer Group-nya (Kontrak, lalu SCPL), selain itu Non-Kontrak. Sama dengan aturan perhitungan. */
+  const custPriceTypes = (g: GInfo): Map<string, PriceType> => {
+    const byCust = new Map<string, UioUnit[]>();
+    g.units.forEach((u) => {
+      const k = custKey(u.customer_group, u.customer_name);
+      const arr = byCust.get(k);
+      if (arr) arr.push(u);
+      else byCust.set(k, [u]);
+    });
+    const kinds = groupPriceKinds.get(normGroup(g.name));
+    const legacy: PriceType = kinds?.has("contract") ? "contract" : kinds?.has("scpl") ? "scpl" : "non_contract";
+    const out = new Map<string, PriceType>();
+    byCust.forEach((us, k) => out.set(k, dominantPriceType(us) ?? legacy));
+    if (out.size === 0) out.set(g.key, legacy);
+    return out;
+  };
+  const priceKinds = (g: GInfo): string[] => {
+    const set = new Set(custPriceTypes(g).values());
+    return (["contract", "scpl", "non_contract"] as PriceType[]).filter((t) => set.has(t)).map((t) => PRICE_TYPE_LABEL[t]);
+  };
   const branchOf = (g: GInfo) => Array.from(g.branches.keys());
   const pssOf = (g: GInfo) => Array.from(g.pssNames.keys());
 
@@ -212,7 +245,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       (skip === "branch" || sel.branch.size === 0 || branchOf(g).some((b) => sel.branch.has(b))) &&
       (skip === "pss" || sel.pss.size === 0 || pssOf(g).some((p) => sel.pss.has(p))) &&
       (skip === "ka" || sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
-      (skip === "price" || sel.price.size === 0 || sel.price.has(priceKindOf(g)));
+      (skip === "price" || sel.price.size === 0 || priceKinds(g).some((k) => sel.price.has(k)));
     return {
       group: uniq(custEntities.filter((g) => ok(g, "group")).map((g) => g.name)).sort(),
       name: uniq(custEntities.filter((g) => ok(g, "name")).map((g) => g.custName)).sort(),
@@ -221,7 +254,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       ka: uniq(custEntities.filter((g) => ok(g, "ka")).flatMap((g) => kaOf(g))).sort(byTier)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custEntities, contractNameByKey, cGroup, cName, cBranch, cPss, cKa, cPrice]);
+  }, [custEntities, contractNameByKey, groupPriceKinds, cGroup, cName, cBranch, cPss, cKa, cPrice]);
 
   const tahunOpts = useMemo(() => {
     const ys = new Set<string>(state.options.tahun);
@@ -301,10 +334,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         (sel.branch.size === 0 || branchOf(g).some((b) => sel.branch.has(b))) &&
         (sel.pss.size === 0 || pssOf(g).some((p) => sel.pss.has(p))) &&
         (sel.ka.size === 0 || kaOf(g).some((k) => sel.ka.has(k))) &&
-        (sel.price.size === 0 || sel.price.has(priceKindOf(g)))
+        (sel.price.size === 0 || priceKinds(g).some((k) => sel.price.has(k)))
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custEntities, contractNameByKey, cGroup, cName, cBranch, cPss, cKa, cPrice]);
+  }, [custEntities, contractNameByKey, groupPriceKinds, cGroup, cName, cBranch, cPss, cKa, cPrice]);
 
   const selected = useMemo<GInfo[]>(() => {
     const merged = new Map<string, GInfo>();
@@ -359,15 +392,29 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     if (g.units.length === 0 && actual === 0) return null;
     const nCust = g.custNames.size || 1;
     // Tanpa unit UIO tidak ada Market Size (tidak dihitung supaya tidak memakai perkiraan nasional).
-    const list =
-      g.units.length === 0
-        ? []
-        : buildDetailRows(data.parts, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
-            units: g.units,
+    // Unit dipisah per Price Type customer-nya (Kontrak / SCPL / Non-Kontrak), lalu dihitung dengan harga masing-masing.
+    const list: ReturnType<typeof buildDetailRows> = [];
+    if (g.units.length > 0) {
+      const types = custPriceTypes(g);
+      const byType = new Map<PriceType, UioUnit[]>();
+      g.units.forEach((u) => {
+        const t = types.get(custKey(u.customer_group, u.customer_name)) ?? "non_contract";
+        const arr = byType.get(t);
+        if (arr) arr.push(u);
+        else byType.set(t, [u]);
+      });
+      byType.forEach((units, t) => {
+        list.push(
+          ...buildDetailRows(data.parts, data.uioUnits, data.priceList, data.customers, [], calcFilters, new Set([g.key]), {
+            units,
             tx: [],
             priceGroup: contractNameByKey.get(normGroup(g.name)) || g.name,
+            priceType: t,
             ctx: detailCtx
-          });
+          })
+        );
+      });
+    }
     const agg = aggregateGroup(g.name, nCust, list);
     // Product & Model di baris ini: dari Market Size (part yang dihitung), Product juga dari Actual tahun acuan.
     const prodW = new Map<string, number>();
@@ -391,7 +438,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       model: topList(modelW),
       katype: ka.join(", "),
       kaList: ka,
-      pkind: priceKindOf(g),
+      pkind: priceKinds(g).join(", "),
       allNames: isCustomer ? "" : Array.from(g.custNames).join(" | ").toLowerCase()
     };
   }
@@ -526,13 +573,13 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const add = (label: string, a: string[]) => a.length && parts.push(`${label}: ${a.join(", ")}`);
     add("Year", fTahun);
     add("Month", fBulan);
+    add("Branch", cBranch);
+    add("Customer Type", cKa);
+    add("Customer Name", cName);
+    add("Customer Group", cGroup);
+    add("PSS", cPss);
     add("Product", fProduct);
     add("Model unit", fModel);
-    add("Customer Group", cGroup);
-    add("Customer Name", cName);
-    add("Branch", cBranch);
-    add("PSS", cPss);
-    add("KA Type", cKa);
     add("Price Type", cPrice);
     if (refYear !== null) parts.push(`Tahun acuan: ${refYear}${isYtd ? ` (Actual sampai ${ytdMonth})` : ""}`);
     if (search.trim()) parts.push(`Pencarian: ${search.trim()}`);
@@ -599,7 +646,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fTahun}
             options={tahunOpts}
             onChange={wrap(setFTahun)}
-            info="Kosong = tahun terbaru yang punya data UIO. Actual Sales dan Market Size memakai tahun ini."
+            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year Inv (tahun invoice/delivery unit) sampai tahun ini. Kosong = tahun terbaru yang punya data UIO."
           />
           <MultiSelectField
             label="Month"
@@ -608,10 +655,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             onChange={wrap(setFBulan)}
             info="Kosong = /year (12 bulan). Market Size bulan terpilih = jumlah kebutuhan part bulan-bulan itu (jam operasi unit per bulan mengikuti hari kerja kalender, unit baru dihitung mulai bulan belinya). Market share bulan terpilih memakai Actual per bulan dari sinkron web Sales."
           />
-          <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
-          <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
-          <MultiSelectField label="Customer Group" values={cGroup} options={groupOpts.group} onChange={wrap(setCGroup)} />
-          <MultiSelectField label="Customer Name" values={cName} options={groupOpts.name} onChange={wrap(setCName)} />
           <MultiSelectField
             label="Branch"
             values={cBranch}
@@ -620,25 +663,29 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             info="Cabang customer: dari Master Customer, atau dari kolom Branch di Data UIO kalau Master Customer belum terisi. Customer yang punya unit di cabang terpilih ikut dihitung penuh."
           />
           <MultiSelectField
+            label="Customer Type"
+            values={cKa}
+            options={groupOpts.ka}
+            onChange={wrap(setCKa)}
+            info="Customer Type (Key Account) dari laporan Actual Sales: KA Nasional, KA Branch Platinum/Gold, NKA, Dealer, SHN."
+          />
+          <MultiSelectField label="Customer Name" values={cName} options={groupOpts.name} onChange={wrap(setCName)} />
+          <MultiSelectField label="Customer Group" values={cGroup} options={groupOpts.group} onChange={wrap(setCGroup)} />
+          <MultiSelectField
             label="PSS"
             values={cPss}
             options={groupOpts.pss}
             onChange={wrap(setCPss)}
             info="PSS dari Master Customer, atau dari kolom Pss Name di Data UIO kalau Master Customer belum terisi."
           />
+          <MultiSelectField label="Product" values={fProduct} options={productOpts} onChange={changeProduct} />
+          <MultiSelectField label="Model unit" values={fModel} options={modelOpts} onChange={changeModel} />
           <MultiSelectField
-            label="KA Type"
-            values={cKa}
-            options={groupOpts.ka}
-            onChange={wrap(setCKa)}
-            info="Key Account Type dari laporan Actual Sales (KA Nasional, KA Branch Platinum/Gold, NKA, Dealer, SHN)."
-          />
-          <MultiSelectField
-            label="Contract / Non Contract"
+            label="Price Type"
             values={cPrice}
-            options={[PRICE_CONTRACT, PRICE_NON]}
+            options={PRICE_OPTIONS}
             onChange={wrap(setCPrice)}
-            info="Contract (SCPL) = Customer Group-nya punya harga di Data Harga Kontrak. Non Contract = tidak punya, memakai harga non kontrak."
+            info="Price Type customer dari kolom Price Type di Data UIO: Kontrak / SCPL = harga Customer Group di Data Harga Kontrak / SCPL, Non-Kontrak = Harga Non Kontrak. Kalau di Data UIO belum diisi: Kontrak/SCPL bila Customer Group-nya punya harga, selain itu Non-Kontrak."
           />
         </div>
       </div>

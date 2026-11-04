@@ -129,7 +129,7 @@ export function calcPart(
   };
   avg.annualHm = uioAuto ? partAnnualHm(aggAll, part.hm_day, part.product, defaultWorkdaysOf).annualHm : 0;
 
-  const priceSources: Record<PriceSource, number> = { contract: 0, non_contract: 0, pricelist: 0 };
+  const priceSources: Record<PriceSource, number> = { contract: 0, scpl: 0, non_contract: 0, pricelist: 0 };
   const qtyM = new Float64Array(12);
   const amountM = new Float64Array(12);
   let qty = 0, amount = 0, customers = 0;
@@ -145,7 +145,7 @@ export function calcPart(
       const facts = computeCustomerFacts(cc, deps);
       if (facts.length === 0) return;
       customers++;
-      priceSources[resolvePriceInfo(priceList, part.part_number, c.priceGroup || c.group, part.pricelist).source]++;
+      priceSources[resolvePriceInfo(priceList, part.part_number, c.priceGroup || c.group, part.pricelist, c.priceType).source]++;
       facts.forEach((f) => {
         qty += f.qty;
         amount += f.ms;
@@ -200,15 +200,15 @@ export function calcPart(
   }
 
   const kinds = (Object.keys(priceSources) as PriceSource[]).filter((k) => priceSources[k] > 0);
-  const LABEL: Record<PriceSource, string> = { contract: "Harga kontrak", non_contract: "Harga Non Kontrak", pricelist: "Pricelist Master Part" };
+  const LABEL: Record<PriceSource, string> = { contract: "Harga Kontrak", scpl: "Harga SCPL", non_contract: "Harga Non Kontrak", pricelist: "Pricelist Master Part" };
   const priceLabel =
     priceOv !== null
       ? "Diisi manual"
       : kinds.length === 0
         ? resolvePriceInfo(priceList, part.part_number, scope.group, part.pricelist).label
         : kinds.length === 1
-          ? kinds[0] === "contract" && scope.group
-            ? `Harga kontrak ${scope.group}`
+          ? (kinds[0] === "contract" || kinds[0] === "scpl") && scope.group
+            ? `${LABEL[kinds[0]]} ${scope.group}`
             : LABEL[kinds[0]]
           : `Campuran: ${kinds.map((k) => `${priceSources[k]} customer ${LABEL[k].toLowerCase()}`).join(", ")}`;
 

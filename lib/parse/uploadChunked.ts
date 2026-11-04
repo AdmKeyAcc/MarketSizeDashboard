@@ -80,8 +80,8 @@ export async function uploadActualSalesYear(
     onProgress?.("Membaca file…");
     const parsed = await parseActualSalesYearFile(file);
     if (parsed.kind === "product") {
-      // Laporan per Product tidak punya KA Type: isi dari Master Customer (customers.tier) per Customer Group + Customer.
-      onProgress?.("Mengisi KA Type dari Master Customer…");
+      // Laporan per Product tidak punya Customer Type: isi dari Master Customer (customers.tier) per Customer Group + Customer.
+      onProgress?.("Mengisi Customer Type dari Master Customer…");
       const { supabaseBrowser } = await import("@/lib/supabase/client");
       const tierOf = new Map<string, string>();
       for (let from = 0; ; from += 1000) {
@@ -139,6 +139,8 @@ export type UioPrepared = {
   /** Jumlah unit yang akan disimpan. */
   rowCount: number;
   sheet: string;
+  /** Sheet lain di file yang juga berisi tabel unit (untuk dipilih). */
+  sheets: { name: string; rows: number }[];
   mode: UioUploadMode;
   /** Mode tambah/perbarui: perbandingan dengan isi database berdasarkan Serial Number. */
   merge?: { updated: number; added: number; noSerial: number; existing: number };
@@ -162,14 +164,15 @@ async function existingUioKeys(): Promise<Set<string>> {
 
 export async function prepareUioUpload(
   file: File,
-  mode: UioUploadMode = "merge"
+  mode: UioUploadMode = "merge",
+  sheet?: string
 ): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
   try {
     const XLSX = await import("@e965/xlsx");
     const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR });
+    const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR, sheet });
     const { uioSerialKey } = await import("@/lib/uioKey");
 
     // Mode tambah/perbarui: hanya unit dengan Serial Number valid (bisa dicocokkan) yang disimpan.
@@ -240,7 +243,7 @@ export async function prepareUioUpload(
         return { ok: false, message: errMessage(err) };
       }
     };
-    return { ok: true, prep: { validation: parsed.validation, rowCount: parsed.rows.length, sheet: parsed.sheetName, mode, merge, commit } };
+    return { ok: true, prep: { validation: parsed.validation, rowCount: parsed.rows.length, sheet: parsed.sheetName, sheets: parsed.sheets, mode, merge, commit } };
   } catch (err) {
     return { ok: false, message: errMessage(err) };
   }

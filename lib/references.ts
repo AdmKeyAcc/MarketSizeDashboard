@@ -2,7 +2,7 @@
  * Data referensi (kamus & pengaturan) yang dikelola admin langsung di Supabase,
  * bukan lewat upload:
  *   - product_alias : kode/nama product → nama product kanonik (TYT → TOYOTA)
- *   - ka_types      : daftar KA Type + urutannya
+ *   - ka_types      : daftar Customer Type + urutannya
  *   - app_settings  : angka default rumus (HM/hari, hari kerja/bulan, bulan/tahun, potongan non kontrak)
  *
  * Nilai di DEFAULT_REFERENCES dipakai kalau tabel belum dibuat / kosong, supaya
@@ -28,7 +28,7 @@ export type AppSettings = {
 
 export type References = {
   productAlias: Record<string, string>;
-  /** KA Type berurutan (urutan = urutan tampil di filter & tabel). */
+  /** Customer Type berurutan (urutan = urutan tampil di filter & tabel). */
   kaTypes: string[];
   settings: AppSettings;
 };
@@ -82,7 +82,7 @@ export function onReferencesChange(fn: () => void): void {
   listeners.push(fn);
 }
 
-/** Urutan KA Type (yang tidak dikenal di urutan paling akhir). */
+/** Urutan Customer Type (yang tidak dikenal di urutan paling akhir). */
 export function kaRank(t: string | null | undefined): number {
   const i = kaIndex.get(String(t || "").trim().toUpperCase());
   return i === undefined ? 999 : i;

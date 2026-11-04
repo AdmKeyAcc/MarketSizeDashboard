@@ -112,6 +112,8 @@ export type UioUnit = {
   hm_day?: number | null;
   day_month?: number | null;
   month_year?: number | null;
+  /** Price Type unit: "Kontrak" / "SCPL" / "Non-Kontrak" (migration v24). Kosong = aturan lama. */
+  price_type?: string | null;
 };
 
 /** Harga per Part Number, opsional beda per Customer Group (kontrak harga
@@ -121,8 +123,8 @@ export type PriceListEntry = {
   part_number: string;
   customer_group: string;
   price: number;
-  /** 'contract' = SCPL (nett), 'non_contract' = umum (tertera - 50%). */
-  price_type?: "contract" | "non_contract";
+  /** 'contract' = Kontrak (nett), 'scpl' = SCPL (nett), 'non_contract' = umum (tertera - 50%). */
+  price_type?: "contract" | "scpl" | "non_contract";
   list_price?: number | null;
 };
 
@@ -141,7 +143,7 @@ export type ActualSalesTx = {
 };
 
 /** Actual Sales tahunan per customer (tabel actual_sales_year), dari laporan 3 tingkat
- * KA Type -> Customer Group -> Customer. Tanpa bulan / product / part. */
+ * Customer Type -> Customer Group -> Customer. Tanpa bulan / product / part. */
 export type ActualSalesYear = {
   year: number;
   ka_type: string | null;

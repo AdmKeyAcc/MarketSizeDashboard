@@ -10,7 +10,7 @@ export const maxDuration = 60;
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
-/** Data Harga Kontrak (SCPL): harga sudah nett, disimpan apa adanya per Part Number + Customer Group. */
+/** Data Harga Kontrak / SCPL: harga sudah nett, disimpan apa adanya per Part Number + Customer Group + Price Type. */
 export async function POST(request: Request) {
   try {
     const form = await request.formData();
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const { rows, skipped, duplicates } = parseContractPriceWorkbook(wb);
+    const { rows, skipped, duplicates, nonContractRows } = parseContractPriceWorkbook(wb);
 
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     const res = await savePrices(
       supabase,
       "contract",
-      rows.map((r) => ({ part_number: r.part_number, customer_group: r.customer_group, price: r.price, list_price: null, price_type: "contract", customer_code: r.customer_code, customer_name: r.customer_name, customer_type: r.customer_type, source_filename: file.name, uploaded_at: now })),
+      rows.map((r) => ({ part_number: r.part_number, customer_group: r.customer_group, price: r.price, list_price: null, price_type: r.price_type, customer_code: r.customer_code, customer_name: r.customer_name, customer_type: r.customer_type, source_filename: file.name, uploaded_at: now })),
       mode,
       now
     );
@@ -46,7 +46,8 @@ export async function POST(request: Request) {
       updated_at: now
     });
 
-    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, mode, ...res });
+    const scpl = rows.filter((r) => r.price_type === "scpl").length;
+    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, nonContractRows, scpl, mode, ...res });
   } catch (err) {
     const message = err instanceof ParseError ? err.message : (err as Error).message || "Gagal memproses file.";
     const status = err instanceof ParseError ? 422 : 500;

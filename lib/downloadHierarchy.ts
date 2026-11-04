@@ -17,7 +17,7 @@ export type HierarchyExportInput = {
 
 const FILTER_LABELS: [keyof FilterState, string][] = [
   ["tahun", "Year"], ["bulan", "Month"], ["area", "Branch"], ["customerGroup", "Customer Group"],
-  ["customerName", "Customer Name"], ["pss", "PSS"], ["tier", "KA Type"], ["product", "Product"],
+  ["customerName", "Customer Name"], ["pss", "PSS"], ["tier", "Customer Type"], ["product", "Product"],
   ["modelUnit", "Model Unit"], ["partNumber", "Part Number"], ["partName", "Part Name"]
 ];
 

@@ -5,9 +5,9 @@ import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { FilterState } from "@/lib/calculations";
 
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
-  tahun: "Tahun", bulan: "Bulan", area: "Branch",
-  customerGroup: "Customer group", customerName: "Customer name",
-  pss: "PSS", tier: "KA Type", product: "Product", modelUnit: "Model unit"
+  tahun: "Year", bulan: "Month", area: "Branch", tier: "Customer Type",
+  customerName: "Customer Name", customerGroup: "Customer Group",
+  pss: "PSS", product: "Product", modelUnit: "Model Unit"
 };
 
 const MULTI_KEYS = Object.keys(CHIP_LABELS) as (keyof FilterState)[];
@@ -234,23 +234,29 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
         )}
 
         <div className="filterbar-row">
-          <MultiSelectField label="Year" values={filters.tahun} options={options.tahun} onChange={(v) => setFilter("tahun", v)} />
+          <MultiSelectField
+            label="Year"
+            values={filters.tahun}
+            options={options.tahun}
+            onChange={(v) => setFilter("tahun", v)}
+            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year Inv (tahun invoice/delivery unit) sampai tahun ini."
+          />
           <MultiSelectField label="Month" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
           <MultiSelectField label="Branch" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
-          <MultiSelectField
-            label="Customer Group"
-            values={filters.customerGroup}
-            options={options.customerGroup}
-            onChange={(v) => setFilter("customerGroup", v)}
-          />
+          <MultiSelectField label="Customer Type" values={filters.tier} options={options.tier} onChange={(v) => setFilter("tier", v)} />
           <MultiSelectField
             label="Customer Name"
             values={filters.customerName}
             options={options.customerName}
             onChange={(v) => setFilter("customerName", v)}
           />
+          <MultiSelectField
+            label="Customer Group"
+            values={filters.customerGroup}
+            options={options.customerGroup}
+            onChange={(v) => setFilter("customerGroup", v)}
+          />
           <MultiSelectField label="PSS" values={filters.pss} options={options.pss} onChange={(v) => setFilter("pss", v)} />
-          <MultiSelectField label="KA Type" values={filters.tier} options={options.tier} onChange={(v) => setFilter("tier", v)} />
           <MultiSelectField label="Product" values={filters.product} options={options.product} onChange={(v) => setFilter("product", v)} />
           <MultiSelectField
             label="Model Unit"

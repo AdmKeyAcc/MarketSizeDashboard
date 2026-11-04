@@ -15,6 +15,7 @@ const COLS: Col[] = [
   { key: "customer_name", label: "Cust. Name", get: (u) => u.customer_name },
   { key: "customer_group", label: "Cust. Group", get: (u) => u.customer_group },
   { key: "customer_type", label: "Cust. Type", get: (u) => u.customer_type ?? null },
+  { key: "price_type", label: "Price Type", get: (u) => u.price_type ?? null },
   { key: "product", label: "Product", get: (u) => u.product },
   { key: "model", label: "Model", get: (u) => u.model },
   { key: "serial_number", label: "Serial Number", get: (u) => u.serial_number },

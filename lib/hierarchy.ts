@@ -17,6 +17,7 @@ import {
 import type { ActualQtyYear, ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
 import { sumPeriod } from "@/lib/period";
+import { dominantPriceType, groupsWithGroupPrice, type PriceType } from "@/lib/priceType";
 
 /* ------------------------------------------------------------------ */
 /* Dimensi hierarki                                                    */
@@ -26,7 +27,7 @@ export const HIER_DIMS = ["kaType", "group", "customer", "area", "pss", "product
 export type HierDim = (typeof HIER_DIMS)[number];
 
 export const HIER_LABELS: Record<HierDim, string> = {
-  kaType: "KA Type",
+  kaType: "Customer Type",
   group: "Customer Group",
   customer: "Customer Name",
   area: "Branch",
@@ -43,7 +44,7 @@ export const isActualDim = (d: HierDim) => d === "product" || CUSTOMER_DIMS.incl
 export const isCustomerDim = (d: HierDim) => CUSTOMER_DIMS.includes(d);
 
 const NO_GROUP = "(Tanpa Group)";
-const NO_KA = "(Tanpa KA Type)";
+const NO_KA = "(Tanpa Customer Type)";
 const NO_AREA = "(Tanpa Area)";
 const NO_PSS = "(Tanpa PSS)";
 
@@ -67,8 +68,10 @@ export type CustInfo = {
   /** Actual Qty (hanya part di Master Part) per Product → tahun → { total, 12 bulan }. */
   actualQtyByProduct: Map<string, Map<number, { qty: number; m: Float64Array | null }>>;
   units: UioUnit[];
-  /** Ejaan Customer Group di Data Harga (harga kontrak) kalau group ini punya harga kontrak. */
+  /** Ejaan Customer Group di Data Harga kalau group ini punya harga Kontrak / SCPL. */
   priceGroup: string;
+  /** Price Type customer dari Data UIO (terbanyak di unit-unitnya); null = belum diisi → aturan lama. */
+  priceType: PriceType | null;
 };
 
 /** Satu baris fakta = Market Size satu customer untuk satu Product + Model pada tahun acuan.
@@ -89,10 +92,7 @@ export function buildCustomerIndex(
 ): CustInfo[] {
   const m = new Map<string, CustInfo>();
   const kaAmount = new Map<string, Map<string, number>>();
-  const contractNames = new Map<string, string>();
-  priceList.forEach((p) => {
-    if (p.price_type === "contract" && p.customer_group) contractNames.set(p.customer_group.trim().toUpperCase(), p.customer_group);
-  });
+  const contractNames = groupsWithGroupPrice(priceList);
   const get = (group: string | null, name: string | null): CustInfo | null => {
     const nm = (name || "").trim();
     if (!nm) return null;
@@ -100,7 +100,7 @@ export function buildCustomerIndex(
     let c = m.get(key);
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "" };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "", priceType: null };
       m.set(key, c);
     }
     return c;
@@ -157,9 +157,19 @@ export function buildCustomerIndex(
     bp.set(r.year, e);
   });
   m.forEach((c) => {
-    // KA Type: dari laporan Actual Sales (yang terbesar kalau satu customer muncul di dua KA Type), selain itu dari Master Customer.
+    c.priceType = dominantPriceType(c.units);
+    // Customer Type: dari laporan Actual Sales (yang terbesar kalau satu customer muncul di dua Customer Type), selain itu dari Master Customer.
     const k = kaAmount.get(c.key);
     if (k && k.size > 0) c.ka = Array.from(k.entries()).sort((a, b) => b[1] - a[1])[0][0].toUpperCase();
+    // Belum ada dari Actual / Master Customer → kolom Cust. Type di Data UIO (yang terbanyak).
+    if (!c.ka && c.units.length > 0) {
+      const t = new Map<string, number>();
+      c.units.forEach((u) => {
+        const v = (u.customer_type || "").trim().toUpperCase();
+        if (v) t.set(v, (t.get(v) || 0) + 1);
+      });
+      if (t.size > 0) c.ka = Array.from(t.entries()).sort((a, b) => b[1] - a[1])[0][0];
+    }
     if (!c.ka) c.ka = NO_KA;
     if (!c.area) c.area = NO_AREA;
     if (!c.pss) c.pss = NO_PSS;
@@ -241,7 +251,7 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
         if (modelSet && !modelSet.has(p.model)) return;
         if (pnSet && !pnSet.has(p.part_number || "")) return;
         if (nameSet && !nameSet.has(p.part_name || "")) return;
-        const price = d.priceOf(p.part_number, c.priceGroup || c.group, p.pricelist);
+        const price = d.priceOf(p.part_number, c.priceGroup || c.group, p.pricelist, c.priceType);
         // Kebutuhan per bulan → setahun = jumlah 12 bulan, dibulatkan ke part utuh (sama dengan rumus setahun).
         const qtyM = partMonthlyQty(hrs!, p.hm_day, p.freq_replacement_hm, p.qty_per_unit);
         let sum = 0;
@@ -490,7 +500,7 @@ export function mergeYearTrees(items: { year: number; tree: TreeResult; actualOk
 }
 
 /** Baris Market Size per tahun (untuk chart & KPI) dari mesin hitung yang sama dengan tabel hierarki,
- * jadi semua filter (Branch, PSS, KA Type, Group, Customer, Product, Model, Part, ...) berlaku sama di tabel dan chart. */
+ * jadi semua filter (Branch, PSS, Customer Type, Group, Customer, Product, Model, Part, ...) berlaku sama di tabel dan chart. */
 export function marketRowsFromFacts(
   custs: CustInfo[],
   factsByYear: Map<number, Map<string, Fact[]>>,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   downloadUioTemplate,
   downloadContractPriceTemplate,
@@ -90,7 +90,19 @@ async function clearData(target: ClearTarget, pin: string): Promise<Result> {
 }
 
 /** Hasil pemeriksaan file Data UIO sebelum disimpan: kolom yang tidak ada, isi kosong / tidak valid. */
-function UioCheck({ prep, busy, onContinue, onCancel }: { prep: UioPrepared; busy: boolean; onContinue: () => void; onCancel: () => void }) {
+function UioCheck({
+  prep,
+  busy,
+  onContinue,
+  onCancel,
+  onSheet
+}: {
+  prep: UioPrepared;
+  busy: boolean;
+  onContinue: () => void;
+  onCancel: () => void;
+  onSheet: (sheet: string) => void;
+}) {
   const v = prep.validation;
   const mg = prep.merge;
   const penting = v.issues.filter((i) => i.level === "penting");
@@ -102,6 +114,19 @@ function UioCheck({ prep, busy, onContinue, onCancel }: { prep: UioPrepared; bus
       <div className="uio-check-title">
         Pemeriksaan file: {fmt(prep.rowCount)} unit siap disimpan (sheet "{prep.sheet}"). <b>Data belum disimpan.</b>
       </div>
+      {prep.sheets.length > 1 && (
+        <div className="uio-check-row">
+          📄 File ini punya {prep.sheets.length} sheet berisi data unit. Sheet yang dipakai:{" "}
+          <select value={prep.sheet} disabled={busy} onChange={(e) => onSheet(e.target.value)}>
+            {prep.sheets.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name} ({fmt(s.rows)} baris)
+              </option>
+            ))}
+          </select>{" "}
+          <span className="muted">Hanya satu sheet yang disimpan — pilih sheet yang menjadi sumber Data UIO.</span>
+        </div>
+      )}
       {mg ? (
         <div className="uio-check-row">
           ⟳ <b>Mode tambah / perbarui</b> (dicocokkan dengan Serial Number): <b>{fmt(mg.updated)}</b> unit diperbarui,{" "}
@@ -349,6 +374,7 @@ export default function UploadModal({
 }) {
   const [stUio, setStUio] = useState<SlotStatus>(null);
   const [uioPending, setUioPending] = useState<UioPrepared | null>(null);
+  const uioFileRef = useRef<{ file: File; mode: Mode } | null>(null);
   const [stPart, setStPart] = useState<SlotStatus>(null);
   const [stContract, setStContract] = useState<SlotStatus>(null);
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
@@ -397,11 +423,12 @@ export default function UploadModal({
     }`;
 
   /** Data UIO: periksa file dulu. Kalau ada masalah, tampilkan ringkasan dan tunggu keputusan pengguna. */
-  async function pickUio(f: File, mode: Mode) {
+  async function pickUio(f: File, mode: Mode, sheet?: string) {
     setUioPending(null);
     setBusy(true);
     setStUio({ text: "Memeriksa file (bisa beberapa puluh detik)…", ok: true });
-    const r = await prepareUioUpload(f, mode as UioUploadMode);
+    uioFileRef.current = { file: f, mode };
+    const r = await prepareUioUpload(f, mode as UioUploadMode, sheet);
     setBusy(false);
     if (!r.ok) {
       setStUio({ text: "Gagal: " + r.message, ok: false });
@@ -409,7 +436,7 @@ export default function UploadModal({
     }
     const v = r.prep.validation;
     // Selalu tampilkan ringkasan sebelum menyimpan (berapa unit diperbarui / baru / diganti).
-    if (v.missingColumns.length > 0 || v.issues.length > 0 || r.prep.mode === "merge" || counts.uioUnits > 0) {
+    if (v.missingColumns.length > 0 || v.issues.length > 0 || r.prep.mode === "merge" || counts.uioUnits > 0 || r.prep.sheets.length > 1) {
       setStUio(null);
       setUioPending(r.prep);
       return;
@@ -489,6 +516,10 @@ export default function UploadModal({
                   setUioPending(null);
                   run(setStUio, () => prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
                 }}
+                onSheet={(sh) => {
+                  const last = uioFileRef.current;
+                  if (last) pickUio(last.file, last.mode, sh);
+                }}
                 onCancel={() => {
                   setUioPending(null);
                   setStUio({ text: "Upload dibatalkan — tidak ada data yang diubah.", ok: false });
@@ -502,20 +533,20 @@ export default function UploadModal({
         />
 
         <Slot
-          title="2. Data Harga Kontrak (SCPL)"
+          title="2. Data Harga Kontrak / SCPL"
           count={counts.contractPrices}
-          countUnit="harga kontrak"
+          countUnit="harga kontrak / SCPL"
           lastFile={priceFile("contract")}
           updatedAt={priceAt("contract")}
           mode={modes.contract}
           onMode={setMode("contract")}
-          matchBy="Part Number + Customer Group"
+          matchBy="Part Number + Customer Group + Price Type"
           download="contract"
           status={stContract}
           busy={busy}
           onPick={(f, m) =>
             run(setStContract, () => uploadFile("/api/upload/price-contract", f, m), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} harga kontrak dari file —${mergeText(j, "harga kontrak")}${dupText(j)}${skippedText(j)}`
+              `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
             )
           }
           onTemplate={downloadContractPriceTemplate}

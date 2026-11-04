@@ -78,8 +78,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         counts={{
           parts: state.data.parts.length,
           uioUnits: state.data.uioUnits.length,
-          contractPrices: state.data.priceList.filter((p) => p.price_type === "contract").length,
-          nonContractPrices: state.data.priceList.filter((p) => p.price_type !== "contract").length,
+          contractPrices: state.data.priceList.filter((p) => p.price_type === "contract" || p.price_type === "scpl").length,
+          nonContractPrices: state.data.priceList.filter((p) => p.price_type !== "contract" && p.price_type !== "scpl").length,
           actualSales: state.data.actualSalesYear.length
         }}
       />

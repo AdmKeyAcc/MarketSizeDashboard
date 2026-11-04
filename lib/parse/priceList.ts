@@ -1,5 +1,6 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
+import { normPriceType } from "@/lib/priceType";
 
 /** Potongan bawaan untuk Data Harga Non Kontrak (harga nett = 50% dari harga tertera).
  * Nilai yang dipakai sungguhan dibaca dari tabel `app_settings` (key non_contract_discount). */
@@ -61,19 +62,30 @@ export type ContractPriceRow = {
   customer_code: string;
   customer_name: string;
   customer_type: string;
+  /** Kontrak atau SCPL (kolom Price Type; kosong = Kontrak). */
+  price_type: "contract" | "scpl";
 };
-export type ContractPriceParseResult = { rows: ContractPriceRow[]; skipped: number; duplicates: number };
+export type ContractPriceParseResult = { rows: ContractPriceRow[]; skipped: number; duplicates: number; nonContractRows: number };
 
-/** Data Harga Kontrak (SCPL). Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type,
- * Part Number, Harga. Harga sudah nett — dipakai apa adanya. Satu baris per
- * Part Number + Cust. Group (baris kembar: yang terakhir dipakai). */
+/** Data Harga Kontrak / SCPL. Kolom: Cust. Code, Cust. Name, Cust. Group, Cust. Type,
+ * Price Type (Kontrak / SCPL; kosong = Kontrak), Part Number, Harga. Harga sudah nett — dipakai apa adanya.
+ * Satu baris per Part Number + Cust. Group + Price Type (baris kembar: yang terakhir dipakai).
+ * Baris ber-Price Type Non-Kontrak dilewati (harga non kontrak di-upload di slot sendiri). */
 export function parseContractPriceWorkbook(wb: XLSX.WorkBook): ContractPriceParseResult {
   const rows = readRows(wb);
   const map = new Map<string, ContractPriceRow>();
   let skipped = 0;
   let duplicates = 0;
+  let nonContractRows = 0;
   for (const r of rows) {
     const n = normalize(r);
+    const pt = normPriceType(pick(n, ["pricetype", "tipeharga", "jenisharga"]));
+    if (pt === "non_contract") {
+      nonContractRows++;
+      skipped++;
+      continue;
+    }
+    const priceType: "contract" | "scpl" = pt === "scpl" ? "scpl" : "contract";
     const partNumber = str(pick(n, ["partnumber", "nomorpart", "nopart"]));
     const group = str(pick(n, ["custgroup", "customergroup"]));
     const price = parsePrice(pick(n, ["harga", "price", "hargakontrak", "hargarupiah"]));
@@ -82,11 +94,12 @@ export function parseContractPriceWorkbook(wb: XLSX.WorkBook): ContractPricePars
       skipped++;
       continue;
     }
-    const key = `${partNumber}|${group}`;
+    const key = `${partNumber}|${group.toUpperCase()}|${priceType}`;
     if (map.has(key)) duplicates++;
     map.set(key, {
       part_number: partNumber,
       customer_group: group,
+      price_type: priceType,
       price,
       customer_code: str(pick(n, ["custcode", "customercode"])),
       customer_name: str(pick(n, ["custname", "customername"])),
@@ -96,7 +109,7 @@ export function parseContractPriceWorkbook(wb: XLSX.WorkBook): ContractPricePars
   if (map.size === 0) {
     throw new ParseError("Tidak ada baris valid. Pastikan kolom Part Number, Cust. Group, dan Harga terisi.");
   }
-  return { rows: Array.from(map.values()), skipped, duplicates };
+  return { rows: Array.from(map.values()), skipped, duplicates, nonContractRows };
 }
 
 export type NonContractPriceRow = { part_number: string; list_price: number; price: number };

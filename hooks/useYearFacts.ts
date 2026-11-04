@@ -7,7 +7,7 @@ import type { Part, PriceListEntry } from "@/lib/types";
 
 /** Market Size per customer × Product × Model untuk beberapa tahun sekaligus (satu mesin hitung untuk tabel hierarki, chart, dan KPI).
  * Dihitung bertahap supaya halaman tetap responsif. Hanya filter Product / Model / Part yang memengaruhi fakta;
- * filter customer (Branch, PSS, KA Type, Group, Customer) diterapkan saat fakta dijumlahkan. */
+ * filter customer (Branch, PSS, Customer Type, Group, Customer) diterapkan saat fakta dijumlahkan. */
 export function useYearFacts(
   custs: CustInfo[],
   parts: Part[],

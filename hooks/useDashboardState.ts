@@ -38,7 +38,7 @@ import { useYearFacts } from "@/hooks/useYearFacts";
  * Actual Sales yang dibandingkan dengan Market Size.
  *  - Kalau ringkasan Actual per part tersedia (actual_qty_year + kolom Rupiah, migration v23): Actual = penjualan
  *    HANYA Part Number yang ada di Master Part → cakupan part sama persis dengan Market Size.
- *    KA Type tetap diambil dari laporan Actual per customer.
+ *    Customer Type tetap diambil dari laporan Actual per customer.
  *  - Kalau belum: Actual per customer × product, hanya product yang ada di Master Part (aturan lama).
  */
 function comparableActual(
@@ -131,7 +131,7 @@ function enrichCustomersFromUio(data: DashboardData): DashboardData {
 
 export function useDashboardState(initialData: DashboardData) {
   const [rawData, setData] = useState<DashboardData>(initialData);
-  // Kamus & pengaturan (alias product, KA Type, angka default rumus) dari Supabase harus
+  // Kamus & pengaturan (alias product, Customer Type, angka default rumus) dari Supabase harus
   // terpasang SEBELUM semua perhitungan di bawah. Idempotent: tidak berbuat apa-apa kalau sama.
   applyReferences(rawData.references);
   const data = useMemo(() => comparableActual(enrichCustomersFromUio(rawData)), [rawData]);
