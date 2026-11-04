@@ -45,11 +45,12 @@ export const rowPriceType = (p: PriceRow): PriceType => {
 };
 
 /**
- * Pencari harga satu part untuk satu customer:
- *   Price Type Kontrak     → harga Kontrak Customer Group-nya, kalau tidak ada → Harga Non Kontrak;
- *   Price Type SCPL        → harga SCPL Customer Group-nya,    kalau tidak ada → Harga Non Kontrak;
+ * Pencari harga satu part untuk satu customer. Kontrak dan SCPL DIPERLAKUKAN SAMA (sama-sama harga khusus Customer Group);
+ * Price Type-nya hanya label yang tetap dibedakan:
+ *   Price Type Kontrak     → harga Kontrak Customer Group-nya, kalau tidak ada harga SCPL-nya, kalau tidak ada → Harga Non Kontrak;
+ *   Price Type SCPL        → harga SCPL Customer Group-nya, kalau tidak ada harga Kontrak-nya, kalau tidak ada → Harga Non Kontrak;
  *   Price Type Non-Kontrak → Harga Non Kontrak;
- *   Price Type kosong      → harga Kontrak, lalu SCPL Customer Group-nya, lalu Harga Non Kontrak (aturan lama).
+ *   Price Type kosong      → sama seperti Kontrak (aturan lama).
  * Kalau Harga Non Kontrak juga tidak ada → `fallback` (Pricelist Master Part, biasanya 0).
  */
 export function makePriceLookup(priceList: PriceRow[]) {
@@ -64,7 +65,7 @@ export function makePriceLookup(priceList: PriceRow[]) {
     if (partNumber) {
       const g = up(customerGroup);
       if (g && type !== "non_contract") {
-        const order: PriceType[] = type ? [type] : ["contract", "scpl"];
+        const order: PriceType[] = type === "scpl" ? ["scpl", "contract"] : ["contract", "scpl"];
         for (const t of order) {
           const hit = byGroup.get(`${partNumber}|${g}|${t}`);
           if (hit) return { price: hit.price, source: t, group: hit.group };

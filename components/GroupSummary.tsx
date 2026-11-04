@@ -685,7 +685,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={cPrice}
             options={PRICE_OPTIONS}
             onChange={wrap(setCPrice)}
-            info="Price Type customer dari kolom Price Type di Data UIO: Kontrak / SCPL = harga Customer Group di Data Harga Kontrak / SCPL, Non-Kontrak = Harga Non Kontrak. Kalau di Data UIO belum diisi: Kontrak/SCPL bila Customer Group-nya punya harga, selain itu Non-Kontrak."
+            info="Price Type customer dari kolom Price Type di Data UIO. Kontrak dan SCPL dihitung sama: memakai harga Customer Group-nya di Data Harga Kontrak / SCPL (kalau tidak ada, Harga Non Kontrak). Non-Kontrak = Harga Non Kontrak. Kalau di Data UIO belum diisi: Kontrak/SCPL bila Customer Group-nya punya harga, selain itu Non-Kontrak."
           />
         </div>
       </div>
