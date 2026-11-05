@@ -18,7 +18,7 @@ import {
 import type { ActualQtyYear, ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
 import { sumPeriod } from "@/lib/period";
-import { dominantPriceType, groupsWithGroupPrice, type PriceType } from "@/lib/priceType";
+import { codesOf, dominantPriceType, groupsWithGroupPrice, normCode, type PriceType } from "@/lib/priceType";
 
 /* ------------------------------------------------------------------ */
 /* Dimensi hierarki                                                    */
@@ -73,6 +73,8 @@ export type CustInfo = {
   priceGroup: string;
   /** Price Type customer dari Data UIO (terbanyak di unit-unitnya); null = belum diisi → aturan lama. */
   priceType: PriceType | null;
+  /** Customer Code customer ini (dari Data UIO) — kunci harga kontrak. */
+  codes: string[];
 };
 
 /** Satu baris fakta = Market Size satu customer untuk satu Product + Model pada tahun acuan.
@@ -101,7 +103,7 @@ export function buildCustomerIndex(
     let c = m.get(key);
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "", priceType: null };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "", priceType: null, codes: [] };
       m.set(key, c);
     }
     return c;
@@ -159,6 +161,9 @@ export function buildCustomerIndex(
   });
   m.forEach((c) => {
     c.priceType = dominantPriceType(c.units);
+    c.codes = codesOf(c.units);
+    const mc = master.get(c.key)?.customer_code;
+    if (mc && !c.codes.includes(normCode(mc))) c.codes.push(normCode(mc));
     // Customer Type: dari laporan Actual Sales (yang terbesar kalau satu customer muncul di dua Customer Type), selain itu dari Master Customer.
     const k = kaAmount.get(c.key);
     if (k && k.size > 0) c.ka = Array.from(k.entries()).sort((a, b) => b[1] - a[1])[0][0].toUpperCase();
@@ -257,7 +262,7 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
         if (modelSet && !modelSet.has(p.model)) return;
         if (pnSet && !pnSet.has(p.part_number || "")) return;
         if (nameSet && !nameSet.has(p.part_name || "")) return;
-        const price = d.priceOf(p.part_number, c.priceGroup || c.group, p.pricelist, c.priceType);
+        const price = d.priceOf(p.part_number, c.codes, p.pricelist, c.priceType);
         // Kebutuhan per bulan → setahun = jumlah 12 bulan, dibulatkan ke part utuh (sama dengan rumus setahun).
         const qtyM = partMonthlyQty(hrs!, p.hm_day, p.freq_replacement_hm, p.qty_per_unit);
         let sum = 0;

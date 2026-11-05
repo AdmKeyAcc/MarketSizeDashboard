@@ -1,4 +1,4 @@
-import { dominantPriceType, makePriceLookup, type PriceType } from "@/lib/priceType";
+import { codesOf, dominantPriceType, makePriceLookup, type PriceType } from "@/lib/priceType";
 import {
   type Part,
   type Customer,
@@ -494,8 +494,9 @@ export function computePartMarketSize(input: {
 export function buildPriceResolver(priceList: PriceListEntry[]) {
   const look = makePriceLookup(priceList);
   /** Harga satu part: lihat makePriceLookup (Price Type Kontrak / SCPL / Non-Kontrak dari Data UIO). */
-  return (partNumber: string | null, customerGroup: string, fallback: number, priceType: PriceType | null = null): number =>
-    look(partNumber, customerGroup, fallback, priceType).price;
+  /** codes = Customer Code customer (harga kontrak dicocokkan lewat Customer Code). */
+  return (partNumber: string | null, codes: string[] | null, fallback: number, priceType: PriceType | null = null): number =>
+    look(partNumber, codes, fallback, priceType).price;
 }
 
 /* ---------------- Actual Sales (per transaksi/part) ---------------- */
@@ -727,7 +728,7 @@ export function buildDetailRows(
   customerKeys?: Set<string> | null,
   /** Opsional: unit & transaksi milik customerKeys yang sudah dipisah sebelumnya, plus
    * hasil prepareDetailCtx (supaya tidak menghitung ulang data global tiap panggilan). */
-  subset?: { units: UioUnit[]; tx: ActualSalesTx[]; priceGroup?: string; priceType?: PriceType | null; ctx?: DetailCtx }
+  subset?: { units: UioUnit[]; tx: ActualSalesTx[]; priceGroup?: string; priceType?: PriceType | null; codes?: string[]; ctx?: DetailCtx }
 ): DetailRow[] {
   // Tahun acuan & cakupan periode selalu dari SELURUH data, bukan subset customer,
   // supaya setiap customer/group memakai tahun yang sama.
@@ -746,6 +747,8 @@ export function buildDetailRows(
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
   // Price Type (Kontrak / SCPL / Non-Kontrak) dari Data UIO unit-unit yang dihitung.
   const priceType = subset && subset.priceType !== undefined ? subset.priceType : customerGroup ? dominantPriceType(scopedUnits) : null;
+  // Harga kontrak dicocokkan lewat Customer Code unit-unit yang dihitung.
+  const codes = subset?.codes ?? (customerKeys || customerGroup ? codesOf(scopedUnits) : []);
   // Periode kolom "Market Size periode": bulan di filter Bulan, kosong = setahun penuh.
   const selMonths = periodOf(0, f.bulan, { year: null, month: null }).months;
 
@@ -790,7 +793,7 @@ export function buildDetailRows(
     if (customerKeys && subset && uio === 0 && !actualByPart.get(`${canonicalProduct(p.product)}|${normModel(p.model)}|${p.part_number || ""}`)) return;
     // Annual HM rata-rata per unit dari HM/Day × Day/Month × Month/Year di Data UIO (fallback: Master Part / default).
     const { annualHm, hmDay } = partAnnualHm(hrs, p.hm_day, p.product, workdaysOf);
-    const price = priceOf(p.part_number, customerGroup, p.pricelist, priceType);
+    const price = priceOf(p.part_number, codes, p.pricelist, priceType);
     // Kebutuhan per bulan (rumus yang sama dengan KPI/chart/hierarki); setahun = jumlah 12 bulan, dibulatkan.
     const qtyM = partMonthlyQty(hrs, p.hm_day, p.freq_replacement_hm, p.qty_per_unit);
     const amountM = new Float64Array(12);
@@ -991,7 +994,7 @@ export function marketSizeByYear(
       const uio = hrs.units;
       if (uio === 0) return;
       const { annualHm } = partAnnualHm(hrs, p.hm_day, p.product, workdaysOf);
-      const price = priceOf(p.part_number, customerGroup, p.pricelist);
+      const price = priceOf(p.part_number, null, p.pricelist);
       const r = computePartMarketSize({
         annualHm,
         freqReplacementHm: p.freq_replacement_hm,

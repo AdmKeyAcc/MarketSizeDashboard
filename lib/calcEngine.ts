@@ -158,7 +158,7 @@ export function calcPart(
       const facts = computeCustomerFacts(cc, deps);
       if (facts.length === 0) return;
       customers++;
-      priceSources[resolvePriceInfo(priceList, part.part_number, c.priceGroup || c.group, part.pricelist, c.priceType).source]++;
+      priceSources[resolvePriceInfo(priceList, part.part_number, c.codes, part.pricelist, c.priceType).source]++;
       facts.forEach((f) => {
         qty += f.qty;
         amount += f.ms;
@@ -191,7 +191,7 @@ export function calcPart(
     // Tidak ada unit di Data UIO tapi UIO diisi manual: rumus sederhana, disebar per hari kerja kalender.
     simple = true;
     customers = 0;
-    const info = resolvePriceInfo(priceList, part.part_number, scope.group, part.pricelist);
+    const info = resolvePriceInfo(priceList, part.part_number, null, part.pricelist);
     priceSources[info.source]++;
     const raw = part.freq_replacement_hm > 0 ? (annualHmUsed / part.freq_replacement_hm) * part.qty_per_unit * uioOv : 0;
     qty = Math.round(raw);
@@ -203,7 +203,7 @@ export function calcPart(
     }
   }
 
-  let price = qty > 0 ? amount / qty : resolvePriceInfo(priceList, part.part_number, scope.group, part.pricelist).price;
+  let price = qty > 0 ? amount / qty : resolvePriceInfo(priceList, part.part_number, null, part.pricelist).price;
   const priceAuto = price;
   const priceOv = typeof ov.price === "number" && ov.price >= 0 ? ov.price : null;
   if (priceOv !== null) {
@@ -218,7 +218,7 @@ export function calcPart(
     priceOv !== null
       ? "Diisi manual"
       : kinds.length === 0
-        ? resolvePriceInfo(priceList, part.part_number, scope.group, part.pricelist).label
+        ? resolvePriceInfo(priceList, part.part_number, null, part.pricelist).label
         : kinds.length === 1
           ? (kinds[0] === "contract" || kinds[0] === "scpl") && scope.group
             ? `${LABEL[kinds[0]]} ${scope.group}`

@@ -22,7 +22,7 @@ import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 import { comparePlan, periodOf, sumPeriod } from "@/lib/period";
 import { type UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
-import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, dominantPriceType, groupsWithGroupPrice, type PriceType } from "@/lib/priceType";
+import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, codesOf, codesWithContract, dominantPriceType, groupsWithGroupPrice, type PriceType } from "@/lib/priceType";
 
 const PAGE_SIZE = 20;
 /** Baris anak per baris induk yang ditampilkan dulu. */
@@ -229,19 +229,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   // Customer Group yang punya harga Kontrak / SCPL; simpan ejaan persis di Data Harga untuk pencarian harga.
   const contractNameByKey = useMemo(() => groupsWithGroupPrice(data.priceList), [data.priceList]);
-  /** Jenis harga yang dimiliki Customer Group di Data Harga (untuk customer yang Price Type-nya belum diisi). */
-  const groupPriceKinds = useMemo(() => {
-    const m = new Map<string, Set<PriceType>>();
-    data.priceList.forEach((p) => {
-      const g = normGroup(p.customer_group);
-      if (!g) return;
-      const t: PriceType = p.price_type === "scpl" ? "scpl" : "contract";
-      let set = m.get(g);
-      if (!set) m.set(g, (set = new Set()));
-      set.add(t);
-    });
-    return m;
-  }, [data.priceList]);
+  /** Customer Code yang punya harga Kontrak / SCPL (untuk customer yang Price Type-nya belum diisi di Data UIO). */
+  const groupPriceKinds = useMemo(() => codesWithContract(data.priceList), [data.priceList]);
 
   const kaOf = (g: GInfo): string[] => {
     const fromActual = Array.from(g.kaAmount.entries())
@@ -260,11 +249,15 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       if (arr) arr.push(u);
       else byCust.set(k, [u]);
     });
-    const kinds = groupPriceKinds.get(normGroup(g.name));
-    const legacy: PriceType = kinds?.has("contract") ? "contract" : kinds?.has("scpl") ? "scpl" : "non_contract";
+    // Price Type belum diisi → dari Data Harga: Customer Code-nya punya harga Kontrak / SCPL, selain itu Non-Kontrak.
+    const legacyOf = (us: UioUnit[]): PriceType => {
+      const kinds = new Set<PriceType>();
+      codesOf(us).forEach((c) => groupPriceKinds.get(c)?.forEach((t) => kinds.add(t)));
+      return kinds.has("contract") ? "contract" : kinds.has("scpl") ? "scpl" : "non_contract";
+    };
     const out = new Map<string, PriceType>();
-    byCust.forEach((us, k) => out.set(k, dominantPriceType(us) ?? legacy));
-    if (out.size === 0) out.set(g.key, legacy);
+    byCust.forEach((us, k) => out.set(k, dominantPriceType(us) ?? legacyOf(us)));
+    if (out.size === 0) out.set(g.key, "non_contract");
     return out;
   };
   const priceKinds = (g: GInfo): string[] => {
@@ -806,7 +799,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={cPrice}
             options={PRICE_OPTIONS}
             onChange={wrap(setCPrice)}
-            info="Price Type customer dari kolom Price Type di Data UIO. Kontrak dan SCPL dihitung sama: memakai harga Customer Group-nya di Data Harga Kontrak / SCPL (kalau tidak ada, Harga Non Kontrak). Non-Kontrak = Harga Non Kontrak. Kalau di Data UIO belum diisi: Kontrak/SCPL bila Customer Group-nya punya harga, selain itu Non-Kontrak."
+            info="Price Type customer dari kolom Price Type di Data UIO (label). Harga: customer yang Customer Code-nya ada di Data Harga Kontrak / SCPL memakai harga itu; selain itu Harga Non Kontrak (harga tertera − 50%). Kalau Price Type di Data UIO belum diisi, label mengikuti Data Harga."
           />
         </div>
       </div>

@@ -10,7 +10,7 @@ export const maxDuration = 60;
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
-/** Data Harga Kontrak / SCPL: harga sudah nett, disimpan apa adanya per Part Number + Customer Group + Price Type. */
+/** Data Harga Kontrak / SCPL: harga sudah nett, disimpan apa adanya per Part Number + Customer Code + Price Type. */
 export async function POST(request: Request) {
   try {
     const form = await request.formData();
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const { rows, skipped, duplicates, nonContractRows } = parseContractPriceWorkbook(wb);
+    const { rows, skipped, duplicates, nonContractRows, noCode } = parseContractPriceWorkbook(wb);
 
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     });
 
     const scpl = rows.filter((r) => r.price_type === "scpl").length;
-    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, nonContractRows, scpl, mode, ...res });
+    return NextResponse.json({ ok: true, rowCount: rows.length, skipped, duplicates, nonContractRows, noCode, scpl, mode, ...res });
   } catch (err) {
     const message = err instanceof ParseError ? err.message : (err as Error).message || "Gagal memproses file.";
     const status = err instanceof ParseError ? 422 : 500;

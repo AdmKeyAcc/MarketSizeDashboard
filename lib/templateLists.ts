@@ -15,6 +15,7 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
   const products = new Set<string>();
   const models = new Map<string, Set<string>>();
   const pns = new Set<string>();
+  const codes = new Set<string>();
   const partModels = new Map<string, Set<string>>();
   const addModel = (p: string | null | undefined, m: string | null | undefined) => {
     const pk = p ? canonicalProduct(p) : "";
@@ -40,8 +41,10 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
     if (t(u.pss_name)) pss.add(t(u.pss_name));
     if (t(u.customer_group)) groups.add(t(u.customer_group));
     if (t(u.customer_name)) names.add(t(u.customer_name));
+    if (t(u.customer_code)) codes.add(t(u.customer_code).toUpperCase());
   });
   d.customers.forEach((c) => {
+    if (t(c.customer_code)) codes.add(t(c.customer_code).toUpperCase());
     if (t(c.cabang)) branches.add(t(c.cabang).toUpperCase());
     if (t(c.pss)) pss.add(t(c.pss));
     if (t(c.customer_group)) groups.add(t(c.customer_group));
@@ -68,6 +71,7 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
     products: arr(products),
     modelsByProduct,
     partNumbers: arr(pns),
+    codes: arr(codes),
     partModelsByProduct
   };
 }

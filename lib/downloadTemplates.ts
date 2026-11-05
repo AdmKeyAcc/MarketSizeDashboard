@@ -198,10 +198,12 @@ export type TemplateLists = {
   /** Product → model (Master Part + Data UIO). */
   modelsByProduct: Record<string, string[]>;
   partNumbers: string[];
+  /** Customer Code yang dikenal (Data UIO / Master Customer). */
+  codes: string[];
   /** Hanya Master Part: product → model (untuk cek model saat upload Data UIO). */
   partModelsByProduct: Record<string, string[]>;
 };
-export const EMPTY_LISTS: TemplateLists = { branches: [], pss: [], groups: [], names: [], custTypes: [], products: [], modelsByProduct: {}, partNumbers: [], partModelsByProduct: {} };
+export const EMPTY_LISTS: TemplateLists = { branches: [], pss: [], groups: [], names: [], custTypes: [], products: [], modelsByProduct: {}, partNumbers: [], codes: [], partModelsByProduct: {} };
 
 const thisYear = () => new Date().getFullYear();
 
@@ -225,6 +227,7 @@ export function uioRules(L: TemplateLists): Record<number, ColRule> {
 }
 export function contractRules(L: TemplateLists): Record<number, ColRule> {
   return {
+    0: { kind: "list", values: L.codes, strict: false, hint: "WAJIB diisi: Customer Code (kode Sold-to) customer yang punya harga kontrak / SCPL." },
     1: { kind: "list", values: L.names, strict: false },
     2: { kind: "list", values: L.groups, strict: false, hint: "Customer Group harus sama persis dengan di Data UIO / Actual — pilih dari dropdown." },
     3: { kind: "list", values: L.custTypes, strict: true },

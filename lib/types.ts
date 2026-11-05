@@ -126,6 +126,8 @@ export type PriceListEntry = {
   /** 'contract' = Kontrak (nett), 'scpl' = SCPL (nett), 'non_contract' = umum (tertera - 50%). */
   price_type?: "contract" | "scpl" | "non_contract";
   list_price?: number | null;
+  /** Customer Code (kode Sold-to) — wajib untuk harga kontrak / SCPL. */
+  customer_code?: string | null;
 };
 
 /** Actual Sales per transaksi/part (tabel actual_sales_tx). 1 baris = penjualan

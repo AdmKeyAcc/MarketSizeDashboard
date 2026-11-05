@@ -136,7 +136,8 @@ create index if not exists uio_units_customer_group_idx on uio_units (customer_g
 
 -- ---------------------------------------------------------------------
 -- price_list — harga per Part Number
--- Natural key: (part_number, customer_group, price_type)  (migration v24)
+-- Natural key: (part_number, customer_code, customer_group, price_type)  (migration v25)
+--   customer_code <> '' -> harga kontrak / SCPL untuk Customer Code itu (WAJIB untuk harga kontrak)
 --   customer_group = ''  -> harga umum (non kontrak)
 --   customer_group <> '' -> harga khusus customer group (kontrak / SCPL)
 -- price_type: 'contract'     = Kontrak, harga nett apa adanya
@@ -150,14 +151,14 @@ create table if not exists price_list (
   price numeric not null default 0,
   price_type text not null default 'non_contract',
   list_price numeric,
-  customer_code text,
+  customer_code text not null default '', -- kunci harga kontrak (migration v25)
   customer_name text,
   customer_type text,
   source_filename text,
   uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
-create unique index if not exists price_list_natural_key_v24 on price_list (part_number, customer_group, price_type);
+create unique index if not exists price_list_natural_key_v25 on price_list (part_number, customer_code, customer_group, price_type);
 
 -- ---------------------------------------------------------------------
 -- actual_sales_tx — transaksi penjualan aktual (upload "Actual Sales")

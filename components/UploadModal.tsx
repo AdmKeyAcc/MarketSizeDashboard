@@ -549,13 +549,13 @@ export default function UploadModal({
           updatedAt={priceAt("contract")}
           mode={modes.contract}
           onMode={setMode("contract")}
-          matchBy="Part Number + Customer Group + Price Type"
+          matchBy="Part Number + Customer Code + Price Type"
           download="contract"
           status={stContract}
           busy={busy}
           onPick={(f, m) =>
             run(setStContract, () => uploadFile("/api/upload/price-contract", f, m), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
+              `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${j.noCode ? ` (${fmt(j.noCode)} baris tanpa Cust. Code dilewati — Customer Code wajib)` : ""}${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
             )
           }
           onTemplate={() => downloadContractPriceTemplate(lists)}
