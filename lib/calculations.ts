@@ -396,12 +396,43 @@ export type UnitCounter = {
   hours: (product: string, model: string) => UnitHm;
 };
 
+/** Model Master Part untuk satu model unit (keduanya sudah dinormalisasi): yang sama persis, kalau tidak ada →
+ * model Master Part TERPANJANG yang menjadi awalan model unit (min. 3 karakter). Satu unit hanya masuk ke SATU model
+ * Master Part — mis. unit "U50-5S" masuk ke "U50-5S", bukan juga ke "U50-5". */
+export function bestPartModel(unitModel: string, partModels: Iterable<string>): string | null {
+  let best: string | null = null;
+  for (const pm of partModels) {
+    if (pm === unitModel) return pm;
+    if (pm.length >= 3 && unitModel.startsWith(pm) && (!best || pm.length > best.length)) best = pm;
+  }
+  return best;
+}
+
+/** Product (kanonik) → daftar model Master Part (dinormalisasi). */
+const pmCache = new WeakMap<Part[], Map<string, string[]>>();
+export function partModelsOf(parts: Part[]): Map<string, string[]> {
+  const hit = pmCache.get(parts);
+  if (hit) return hit;
+  const m = new Map<string, Set<string>>();
+  parts.forEach((p) => {
+    const k = canonicalProduct(p.product);
+    let s = m.get(k);
+    if (!s) m.set(k, (s = new Set()));
+    s.add(normModel(p.model));
+  });
+  const out = new Map(Array.from(m.entries()).map(([k, s]) => [k, Array.from(s)]));
+  pmCache.set(parts, out);
+  return out;
+}
+
 export function buildUnitCounter(
   uioUnits: UioUnit[],
   years: number[],
   f?: FilterState,
   customers?: Customer[],
-  workdaysOf: WorkdaysOf = defaultWorkdaysOf
+  workdaysOf: WorkdaysOf = defaultWorkdaysOf,
+  /** Product (kanonik) → model Master Part (dinormalisasi), supaya satu unit tidak dihitung di dua model. */
+  partModels?: Map<string, string[]>
 ): UnitCounter {
   const keys = buildUnitScopeKeys(customers, f);
   // Tahun acuan untuk menghitung bulan beli (unit yang baru dibeli tahun itu hanya dihitung sebagian tahun).
@@ -428,8 +459,9 @@ export function buildUnitCounter(
     let agg = m?.get(nm);
     if (m && (!agg || agg.units === 0) && nm.length >= 3) {
       const sum = emptyUnitHm();
+      const pms = partModels?.get(p);
       m.forEach((a, k) => {
-        if (k.startsWith(nm)) mergeUnitHm(sum, a);
+        if (k.startsWith(nm) && (!pms || bestPartModel(k, pms) === nm)) mergeUnitHm(sum, a);
       });
       agg = sum;
     }
@@ -709,7 +741,7 @@ export function buildDetailRows(
     scopedTx = subset ? subset.tx : actualTx.filter((r) => customerKeys.has(custKey(r.customer_group, r.customer_name)));
   }
   const workdaysOf = defaultWorkdaysOf;
-  const counter = buildUnitCounter(scopedUnits, years, f, customers, workdaysOf);
+  const counter = buildUnitCounter(scopedUnits, years, f, customers, workdaysOf, partModelsOf(parts));
   // Harga kontrak (SCPL) dipakai kalau tepat satu Customer Group (filter, atau group yang sedang dihitung); selain itu harga non kontrak.
   const customerGroup = subset?.priceGroup ?? (f.customerGroup.length === 1 ? f.customerGroup[0] : "");
   // Price Type (Kontrak / SCPL / Non-Kontrak) dari Data UIO unit-unit yang dihitung.
@@ -946,7 +978,7 @@ export function marketSizeByYear(
   const unitFilter = { ...f, tahun: [] as string[], bulan: [] as string[] };
 
   return years.map((year) => {
-    const counter = buildUnitCounter(uioUnits, [year], unitFilter, customers, workdaysOf);
+    const counter = buildUnitCounter(uioUnits, [year], unitFilter, customers, workdaysOf, partModelsOf(parts));
     let total = 0;
     let totalQty = 0;
     parts.forEach((p) => {

@@ -10,6 +10,7 @@
 import {
   EMPTY_FILTERS,
   addUnitHm,
+  bestPartModel,
   canonicalProduct,
   defaultWorkdaysOf,
   emptyUnitHm,
@@ -71,7 +72,7 @@ export function scopeCustomers(units: UioUnit[], priceList: PriceListEntry[], sc
 }
 
 /** Unit customer yang dihitung untuk part ini: model sama persis, kalau tidak ada → model part sebagai awalan (aturan Dashboard). */
-function matchedUnits(c: CustInfo, product: string, partModel: string, year: number | null): UioUnit[] {
+function matchedUnits(c: CustInfo, product: string, partModel: string, year: number | null, partModels?: string[]): UioUnit[] {
   const pk = canonicalProduct(product);
   const pm = normModel(partModel);
   const exact: UioUnit[] = [];
@@ -81,7 +82,7 @@ function matchedUnits(c: CustInfo, product: string, partModel: string, year: num
     if (year !== null && u.year !== null && u.year > year) return;
     const nm = normModel(u.model);
     if (nm === pm) exact.push(u);
-    else if (pm.length >= 3 && nm.startsWith(pm)) prefix.push(u);
+    else if (pm.length >= 3 && nm.startsWith(pm) && (!partModels || bestPartModel(nm, partModels) === pm)) prefix.push(u);
   });
   return exact.length > 0 ? exact : prefix;
 }
@@ -93,9 +94,15 @@ export function calcPart(
   custs: CustInfo[],
   priceList: PriceListEntry[],
   scope: CalcScope,
-  ov: CalcOverrides = {}
+  ov: CalcOverrides = {},
+  /** Seluruh Master Part — supaya unit masuk ke model Master Part yang paling cocok (sama dengan Dashboard). */
+  allParts: Part[] = [part]
 ): CalcResult {
   const s = refs().settings;
+  const pk0 = canonicalProduct(part.product);
+  const sameProduct = allParts.filter((p) => canonicalProduct(p.product) === pk0);
+  const productParts = sameProduct.length > 0 ? sameProduct : [part];
+  const pmList = Array.from(new Set(productParts.map((p) => normModel(p.model))));
   const year = scope.year ?? new Date().getFullYear();
   const hmOv = positive(ov.hmDay, 24);
   const dmOv = positive(ov.dayMonth, 31);
@@ -111,7 +118,7 @@ export function calcPart(
   const aggAll: UnitHm = emptyUnitHm();
   const partHm = positive(part.hm_day, 24) ?? s.default_hm_day;
   const scoped = custs.map((c) => {
-    const mu = matchedUnits(c, part.product, part.model, scope.year);
+    const mu = matchedUnits(c, part.product, part.model, scope.year, pmList);
     mu.forEach((u) => {
       uioAuto++;
       sumHm += positive(u.hm_day, 24) ?? partHm;
@@ -138,7 +145,13 @@ export function calcPart(
 
   if (uioAuto > 0) {
     // Mesin Dashboard, per customer.
-    const deps = makeFactDeps([part], priceList, year, EMPTY_FILTERS);
+    // Semua part product ini ikut dalam pembagian model, lalu hanya part ini yang dihitung.
+    const deps = makeFactDeps(productParts, priceList, year, {
+      ...EMPTY_FILTERS,
+      modelUnit: [part.model],
+      partNumber: part.part_number ? [part.part_number] : [],
+      partName: part.part_number ? [] : [part.part_name]
+    });
     scoped.forEach(({ c, n }) => {
       if (n === 0) return;
       const cc = hmOv || dmOv || myOv ? { ...c, units: c.units.map(applyOv) } : c;

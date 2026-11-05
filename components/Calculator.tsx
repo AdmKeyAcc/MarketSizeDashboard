@@ -115,7 +115,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
   const custs = useMemo(() => scopeCustomers(data.uioUnits, data.priceList, { group: "", customer: "" }), [data.uioUnits, data.priceList]);
   const scope = { year, group: "", customer: "" };
   const res: CalcResult | null = useMemo(
-    () => (part ? calcPart(part, custs, data.priceList, scope, ov) : null),
+    () => (part ? calcPart(part, custs, data.priceList, scope, ov, data.parts) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [part?.part_number, part?.qty_per_unit, part?.freq_replacement_hm, part?.hm_day, part?.product, part?.model, custs, data.priceList, year, ov]
   );
@@ -163,7 +163,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
     const { price: _p, ...ovNoPrice } = ov;
     let n = 0;
     partOptions.forEach((p) => {
-      const r = calcPart(p, custs, data.priceList, scope, ovNoPrice);
+      const r = calcPart(p, custs, data.priceList, scope, ovNoPrice, data.parts);
       summaryState.addItem(toItem(p, r));
       n++;
     });

@@ -3,6 +3,7 @@ import {
   buildPriceResolver,
   canonicalProduct,
   addUnitHm,
+  bestPartModel,
   custKey,
   emptyUnitHm,
   defaultWorkdaysOf,
@@ -237,13 +238,18 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
   counts.forEach((unitModels, pk) => {
     const byModel = d.partIndex.get(pk);
     if (!byModel) return;
+    // Setiap model unit masuk ke SATU model Master Part (sama persis, atau awalan terpanjang).
+    const pms = Array.from(byModel.keys());
+    const assigned = new Map<string, UnitHm>();
+    unitModels.forEach((a, k) => {
+      const pm = bestPartModel(k, pms);
+      if (!pm) return;
+      let s = assigned.get(pm);
+      if (!s) assigned.set(pm, (s = emptyUnitHm()));
+      mergeUnitHm(s, a);
+    });
     byModel.forEach((plist, pm) => {
-      let hrs = unitModels.get(pm);
-      if ((!hrs || hrs.units === 0) && pm.length >= 3) {
-        const sum = emptyUnitHm();
-        unitModels.forEach((a, k) => { if (k.startsWith(pm)) mergeUnitHm(sum, a); });
-        hrs = sum;
-      }
+      const hrs = assigned.get(pm);
       const uio = hrs?.units || 0;
       if (uio === 0) return;
       plist.forEach((p) => {
