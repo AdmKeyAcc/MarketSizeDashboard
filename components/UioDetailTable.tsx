@@ -10,7 +10,7 @@ const UIO_DIMS = ["branch", "pss", "custType", "group", "customer", "priceType",
 type UioDim = (typeof UIO_DIMS)[number];
 const UIO_LABELS: Record<UioDim, string> = {
   branch: "Branch", pss: "PSS", custType: "Customer Type", group: "Customer Group", customer: "Customer Name",
-  priceType: "Price Type", product: "Product", model: "Model", year: "Year Inv"
+  priceType: "Price Type", product: "Product", model: "Model", year: "Year BAST"
 };
 const blank = (v: string | number | null | undefined, none: string) => (v === null || v === undefined || String(v).trim() === "" ? none : String(v).trim());
 const dimOf = (d: UioDim, u: UioUnit): string => {
@@ -23,7 +23,7 @@ const dimOf = (d: UioDim, u: UioUnit): string => {
     case "priceType": return blank(u.price_type, "(Tanpa Price Type)");
     case "product": return blank(u.product ? canonicalProduct(u.product) : null, "(Tanpa Product)");
     case "model": return blank(u.model?.toUpperCase(), "(Tanpa Model)");
-    case "year": return blank(u.year, "(Tanpa Year Inv)");
+    case "year": return blank(u.year, "(Tanpa Year BAST)");
   }
 };
 type UNode = { id: string; dim: UioDim; label: string; depth: number; units: UioUnit[]; children: UNode[] };
@@ -64,8 +64,8 @@ const COLS: Col[] = [
   { key: "product", label: "Product", get: (u) => u.product },
   { key: "model", label: "Model", get: (u) => u.model },
   { key: "serial_number", label: "Serial Number", get: (u) => u.serial_number },
-  { key: "year", label: "Year Inv", num: true, get: (u) => u.year },
-  { key: "month_inv", label: "Month Inv", num: true, get: (u) => u.month_inv ?? null },
+  { key: "year", label: "Year BAST", num: true, get: (u) => u.year },
+  { key: "month_inv", label: "Month BAST", num: true, get: (u) => u.month_inv ?? null },
   { key: "hm_day", label: "HM/Day", num: true, get: (u) => u.hm_day ?? null },
   { key: "day_month", label: "Day/Month", num: true, get: (u) => u.day_month ?? null },
   { key: "month_year", label: "Month/Year", num: true, get: (u) => u.month_year ?? null }

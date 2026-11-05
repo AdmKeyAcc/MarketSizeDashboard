@@ -1,5 +1,6 @@
 "use client";
 
+import { EMPTY_UIO_FILTERS, filterUioUnits, uioFilterOptions, type UioFilterKey, type UioFilterState } from "@/lib/uioFilter";
 import { useState, useCallback, useMemo } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fetchDashboardDataWithClient } from "@/lib/fetchDashboardDataShared";
@@ -153,6 +154,10 @@ export function useDashboardState(initialData: DashboardData) {
     setFiltersState((prev) => ({ ...prev, [key]: value }));
   }, []);
   const resetFilters = useCallback(() => setFiltersState(EMPTY_FILTERS), []);
+  // ---- filter UIO (terpisah dari filter Market) ----
+  const [uioFilters, setUioFiltersState] = useState<UioFilterState>(EMPTY_UIO_FILTERS);
+  const setUioFilter = useCallback((key: UioFilterKey, value: string[]) => setUioFiltersState((prev) => ({ ...prev, [key]: value })), []);
+  const resetUioFilters = useCallback(() => setUioFiltersState(EMPTY_UIO_FILTERS), []);
 
   // Tahun & bulan yang punya data Actual Sales (dipakai untuk pilihan filter).
   const actualPeriods = useMemo(() => {
@@ -176,19 +181,7 @@ export function useDashboardState(initialData: DashboardData) {
 
 
   // ---- dashboard charts: UIO per product / market size & share per tahun ----
-  const uioYears = useMemo(() => resolveUioYears(filters, data.uioUnits), [filters, data.uioUnits]);
-  const uioByProductRows = useMemo(
-    () => uioByDimension(data.uioUnits, uioYears, "product", filters, data.customers),
-    [data.uioUnits, uioYears, filters, data.customers]
-  );
-  const uioDetail = useMemo(
-    () => uioDetailRows(data.uioUnits, uioYears, filters, data.customers),
-    [data.uioUnits, uioYears, filters, data.customers]
-  );
-  const uioUnitsScoped = useMemo(
-    () => uioScopedUnits(data.uioUnits, uioYears, filters, data.customers),
-    [data.uioUnits, uioYears, filters, data.customers]
-  );
+  // UIO (chart UIO per Product & Detail UIO) punya filter sendiri — lihat bagian "filter UIO" di bawah.
   // Rumus lama (harga non kontrak untuk semua customer) — HANYA dipakai kalau belum ada Actual Sales tahunan
   // atau Master Part. Tidak lagi ditampilkan sebagai angka sementara saat mesin hitung utama berjalan,
   // karena hasilnya berbeda dan membuat scorecard terlihat berubah-ubah setiap refresh.
@@ -215,6 +208,27 @@ export function useDashboardState(initialData: DashboardData) {
     () => buildCustomerIndex(realCustomers, data.uioUnits, data.actualSalesYear, data.priceList, data.actualQtyYear || []),
     [realCustomers, data.uioUnits, data.actualSalesYear, data.priceList, data.actualQtyYear]
   );
+
+  // Customer Type per customer (dari Actual / Master Customer) untuk filter UIO.
+  const custTypeMap = useMemo(() => {
+    const m = new Map<string, string>();
+    custIndex.forEach((c) => {
+      if (c.ka && !c.ka.startsWith("(")) m.set(c.key, c.ka);
+    });
+    return m;
+  }, [custIndex]);
+  const uioUnitsScoped = useMemo(() => filterUioUnits(data.uioUnits, uioFilters, custTypeMap), [data.uioUnits, uioFilters, custTypeMap]);
+  const uioOptions = useMemo(() => uioFilterOptions(data.uioUnits, uioFilters, custTypeMap), [data.uioUnits, uioFilters, custTypeMap]);
+  const uioByProductRows = useMemo(() => {
+    const totals = new Map<string, number>();
+    uioUnitsScoped.forEach((u) => {
+      const k = canonicalProduct(u.product) || "Lainnya";
+      totals.set(k, (totals.get(k) || 0) + 1);
+    });
+    return Array.from(totals.entries())
+      .map(([label, uio]) => ({ label, uio }))
+      .sort((a, b) => b.uio - a.uio);
+  }, [uioUnitsScoped]);
   const factYears = useMemo(() => {
     const ys = new Set<number>();
     data.uioUnits.forEach((u) => {
@@ -384,9 +398,11 @@ export function useDashboardState(initialData: DashboardData) {
     resetFilters,
     realCustomers,
     options,
-    uioYears,
+    uioFilters,
+    setUioFilter,
+    resetUioFilters,
+    uioOptions,
     uioByProductRows,
-    uioDetail,
     uioUnitsScoped,
     partsWithoutPrice,
     marketSizeView,

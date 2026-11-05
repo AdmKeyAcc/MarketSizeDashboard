@@ -12,7 +12,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, Tooltip,
 const FALLBACK = { ink: "#47566A", blue: "#175596", border: "#DCE2E9" };
 
 export default function UioChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { uioByProductRows, uioYears } = state;
+  const { uioByProductRows, uioFilters, uioUnitsScoped } = state;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -32,10 +32,12 @@ export default function UioChart({ state, theme }: { state: UseDashboardState; t
       <div className="panel-head">
         <h2>
           UIO per Product
-          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation), yaitu semua unit yang sudah terjual sampai tahun yang ditampilkan.">i</span>
+          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation) di Data UIO, sesuai Filter UIO. Year BAST = tahun serah terima (BAST) unit; All = semua unit.">i</span>
         </h2>
         <span className="note">
-          {uioYears.length > 0 ? `Posisi sampai tahun ${Math.max(...uioYears)}` : "Belum ada data UIO"}
+          {uioUnitsScoped.length > 0
+            ? `${uioUnitsScoped.length.toLocaleString("id-ID")} unit · Year BAST: ${uioFilters.yearBast.length === 0 ? "All" : uioFilters.yearBast.join(", ")}`
+            : "Belum ada data UIO"}
         </span>
       </div>
       {labels.length === 0 ? (

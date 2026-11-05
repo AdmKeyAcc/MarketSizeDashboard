@@ -175,7 +175,7 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export const UIO_HEADERS = ["Branch", "Pss Name", "Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Product", "Model", "Serial Number", "Year Inv", "Month Inv", "HM/Day", "Day/Month", "Month/Year"];
+export const UIO_HEADERS = ["Branch", "Pss Name", "Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Product", "Model", "Serial Number", "Year BAST", "Month BAST", "HM/Day", "Day/Month", "Month/Year"];
 export const UIO_WIDTHS = [14, 18, 14, 28, 22, 18, 14, 14, 16, 20, 10, 11, 10, 11, 12];
 export const UIO_PRICE_COL = 6;
 export const CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Part Number", "Harga"];

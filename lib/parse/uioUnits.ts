@@ -2,14 +2,15 @@ import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
 import { PRICE_TYPE_LABEL, normPriceType } from "@/lib/priceType";
 import { canonicalProduct } from "@/lib/calculations";
+import { uioSerialKey } from "@/lib/uioKey";
 
 /** One row of raw output from the parser — the API route turns this into a
  * uio_units row (adding the dedupe_key, since that needs upload-time logic
  * to fall back safely when Serial Number is missing/placeholder). */
 export type UioUnitParsed = {
-  /** Year Inv — tahun invoice/pembelian unit. */
+  /** Year BAST — tahun BAST (serah terima) unit. */
   year: number | null;
-  /** Month Inv — bulan invoice/pembelian (1–12). Kosong = dianggap beroperasi setahun penuh di tahun belinya. */
+  /** Month BAST — bulan BAST (serah terima) (1–12). Kosong = dianggap beroperasi setahun penuh di tahun belinya. */
   month_inv: number | null;
   product: string | null;
   model: string | null;
@@ -86,8 +87,9 @@ export function parseMonth(v: unknown): number | null {
 }
 
 const COLS = {
-  year: ["yearinv", "tahuninv", "yearinvoice", "tahuninvoice", "tahun", "year"],
-  month: ["monthinv", "bulaninv", "monthinvoice", "bulaninvoice", "invmonth"],
+  // Year/Month BAST (judul lama Year Inv / Month Inv tetap terbaca).
+  year: ["yearbast", "tahunbast", "yearinv", "tahuninv", "yearinvoice", "tahuninvoice", "tahun", "year"],
+  month: ["monthbast", "bulanbast", "monthinv", "bulaninv", "monthinvoice", "bulaninvoice", "invmonth"],
   product: ["product", "produk", "brand", "productdescription"],
   model: ["model", "modelunit", "modeldescription"],
   custGroup: ["custgroup", "customergroup"],
@@ -100,7 +102,7 @@ const COLS = {
   priceType: ["pricetype", "tipeharga", "jenisharga", "pricecategory"]
 };
 const COL_LABEL: Record<keyof typeof COLS, string> = {
-  year: "Year Inv", month: "Month Inv", product: "Product", model: "Model", custGroup: "Cust. Group",
+  year: "Year BAST", month: "Month BAST", product: "Product", model: "Model", custGroup: "Cust. Group",
   custName: "Cust. Name", branch: "Branch", serial: "Serial Number", hmDay: "HM/Day", dayMonth: "Day/Month",
   monthYear: "Month/Year", priceType: "Price Type"
 };
@@ -207,6 +209,10 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const headerRow = best.headerRow;
 
   const parsed: UioUnitParsed[] = [];
+  const seenRow = new Map<string, number>();
+  const seenSerial = new Map<string, number>();
+  let duplicates = 0;
+  let conflictSerial = 0;
   let skipped = 0;
   let returns = 0;
   let beforeMinYear = 0;
@@ -268,7 +274,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       return;
     }
 
-    // Year Inv: angka tahun; tanggal lengkap juga diterima (tahun & bulan diambil dari tanggal itu).
+    // Year BAST: angka tahun; tanggal lengkap juga diterima (tahun & bulan diambil dari tanggal itu).
     let yearNum: number | null = null;
     let monthFromDate: number | null = null;
     if (yearRaw !== null) {
@@ -288,24 +294,24 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       }
     }
     if (yearNum !== null && (yearNum < 1980 || yearNum > thisYear + 1)) {
-      flag("year-bad", "Year Inv", "penting", `Year Inv tidak masuk akal (di luar 1980–${thisYear}) — dianggap kosong`, rowNo);
+      flag("year-bad", "Year BAST", "penting", `Year BAST tidak masuk akal (di luar 1980–${thisYear}) — dianggap kosong`, rowNo);
       yearNum = null;
     } else if (yearRaw === null) {
-      if (has("year")) flag("year-empty", "Year Inv", "penting", "Year Inv kosong — unit dihitung di semua tahun", rowNo);
+      if (has("year")) flag("year-empty", "Year BAST", "penting", "Year BAST kosong — unit dihitung di semua tahun", rowNo);
     } else if (yearNum === null) {
-      flag("year-bad", "Year Inv", "penting", "Year Inv bukan angka tahun — dianggap kosong", rowNo);
+      flag("year-bad", "Year BAST", "penting", "Year BAST bukan angka tahun — dianggap kosong", rowNo);
     } else if (yearNum > thisYear) {
-      flag("year-future", "Year Inv", "penting", `Year Inv setelah ${thisYear} (masa depan)`, rowNo);
+      flag("year-future", "Year BAST", "penting", `Year BAST setelah ${thisYear} (masa depan)`, rowNo);
     }
 
     let monthNum = parseMonth(monthRaw);
     if (monthNum === null && monthFromDate !== null) monthNum = monthFromDate;
     if (monthRaw !== null && monthNum === null) {
-      flag("month-bad", "Month Inv", "penting", "Month Inv tidak valid (harus 1–12 atau nama bulan) — dianggap kosong", rowNo);
+      flag("month-bad", "Month BAST", "penting", "Month BAST tidak valid (harus 1–12 atau nama bulan) — dianggap kosong", rowNo);
     } else if (monthNum === null) {
-      if (has("month")) flag("month-empty", "Month Inv", "penting", "Month Inv kosong — unit dianggap beroperasi penuh /year di tahun belinya", rowNo);
+      if (has("month")) flag("month-empty", "Month BAST", "penting", "Month BAST kosong — unit dianggap beroperasi penuh /year di tahun BAST-nya", rowNo);
     } else if (yearNum === thisYear && monthNum > thisMonth) {
-      flag("month-future", "Month Inv", "penting", "Month Inv setelah bulan ini (masa depan)", rowNo);
+      flag("month-future", "Month BAST", "penting", "Month BAST setelah bulan ini (masa depan)", rowNo);
     }
 
     if (opts.minYear !== undefined && yearNum !== null && yearNum < opts.minYear) {
@@ -336,10 +342,11 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     if (priceTypeRaw !== null && !pt) flag("pt-bad", "Price Type", "penting", "Price Type tidak dikenal (harus Kontrak / SCPL / Non-Kontrak) — dianggap kosong", rowNo);
     else if (!pt && has("priceType")) flag("pt-empty", "Price Type", "info", "Price Type kosong — harga Kontrak/SCPL dipakai bila Customer Group-nya punya, selain itu Harga Non Kontrak", rowNo);
 
-    parsed.push({
+    const rec: UioUnitParsed = {
       year: yearNum,
       month_inv: monthNum,
-      product: str(product)?.toUpperCase() ?? null,
+      // Kode product (PER, TYT, MFT, …) disimpan sebagai nama Product (PERKINS, TOYOTA, MF) supaya unit yang sama tidak tersimpan dua kali.
+      product: str(product) ? canonicalProduct(str(product)) : null,
       model: str(model),
       customer_group: str(custGroup),
       customer_name: str(custName),
@@ -352,12 +359,33 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       day_month: dm,
       month_year: my,
       price_type: pt ? PRICE_TYPE_LABEL[pt] : null
-    });
+    };
+    // ---- baris dobel ----
+    // 1) Baris yang isinya sama persis dengan baris lain → disimpan satu kali saja.
+    const sig = JSON.stringify(rec);
+    const firstRow = seenRow.get(sig);
+    if (firstRow !== undefined) {
+      duplicates++;
+      flag("dup-row", "Baris dobel", "info", `Isi baris sama persis dengan baris lain (mis. baris ${firstRow}) — disimpan satu kali`, rowNo);
+      return;
+    }
+    seenRow.set(sig, rowNo);
+    // 2) Product + Serial Number sama tapi isi lain berbeda → satu unit fisik; yang disimpan baris paling bawah.
+    const sk = rec.serial_number ? uioSerialKey(canonicalProduct(rec.product), rec.serial_number) : null;
+    if (sk) {
+      const prev = seenSerial.get(sk);
+      if (prev !== undefined) {
+        flag("dup-serial", "Serial Number", "penting", `Product + Serial Number sama dengan baris lain (mis. baris ${prev}) tapi isinya berbeda — yang disimpan baris paling bawah`, rowNo);
+        conflictSerial++;
+      }
+      seenSerial.set(sk, rowNo);
+    }
+    parsed.push(rec);
   });
 
   if (parsed.length === 0) {
     throw new ParseError(
-      "Tidak ada baris valid. Pastikan ada kolom Product (nama brand) yang terisi — kolom lain (Year Inv, Month Inv, Model, " +
+      "Tidak ada baris valid. Pastikan ada kolom Product (nama brand) yang terisi — kolom lain (Year BAST, Month BAST, Model, " +
         "Customer Group, Branch, Serial Number) boleh sebagian kosong."
     );
   }

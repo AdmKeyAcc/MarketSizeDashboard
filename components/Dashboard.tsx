@@ -7,7 +7,7 @@ import { useDashboardState } from "@/hooks/useDashboardState";
 import { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
 import { useTheme } from "@/hooks/useTheme"; 
 import Topbar, { type Tab } from "@/components/Topbar";
-import FilterBar from "@/components/FilterBar";
+import FilterBar, { UioFilterBar } from "@/components/FilterBar";
 import KpiCards from "@/components/KpiCards";
 import UioChart from "@/components/UioChart";
 import UioDetailTable from "@/components/UioDetailTable";
@@ -41,7 +41,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         refreshing={state.refreshing}
       />
 
-      {activeTab === "dashboard" && <FilterBar state={state} />}
 
       <div className="main">
         {!hasData && (
@@ -53,14 +52,19 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
 
         {activeTab === "dashboard" ? (
           <section className="view">
+            {/* ---- Bagian Market: Filter Market → scorecard, chart, hierarchy ---- */}
+            <FilterBar state={state} />
             <KpiCards state={state} />
-            <UioChart state={state} theme={theme} />
-            <UioDetailTable state={state} />
             <div className="charts-row2">
               <MarketSizeChart state={state} theme={theme} />
               <MarketShareChart state={state} theme={theme} />
             </div>
             <HierarchyTable state={state} />
+            {/* ---- Bagian UIO: Filter UIO → chart & detail UIO ---- */}
+            <div className="section-divider" />
+            <UioFilterBar state={state} />
+            <UioChart state={state} theme={theme} />
+            <UioDetailTable state={state} />
           </section>
         ) : activeTab === "summary" ? (
           <section className="view">

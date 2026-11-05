@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { FilterState } from "@/lib/calculations";
+import { UIO_FILTER_LABELS, type UioFilterKey } from "@/lib/uioFilter";
 
 const CHIP_LABELS: Partial<Record<keyof FilterState, string>> = {
   tahun: "Year", bulan: "Month", area: "Branch", tier: "Customer Type",
@@ -220,6 +221,10 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
   return (
     <div className="filter-card-wrap">
       <div className="filter-card">
+        <div className="filter-title">
+          Filter Market
+          <span className="info-dot" title="Berlaku untuk scorecard, chart Market Size & Market Share per Year, dan tabel Market Size vs Actual Sales.">i</span>
+        </div>
         {chipEntries.length > 0 && (
           <div className="chips">
             {chipEntries.map(({ key, label, value, all }) => (
@@ -239,7 +244,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
             values={filters.tahun}
             options={options.tahun}
             onChange={(v) => setFilter("tahun", v)}
-            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year Inv (tahun invoice/delivery unit) sampai tahun ini."
+            info="Tahun perhitungan Market Size dan Actual Sales. Market Size tahun ini dihitung dari semua unit dengan Year BAST sampai tahun ini."
           />
           <MultiSelectField label="Month" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
           <MultiSelectField label="Branch" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />
@@ -268,6 +273,59 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
           <button className="link-btn" onClick={resetFilters}>
+            Reset semua
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Filter khusus bagian UIO (chart UIO per Product & Detail UIO), terpisah dari Filter Market. */
+export function UioFilterBar({ state }: { state: UseDashboardState }) {
+  const { uioFilters: f, setUioFilter, resetUioFilters, uioOptions: o } = state;
+  const keys = Object.keys(UIO_FILTER_LABELS) as UioFilterKey[];
+  const active = keys.filter((k) => f[k].length > 0);
+  return (
+    <div className="filter-card-wrap">
+      <div className="filter-card">
+        <div className="filter-title">
+          Filter UIO
+          <span className="info-dot" title="Berlaku untuk chart UIO per Product dan tabel Detail UIO. Tidak mengubah angka Market Size.">i</span>
+        </div>
+        {active.length > 0 && (
+          <div className="chips">
+            {active.flatMap((k) =>
+              f[k].length > 5
+                ? [
+                    <span className="chip" key={k}>
+                      <span>{UIO_FILTER_LABELS[k]}: {f[k].length.toLocaleString("id-ID")} dipilih</span>
+                      <button onClick={() => setUioFilter(k, [])}>✕</button>
+                    </span>
+                  ]
+                : f[k].map((v) => (
+                    <span className="chip" key={`${k}-${v}`}>
+                      <span>{UIO_FILTER_LABELS[k]}: {v}</span>
+                      <button onClick={() => setUioFilter(k, f[k].filter((x) => x !== v))}>✕</button>
+                    </span>
+                  ))
+            )}
+          </div>
+        )}
+        <div className="filterbar-row">
+          {keys.map((k) => (
+            <MultiSelectField
+              key={k}
+              label={UIO_FILTER_LABELS[k]}
+              values={f[k]}
+              options={o[k]}
+              onChange={(v) => setUioFilter(k, v)}
+              info={k === "yearBast" ? "Tahun BAST (serah terima) unit. All = semua unit di Data UIO." : undefined}
+            />
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button className="link-btn" onClick={resetUioFilters}>
             Reset semua
           </button>
         </div>

@@ -358,3 +358,8 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .slot-btn.danger { color: var(--red-600); margin-left: auto; }
 .slot-btn.danger:hover:not(:disabled) { border-color: var(--red-600); background: rgba(220, 70, 50, .08); }
 .slot-actions .clear-confirm { margin-top: 2px; }
+
+/* Filter di dalam halaman Dashboard (Filter Market & Filter UIO) */
+.view .filter-card-wrap { max-width: none; margin: 0; padding: 0; }
+.filter-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); margin-bottom: 10px; }
+.section-divider { height: 1px; background: var(--border); margin: 10px 0 4px; }

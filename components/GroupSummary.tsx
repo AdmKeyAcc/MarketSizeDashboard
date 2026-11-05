@@ -46,6 +46,17 @@ type SumDim = (typeof SUM_DIMS)[number];
 const SUM_LABELS: Record<SumDim, string> = {
   katype: "Customer Type", group: "Customer Group", customer: "Customer Name", branch: "Branch", pss: "PSS", pkind: "Price Type"
 };
+/** Kolom tabel untuk tiap dimensi hierarki. */
+const DIM_COL: Record<SumDim, string> = { katype: "katype", group: "grp", customer: "cname", branch: "branch", pss: "pss", pkind: "pkind" };
+/** Kolom yang berkaitan dengan level terakhir hierarki (atribut dari baris di level itu). */
+const RELATED_COLS: Record<SumDim, string[]> = {
+  katype: ["product", "model", "pkind"],
+  group: ["katype", "branch", "pss", "product", "model", "pkind"],
+  customer: ["grp", "katype", "branch", "pss", "product", "model", "pkind"],
+  branch: ["pss", "product", "model"],
+  pss: ["branch", "product", "model"],
+  pkind: ["katype", "product", "model"]
+};
 const topKey = (m: Map<string, number>) => {
   let best = "", bv = -Infinity;
   m.forEach((v, k) => {
@@ -481,8 +492,17 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     });
   }
 
-  const cols: ColDef[] = useMemo(() => [{ key: "hier" as SortKey, label: "Hierarchy", kind: "text", width: 34 }, ...LABEL_COLS, ...METRIC_COLS], []);
-  const textKeys = useMemo(() => cols.filter((c) => c.kind === "text").map((c) => c.key), [cols]);
+  // Kolom yang tampil mengikuti level hierarki: hanya kolom yang berkaitan dengan level terakhir,
+  // dan kolom yang sudah jadi level hierarki tidak diulang.
+  const cols: ColDef[] = useMemo(() => {
+    const last = act[act.length - 1] ?? "group";
+    const used = new Set<string>(act.map((d) => DIM_COL[d]));
+    const rel = new Set(RELATED_COLS[last].filter((k) => !used.has(k)));
+    const metrics = METRIC_COLS.filter((c) => !(c.key === "customers" && last === "customer"));
+    return [{ key: "hier" as SortKey, label: "Hierarchy", kind: "text", width: 34 }, ...LABEL_COLS.filter((c) => rel.has(String(c.key))), ...metrics];
+  }, [act]);
+  // Pencarian tetap memeriksa semua kolom teks (termasuk yang tidak tampil).
+  const textKeys = useMemo(() => LABEL_COLS.map((c) => c.key), []);
 
   // Market Size periode = jumlah kebutuhan bulan-bulan terpilih (setahun kalau filter Bulan kosong).
   // Market share = Actual ÷ Market Size periode yang sama (tahun berjalan: Januari s/d bulan terakhir data Actual).
@@ -747,14 +767,14 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fTahun}
             options={tahunOpts}
             onChange={wrap(setFTahun)}
-            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year Inv (tahun invoice/delivery unit) sampai tahun ini. Kosong = tahun terbaru yang punya data UIO."
+            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year BAST (tahun serah terima unit) sampai tahun ini. Kosong = tahun terbaru yang punya data UIO."
           />
           <MultiSelectField
             label="Month"
             values={fBulan}
             options={state.options.bulan}
             onChange={wrap(setFBulan)}
-            info="Kosong = /year (12 bulan). Market Size bulan terpilih = jumlah kebutuhan part bulan-bulan itu (jam operasi unit per bulan mengikuti hari kerja kalender, unit baru dihitung mulai bulan belinya). Market share bulan terpilih memakai Actual per bulan dari sinkron web Sales."
+            info="Kosong = /year (12 bulan). Market Size bulan terpilih = jumlah kebutuhan part bulan-bulan itu (jam operasi unit per bulan mengikuti hari kerja kalender, unit baru dihitung mulai Month BAST-nya). Market share bulan terpilih memakai Actual per bulan dari sinkron web Sales."
           />
           <MultiSelectField
             label="Branch"
@@ -794,7 +814,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       {/* BOX 2 — Tabel summary */}
       <div className="panel">
         <div className="panel-head">
-          <h2>Summary per {act.map((d) => SUM_LABELS[d]).join(" › ") || "Customer"}</h2>
+          <h2>Summary</h2>
           {refYear !== null && (
             <span className="detail-filters-info" title="Tahun & bulan yang dipakai tabel ini (dari filter Tahun / Bulan)">
               Periode: {fBulan.length > 0 ? `${refYear} · ${fBulan.length === 12 ? "/year" : fBulan.join(", ")}` : plan.labelOf(refYear)}

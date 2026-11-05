@@ -150,7 +150,7 @@ function UioCheck({
       )}
       {v.missingColumns.length > 0 && (
         <div className="uio-check-row">
-          ⚠ <b>Kolom tidak ditemukan:</b> {v.missingColumns.join(", ")}. Cek judul kolom sesuai template (mis. "Year Inv", "Month Inv").
+          ⚠ <b>Kolom tidak ditemukan:</b> {v.missingColumns.join(", ")}. Cek judul kolom sesuai template (mis. "Year BAST", "Month BAST").
         </div>
       )}
       {penting.map((i) => (

@@ -189,7 +189,7 @@ function buildUnitScopeKeys(customers: Customer[] | undefined, f: FilterState | 
  * tahun mana pun — jadi tetap terhitung walau tahun difilter. */
 function unitInScope(u: UioUnit, years: number[], f: FilterState | undefined, keys: UnitScopeKeys): boolean {
   // UIO (unit in operation) pada tahun Y = semua unit yang sudah terjual
-  // (Year Inv) sampai tahun Y — unit tahun lalu masih beroperasi. Kalau
+  // (Year BAST) sampai tahun Y — unit tahun lalu masih beroperasi. Kalau
   // beberapa tahun dipilih, dipakai tahun terbesar. Unit tanpa tahun selalu ikut.
   if (years.length > 0 && u.year !== null && u.year > Math.max(...years)) return false;
   if (!f) return true;
@@ -227,7 +227,7 @@ export function uioByDimension(
 
 export type UioDetailRow = { product: string; model: string; year: number | null; units: number };
 
-/** Tabel rincian UIO: jumlah unit per Product + Model + Tahun delivery (Year Inv),
+/** Tabel rincian UIO: jumlah unit per Product + Model + Tahun delivery (Year BAST),
  * untuk unit yang masuk cakupan filter yang sama dengan chart UIO per Product
  * (unit sampai tahun terpilih, kena filter Area/Sector/Customer/dst). */
 export function uioDetailRows(
@@ -300,7 +300,7 @@ export type WorkdaysOf = (product: string) => number;
 export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workdays_month;
 
 /** Bulan pertama (0–11) unit sudah beroperasi di tahun acuan: unit yang dibeli bulan ke-m di tahun acuan
- * baru dihitung mulai bulan itu. Tahun sesudahnya / Month Inv kosong → Januari (0). Unit setelah tahun acuan → 12 (tidak ada). */
+ * baru dihitung mulai bulan itu. Tahun sesudahnya / Month BAST kosong → Januari (0). Unit setelah tahun acuan → 12 (tidak ada). */
 export function firstActiveMonth(u: UioUnit, refYear: number | null | undefined): number {
   if (refYear === null || refYear === undefined || u.year === null || u.year === undefined) return 0;
   if (u.year > refYear) return 12;
@@ -319,7 +319,7 @@ export function firstYearFraction(u: UioUnit, refYear: number | null | undefined
 
 /**
  * Jam operasi satu unit per bulan di tahun acuan:
- *   HM/Day × Day/Month × bobot kalender bulan itu × (Month/Year ÷ 12), mulai bulan beli (Month Inv).
+ *   HM/Day × Day/Month × bobot kalender bulan itu × (Month/Year ÷ 12), mulai bulan beli (Month BAST).
  * Bobot kalender = hari kerja bulan itu ÷ rata-rata hari kerja (app_settings), jadi unit yang beroperasi setahun
  * penuh tetap berjumlah HM/Day × Day/Month × Month/Year — hanya pembagiannya ke bulan yang mengikuti kalender.
  */

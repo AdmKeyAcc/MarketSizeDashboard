@@ -4,7 +4,7 @@
  * yang sama persis sama dengan angka di hierarki Dashboard dan tabel Summary:
  *   - dihitung per customer (pembulatan qty per customer × part, seperti Dashboard),
  *   - harga per customer: kontrak (Customer Group-nya) → Non Kontrak → Pricelist,
- *   - jam operasi per bulan mengikuti kalender hari kerja & Month Inv.
+ *   - jam operasi per bulan mengikuti kalender hari kerja & Month BAST.
  * Nilai yang diisi manual (HM/Day, Day/Month, Month/Year, UIO, Harga) menimpa data otomatis.
  */
 import {
