@@ -52,7 +52,12 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
 
         {activeTab === "dashboard" ? (
           <section className="view">
+            {/* ---- Bagian UIO: Filter UIO → chart & detail UIO ---- */}
+            <UioFilterBar state={state} />
+            <UioChart state={state} theme={theme} />
+            <UioDetailTable state={state} />
             {/* ---- Bagian Market: Filter Market → scorecard, chart, hierarchy ---- */}
+            <div className="section-divider" />
             <FilterBar state={state} />
             <KpiCards state={state} />
             <div className="charts-row2">
@@ -60,11 +65,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
               <MarketShareChart state={state} theme={theme} />
             </div>
             <HierarchyTable state={state} />
-            {/* ---- Bagian UIO: Filter UIO → chart & detail UIO ---- */}
-            <div className="section-divider" />
-            <UioFilterBar state={state} />
-            <UioChart state={state} theme={theme} />
-            <UioDetailTable state={state} />
           </section>
         ) : activeTab === "summary" ? (
           <section className="view">
