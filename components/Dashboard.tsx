@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { buildTemplateLists } from "@/lib/templateLists";
 import type { DashboardData } from "@/lib/types";
 import { useDashboardState } from "@/hooks/useDashboardState";
 import { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
@@ -26,6 +27,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const [uploadOpen, setUploadOpen] = useState(false);
 
   const hasData = state.data.parts.length > 0;
+  // Daftar dropdown template hanya dihitung saat modal Upload dibuka.
+  const templateLists = useMemo(() => (uploadOpen ? buildTemplateLists(state.data) : undefined), [uploadOpen, state.data]);
 
   return (
     <div className="app">
@@ -75,6 +78,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         onClose={() => setUploadOpen(false)}
         onUploaded={state.refetch}
         meta={state.data.meta}
+        lists={templateLists}
         counts={{
           parts: state.data.parts.length,
           uioUnits: state.data.uioUnits.length,

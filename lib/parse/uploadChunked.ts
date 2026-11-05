@@ -165,14 +165,15 @@ async function existingUioKeys(): Promise<Set<string>> {
 export async function prepareUioUpload(
   file: File,
   mode: UioUploadMode = "merge",
-  sheet?: string
+  sheet?: string,
+  known?: import("@/lib/parse/uioUnits").UioKnown
 ): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
   try {
     const XLSX = await import("@e965/xlsx");
     const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR, sheet });
+    const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR, sheet, known });
     const { uioSerialKey } = await import("@/lib/uioKey");
 
     // Mode tambah/perbarui: hanya unit dengan Serial Number valid (bisa dicocokkan) yang disimpan.

@@ -1,6 +1,7 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
 import { PRICE_TYPE_LABEL, normPriceType } from "@/lib/priceType";
+import { canonicalProduct } from "@/lib/calculations";
 
 /** One row of raw output from the parser — the API route turns this into a
  * uio_units row (adding the dedupe_key, since that needs upload-time logic
@@ -24,6 +25,14 @@ export type UioUnitParsed = {
   month_year: number | null;
   /** Price Type unit: "Kontrak" / "SCPL" / "Non-Kontrak"; null = kosong (aturan lama). */
   price_type: string | null;
+};
+
+/** Nilai yang sudah dikenal (dari data website) untuk mengecek ejaan isian file. */
+export type UioKnown = {
+  branches?: string[];
+  custTypes?: string[];
+  /** Product → model di Master Part. */
+  partModelsByProduct?: Record<string, string[]>;
 };
 
 export type UioUnitsParseResult = {
@@ -165,7 +174,21 @@ function str(v: unknown): string | null {
  * "Populasi All Branch" — the population tab is normally the bigger one
  * and the one meant for upload).
  */
-export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: number; sheet?: string } = {}): UioUnitsParseResult {
+export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: number; sheet?: string; known?: UioKnown } = {}): UioUnitsParseResult {
+  // ---- daftar nilai yang dikenal (cek ejaan) ----
+  const K = opts.known;
+  const knownBranch = K?.branches && K.branches.length > 0 ? new Set(K.branches.map((b) => b.trim().toUpperCase())) : null;
+  const knownType = K?.custTypes && K.custTypes.length > 0 ? new Set(K.custTypes.map((b) => b.trim().toUpperCase())) : null;
+  const pm = K?.partModelsByProduct && Object.keys(K.partModelsByProduct).length > 0 ? K.partModelsByProduct : null;
+  const nm = (m: string) => m.toUpperCase().replace(/[\s-]/g, "");
+  const partModels = new Map<string, string[]>();
+  if (pm) Object.entries(pm).forEach(([p, ms]) => partModels.set(p.trim().toUpperCase(), ms.map(nm)));
+  const modelMatches = (p: string, m: string) => {
+    const list = partModels.get(p);
+    if (!list) return false;
+    const um = nm(m);
+    return list.some((x) => um === x || (x.length >= 3 && um.startsWith(x)));
+  };
   const tables = wb.SheetNames.map((name) => ({ name, ...readTable(wb.Sheets[name]) }));
   const withProduct = tables.filter((t) => t.hasProduct && t.rows.length > 0);
   const sheets = withProduct.map((t) => ({ name: t.name, rows: t.rows.length }));
@@ -300,6 +323,15 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     if (hm === null || hm <= 0 || hm > 24) flag("hm", "HM/Day", "info", "HM/Day kosong/tidak valid (harus 1–24) — dipakai nilai default", rowNo);
     if (dm === null || dm <= 0 || dm > 31) flag("dm", "Day/Month", "info", "Day/Month kosong/tidak valid (harus 1–31) — dipakai nilai default", rowNo);
     if (my === null || my <= 0 || my > 12) flag("my", "Month/Year", "info", "Month/Year kosong/tidak valid (harus 1–12) — dipakai nilai default", rowNo);
+    if (knownBranch && str(branch) && !knownBranch.has(str(branch)!.toUpperCase()))
+      flag("branch-unknown", "Branch", "penting", "Branch belum pernah ada di data (cek ejaan / kode cabang)", rowNo);
+    if (knownType && str(custType) && !knownType.has(str(custType)!.toUpperCase()))
+      flag("type-unknown", "Cust. Type", "penting", `Cust. Type tidak dikenal — harus salah satu: ${Array.from(knownType).join(", ")}`, rowNo);
+    if (pm) {
+      const pk = canonicalProduct(String(product));
+      if (!partModels.has(pk)) flag("product-nomp", "Product", "info", "Product tidak ada di Master Part — unit tidak menyumbang Market Size", rowNo);
+      else if (str(model) && !modelMatches(pk, str(model)!)) flag("model-nomp", "Model", "info", "Model tidak cocok dengan model di Master Part (cek ejaan) — unit tidak menyumbang Market Size", rowNo);
+    }
     const pt = normPriceType(priceTypeRaw);
     if (priceTypeRaw !== null && !pt) flag("pt-bad", "Price Type", "penting", "Price Type tidak dikenal (harus Kontrak / SCPL / Non-Kontrak) — dianggap kosong", rowNo);
     else if (!pt && has("priceType")) flag("pt-empty", "Price Type", "info", "Price Type kosong — harga Kontrak/SCPL dipakai bila Customer Group-nya punya, selain itu Harga Non Kontrak", rowNo);

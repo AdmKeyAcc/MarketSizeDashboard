@@ -3,7 +3,7 @@ import "./globals.css";
 import { LOGO_DATA_URI } from "@/components/logoData";
 
 export const metadata: Metadata = {
-  title: "Market Size Dashboard",
+  title: "Market Size RPL",
   description: "Dashboard dan kalkulator market size spare part"
 };
 

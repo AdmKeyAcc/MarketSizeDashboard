@@ -4,7 +4,10 @@
  * Data dibaca langsung dari Supabase saat tombol diklik (bukan dari data yang sudah dimuat
  * dashboard), supaya benar-benar posisi terkini.
  */
-import { CONTRACT_HEADERS, CONTRACT_PRICE_COL, CONTRACT_WIDTHS, UIO_HEADERS, UIO_PRICE_COL, UIO_WIDTHS, saveWorkbook, type SheetSpec } from "@/lib/downloadTemplates";
+import {
+  CONTRACT_HEADERS, CONTRACT_PRICE_COL, CONTRACT_WIDTHS, EMPTY_LISTS, MASTER_PART_HEADERS, MASTER_PART_WIDTHS, UIO_HEADERS, UIO_PRICE_COL, UIO_WIDTHS,
+  contractRules, masterPartRules, nonContractRules, saveWorkbook, uioRules, type SheetSpec, type TemplateLists
+} from "@/lib/downloadTemplates";
 import { CONTRACT_PRICE_TYPE_OPTIONS, PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, normPriceType } from "@/lib/priceType";
 
 export type DownloadKind = "uio" | "contract" | "non_contract" | "parts" | "actual";
@@ -40,7 +43,7 @@ const FILE: Record<DownloadKind, string> = {
 };
 
 /** Bentuk sheet dari baris database (fungsi murni — tanpa akses jaringan). */
-export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount = 0.5): SheetSpec {
+export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount = 0.5, L: TemplateLists = EMPTY_LISTS): SheetSpec {
   if (kind === "uio") {
     const rows = [...input].sort((a, b) =>
       byText(a.branch, a.customer_name, a.product, a.model, a.serial_number).localeCompare(byText(b.branch, b.customer_name, b.product, b.model, b.serial_number))
@@ -50,6 +53,7 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
       headers: UIO_HEADERS,
       widths: UIO_WIDTHS,
       lists: { [UIO_PRICE_COL]: UIO_PRICE_TYPE_OPTIONS },
+      rules: uioRules(L),
       rows: rows.map((r) => [
         v(r.branch), v(r.pss_name), v(r.customer_code), v(r.customer_name), v(r.customer_group), v(r.customer_type),
         (() => {
@@ -72,6 +76,7 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
       headers: contract ? CONTRACT_HEADERS : ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Part Number", "Harga"],
       widths: contract ? CONTRACT_WIDTHS : [14, 28, 22, 18, 20, 16],
       lists: contract ? { [CONTRACT_PRICE_COL]: CONTRACT_PRICE_TYPE_OPTIONS } : undefined,
+      rules: contract ? contractRules(L) : nonContractRules(L),
       rows: rows.map((r) => {
         // Non kontrak: tulis HARGA TERTERA (sebelum potongan) supaya upload ulang tidak memotong dua kali.
         const harga = contract
@@ -89,8 +94,9 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
     const rows = [...input].sort((a, b) => byText(a.product, a.model, a.part_number).localeCompare(byText(b.product, b.model, b.part_number)));
     return {
       name: "Master Part",
-      headers: ["Product", "Model Unit", "Part Number", "Part Name", "Qty per Unit", "Frekuensi Ganti (HM)", "HM per Hari"],
-      widths: [14, 18, 20, 28, 13, 20, 12],
+      headers: MASTER_PART_HEADERS,
+      widths: MASTER_PART_WIDTHS,
+      rules: masterPartRules(L),
       rows: rows.map((r) => [v(r.product), v(r.model), v(r.part_number), v(r.part_name), num(r.qty_per_unit), num(r.freq_replacement_hm), num(r.hm_day)])
     };
   }
@@ -113,12 +119,12 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
 }
 
 /** Mengunduh satu jenis data (dibaca langsung dari Supabase). Mengembalikan jumlah baris yang ditulis. */
-export async function downloadCurrentData(kind: DownloadKind): Promise<number> {
+export async function downloadCurrentData(kind: DownloadKind, L: TemplateLists = EMPTY_LISTS): Promise<number> {
   const { supabaseBrowser } = await import("@/lib/supabase/client");
   const { fetchAll, fetchReferences } = await import("@/lib/fetchDashboardDataShared");
   const rows = await fetchAll<Any>(supabaseBrowser, TABLE[kind]);
   const discount = kind === "non_contract" ? (await fetchReferences(supabaseBrowser)).settings.non_contract_discount : 0.5;
-  const sheet = buildSheet(kind, rows, discount);
+  const sheet = buildSheet(kind, rows, discount, L);
   await saveWorkbook([sheet], `${FILE[kind]}_saat_ini_${today()}.xlsx`);
   return sheet.rows.length;
 }

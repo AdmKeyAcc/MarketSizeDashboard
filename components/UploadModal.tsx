@@ -1,6 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
+import { EMPTY_LISTS, type TemplateLists } from "@/lib/downloadTemplates";
+
+/** Daftar pilihan dropdown template (dari data website). */
+const ListsCtx = createContext<TemplateLists>(EMPTY_LISTS);
 import {
   downloadUioTemplate,
   downloadContractPriceTemplate,
@@ -50,6 +54,7 @@ const fmtDate = (iso: string | null | undefined) => {
 /** Tombol "Download data saat ini" — isi database terbaru, format sama dengan template upload. */
 function DownloadButton({ kind, busy, label = "⬇ Download data saat ini", title }: { kind: DownloadKind; busy: boolean; label?: string; title?: string }) {
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const lists = useContext(ListsCtx);
   return (
     <button
       type="button"
@@ -59,7 +64,7 @@ function DownloadButton({ kind, busy, label = "⬇ Download data saat ini", titl
       onClick={async () => {
         setState("loading");
         try {
-          await downloadCurrentData(kind);
+          await downloadCurrentData(kind, lists);
           setState("idle");
         } catch (err) {
           console.error(err);
@@ -364,13 +369,16 @@ export default function UploadModal({
   onClose,
   onUploaded,
   counts,
-  meta
+  meta,
+  lists = EMPTY_LISTS
 }: {
   open: boolean;
   onClose: () => void;
   onUploaded: () => Promise<void> | void;
   counts: UploadCounts;
   meta: DataMeta;
+  /** Daftar pilihan untuk dropdown template & pengecekan ejaan saat upload. */
+  lists?: TemplateLists;
 }) {
   const [stUio, setStUio] = useState<SlotStatus>(null);
   const [uioPending, setUioPending] = useState<UioPrepared | null>(null);
@@ -428,7 +436,7 @@ export default function UploadModal({
     setBusy(true);
     setStUio({ text: "Memeriksa file (bisa beberapa puluh detik)…", ok: true });
     uioFileRef.current = { file: f, mode };
-    const r = await prepareUioUpload(f, mode as UioUploadMode, sheet);
+    const r = await prepareUioUpload(f, mode as UioUploadMode, sheet, lists);
     setBusy(false);
     if (!r.ok) {
       setStUio({ text: "Gagal: " + r.message, ok: false });
@@ -471,6 +479,7 @@ export default function UploadModal({
   const dataUntil = meta.actual_year_max_date ? new Date(meta.actual_year_max_date) : null;
 
   return (
+    <ListsCtx.Provider value={lists}>
     <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <button className="modal-close" onClick={onClose}>
@@ -528,7 +537,7 @@ export default function UploadModal({
             )}
             </>
           }
-          onTemplate={downloadUioTemplate}
+          onTemplate={() => downloadUioTemplate(lists)}
           onClear={(pin) => run(setStUio, () => clearData("uio_units", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
@@ -549,7 +558,7 @@ export default function UploadModal({
               `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
             )
           }
-          onTemplate={downloadContractPriceTemplate}
+          onTemplate={() => downloadContractPriceTemplate(lists)}
           onClear={(pin) => run(setStContract, () => clearData("price_contract", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
@@ -570,7 +579,7 @@ export default function UploadModal({
               `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
             )
           }
-          onTemplate={downloadNonContractPriceTemplate}
+          onTemplate={() => downloadNonContractPriceTemplate(lists)}
           onClear={(pin) => run(setStNonContract, () => clearData("price_non_contract", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
@@ -597,7 +606,7 @@ export default function UploadModal({
                 `Berhasil: ${fmt(j.rowCount)} part dari file —${mergeText(j, "part")}${dupText(j)}${skippedText(j)}`
               )
             }
-            onTemplate={downloadMasterPartTemplate}
+            onTemplate={() => downloadMasterPartTemplate(lists)}
           onClear={(pin) => run(setStPart, () => clearData("parts", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
             accept=".xlsx,.xls,.csv"
           />
@@ -643,5 +652,6 @@ export default function UploadModal({
         </div>
       </div>
     </div>
+    </ListsCtx.Provider>
   );
 }
