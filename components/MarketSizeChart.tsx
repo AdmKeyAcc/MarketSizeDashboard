@@ -38,7 +38,9 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
   }, [theme]);
 
   const isQty = marketSizeView === "quantity";
-  const labels = marketSizeYearRows.map((r) => String(r.year));
+  // Tahun berjalan diberi label periodenya (mis. "2026 · Jan–Sep") supaya batang yang lebih pendek tidak terbaca sebagai penurunan.
+  const labels = marketSizeYearRows.map((r) => state.plan.labelOf(r.year));
+  const partial = marketSizeYearRows.filter((r) => state.plan.labelOf(r.year) !== String(r.year)).map((r) => state.plan.labelOf(r.year));
   const marketData = marketSizeYearRows.map((r) => (isQty ? r.market_qty : r.market_size));
   // Tahun yang data Actual-nya sama sekali tidak punya qty (mis. web Sales 2018–2019 tanpa quantity) → kosong, bukan 0.
   const qtyYears = new Set((state.data.actualQtyYear || []).filter((r) => r.qty !== 0).map((r) => r.year));
@@ -101,6 +103,12 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
         {isQty && !noActualQty && noQtyYears.length > 0 && (
           <div className="detail-filters-info" style={{ margin: "0 0 8px" }}>
             Actual Qty {noQtyYears.join(", ")} tidak tersedia — data penjualan tahun tersebut di web Sales tidak punya quantity.
+          </div>
+        )}
+        {partial.length > 0 && (
+          <div className="detail-filters-info" style={{ margin: "0 0 8px" }}>
+            {partial.join(", ")} belum setahun penuh (data Actual baru sampai bulan itu), jadi Market Size dan Actual-nya lebih kecil
+            dari tahun sebelumnya. Penurunan di tahun itu bukan berarti pasar atau penjualan turun — lihat Market Share-nya.
           </div>
         )}
         <div className="chart-wrap-tall">

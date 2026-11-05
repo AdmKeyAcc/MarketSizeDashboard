@@ -79,7 +79,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
   const progress = state.factsProgress;
 
   const tree = useMemo(() => {
-    if (refYear === null || activeLevels.length === 0 || years.length === 0) return null;
+    if (refYear === null || years.length === 0) return null;
     const items = years.map((y) => ({
       year: y,
       actualOk: actualOkOf(y),
@@ -197,7 +197,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
               <label className={`hc-level${prevEmpty ? " off" : ""}`} key={i}>
                 <span>Level {i + 1}</span>
                 <select value={l} disabled={prevEmpty} onChange={(e) => setLevel(i, e.target.value as HierDim | "")}>
-                  <option value={NONE}>{i === 0 ? "— pilih —" : "(tidak ada)"}</option>
+                  <option value={NONE}>{i === 0 ? "(none — Grand Total saja)" : "(none)"}</option>
                   {HIER_DIMS.map((d) => (
                     <option key={d} value={d} disabled={levels.some((x, j) => j !== i && x === d)}>
                       {HIER_LABELS[d]}
@@ -236,8 +236,6 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
 
         {data.parts.length === 0 || refYear === null ? (
           <div className="ht-empty">Belum ada Data UIO / Actual Sales, jadi perbandingan belum bisa dihitung.</div>
-        ) : activeLevels.length === 0 ? (
-          <div className="ht-empty">Pilih minimal Level 1 di Hierarchy Controls.</div>
         ) : (
           <>
             {!actualOk && (

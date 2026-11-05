@@ -13,6 +13,7 @@ import {
 } from "@/lib/downloadTemplates";
 import { uploadMasterPart, prepareUioUpload, type UioPrepared, type UioUploadMode } from "@/lib/parse/uploadChunked";
 import { downloadCurrentData, type DownloadKind } from "@/lib/downloadCurrent";
+import { checkUploadFile, type CheckKind, type FileCheck } from "@/lib/parse/fileCheck";
 import { syncActualSales } from "@/lib/syncActual";
 import type { DataMeta } from "@/lib/types";
 
@@ -77,24 +78,66 @@ function DownloadButton({ kind, busy, label = "⬇ Download data saat ini", titl
   );
 }
 
-type ClearTarget = "uio_units" | "price_contract" | "price_non_contract" | "parts";
-
-async function clearData(target: ClearTarget, pin: string): Promise<Result> {
-  try {
-    const res = await fetch("/api/data/clear", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, pin })
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, message: json.error || "Gagal menghapus data." };
-    return { ok: true, message: json };
-  } catch (err) {
-    return { ok: false, message: (err as Error).message || "Gagal terhubung ke server." };
-  }
+/** Panel hasil pemeriksaan file — tampil SETELAH file dipilih dan SEBELUM data disimpan.
+ * Pilihan: "Lanjutkan upload" atau "Perbaiki file" (tidak ada data yang diubah). */
+function CheckPanel({
+  title,
+  modeText,
+  validation: v,
+  extra,
+  busy,
+  onContinue,
+  onCancel
+}: {
+  title: React.ReactNode;
+  modeText: React.ReactNode;
+  validation: { missingColumns: string[]; issues: { level: "penting" | "info"; message: string; count: number; rows: number[] }[] };
+  extra?: React.ReactNode;
+  busy: boolean;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  const penting = v.issues.filter((i) => i.level === "penting");
+  const info = v.issues.filter((i) => i.level === "info");
+  const rowsText = (rows: number[], count: number) =>
+    `baris ${rows.join(", ")}${count > rows.length ? `, … (+${fmt(count - rows.length)} lainnya)` : ""}`;
+  const problem = v.missingColumns.length > 0 || penting.length > 0;
+  return (
+    <div className={"uio-check " + (problem ? "warn" : "info")}>
+      <div className="uio-check-title">
+        {title} <b>Data belum disimpan.</b>
+      </div>
+      {extra}
+      <div className="uio-check-row">{modeText}</div>
+      {v.missingColumns.length > 0 && (
+        <div className="uio-check-row">
+          ⚠ <b>Kolom tidak ditemukan:</b> {v.missingColumns.join(", ")}. Cek judul kolom sesuai template.
+        </div>
+      )}
+      {penting.map((i) => (
+        <div className="uio-check-row" key={i.message}>
+          ⚠ <b>{fmt(i.count)} baris</b> — {i.message} <span className="uio-check-rows">({rowsText(i.rows, i.count)})</span>
+        </div>
+      ))}
+      {info.map((i) => (
+        <div className="uio-check-row muted" key={i.message}>
+          ℹ {fmt(i.count)} baris — {i.message} <span className="uio-check-rows">({rowsText(i.rows, i.count)})</span>
+        </div>
+      ))}
+      {!problem && info.length === 0 && <div className="uio-check-row muted">Tidak ada baris dobel atau bermasalah.</div>}
+      <div className="upload-row">
+        <button type="button" className={problem ? "danger-btn" : "primary-btn"} disabled={busy} onClick={onContinue}>
+          Lanjutkan upload
+        </button>
+        <button type="button" className="link-btn" disabled={busy} onClick={onCancel}>
+          Perbaiki file
+        </button>
+      </div>
+    </div>
+  );
 }
 
-/** Hasil pemeriksaan file Data UIO sebelum disimpan: kolom yang tidak ada, isi kosong / tidak valid. */
+/** Pemeriksaan Data UIO (ada pilihan sheet dan perbandingan Serial Number). */
 function UioCheck({
   prep,
   busy,
@@ -108,123 +151,43 @@ function UioCheck({
   onCancel: () => void;
   onSheet: (sheet: string) => void;
 }) {
-  const v = prep.validation;
   const mg = prep.merge;
-  const penting = v.issues.filter((i) => i.level === "penting");
-  const info = v.issues.filter((i) => i.level === "info");
-  const rowsText = (rows: number[], count: number) =>
-    `baris ${rows.join(", ")}${count > rows.length ? `, … (+${fmt(count - rows.length)} lainnya)` : ""}`;
   return (
-    <div className={"uio-check " + (v.missingColumns.length > 0 || penting.length > 0 ? "warn" : "info")}>
-      <div className="uio-check-title">
-        Pemeriksaan file: {fmt(prep.rowCount)} unit siap disimpan (sheet "{prep.sheet}"). <b>Data belum disimpan.</b>
-      </div>
-      {prep.sheets.length > 1 && (
-        <div className="uio-check-row">
-          📄 File ini punya {prep.sheets.length} sheet berisi data unit. Sheet yang dipakai:{" "}
-          <select value={prep.sheet} disabled={busy} onChange={(e) => onSheet(e.target.value)}>
-            {prep.sheets.map((s) => (
-              <option key={s.name} value={s.name}>
-                {s.name} ({fmt(s.rows)} baris)
-              </option>
-            ))}
-          </select>{" "}
-          <span className="muted">Hanya satu sheet yang disimpan — pilih sheet yang menjadi sumber Data UIO.</span>
-        </div>
-      )}
-      {mg ? (
-        <div className="uio-check-row">
-          ⟳ <b>Mode tambah / perbarui</b> (dicocokkan dengan Serial Number): <b>{fmt(mg.updated)}</b> unit diperbarui,{" "}
-          <b>{fmt(mg.added)}</b> unit baru ditambahkan. Unit lain di database ({fmt(Math.max(mg.existing - mg.updated, 0))}) tidak diubah.
-          {mg.noSerial > 0 && (
-            <>
-              {" "}⚠ <b>{fmt(mg.noSerial)} baris tanpa Serial Number</b> tidak disimpan (tidak bisa dicocokkan — gunakan mode Ganti semua bila perlu).
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="uio-check-row">
-          ⟲ <b>Mode ganti semua</b>: isi file ini menjadi Data UIO yang baru. Unit lama yang tidak ada di file akan <b>dihapus</b>{" "}
-          (setelah semua unit baru tersimpan).
-        </div>
-      )}
-      {v.missingColumns.length > 0 && (
-        <div className="uio-check-row">
-          ⚠ <b>Kolom tidak ditemukan:</b> {v.missingColumns.join(", ")}. Cek judul kolom sesuai template (mis. "Year BAST", "Month BAST").
-        </div>
-      )}
-      {penting.map((i) => (
-        <div className="uio-check-row" key={i.message}>
-          ⚠ <b>{fmt(i.count)} baris</b> — {i.message} <span className="uio-check-rows">({rowsText(i.rows, i.count)})</span>
-        </div>
-      ))}
-      {info.map((i) => (
-        <div className="uio-check-row muted" key={i.message}>
-          ℹ {fmt(i.count)} baris — {i.message} <span className="uio-check-rows">({rowsText(i.rows, i.count)})</span>
-        </div>
-      ))}
-      <div className="upload-row">
-        <button type="button" className="danger-btn" disabled={busy} onClick={onContinue}>
-          {v.missingColumns.length > 0 || v.issues.some((i) => i.level === "penting") ? "Tetap upload" : "Simpan"}
-        </button>
-        <button type="button" className="link-btn" disabled={busy} onClick={onCancel}>
-          Batal, perbaiki file dulu
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Tombol "Hapus data" dengan konfirmasi + PIN admin, ditampilkan di bawah slot yang sudah berisi data. */
-function ClearControl({ count, countUnit, busy, onClear }: { count: number; countUnit: string; busy: boolean; onClear: (pin: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [pin, setPin] = useState("");
-  if (count === 0) return null;
-  if (!open) {
-    return (
-      <button type="button" className="slot-btn danger" disabled={busy} onClick={() => setOpen(true)}>
-        ✕ Hapus data
-      </button>
-    );
-  }
-  return (
-    <div className="clear-confirm">
-      <div>
-        Hapus <b>semua {fmt(count)} {countUnit}</b>? Tidak bisa dibatalkan — untuk mengembalikan, upload ulang filenya.
-      </div>
-      <div className="upload-row">
-        <input
-          type="password"
-          className="pin-input"
-          placeholder="PIN admin"
-          value={pin}
-          autoFocus
-          onChange={(e) => setPin(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && pin) {
-              onClear(pin);
-              setOpen(false);
-              setPin("");
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="danger-btn"
-          disabled={busy || !pin}
-          onClick={() => {
-            onClear(pin);
-            setOpen(false);
-            setPin("");
-          }}
-        >
-          Ya, hapus
-        </button>
-        <button type="button" className="link-btn" onClick={() => { setOpen(false); setPin(""); }}>
-          Batal
-        </button>
-      </div>
-    </div>
+    <CheckPanel
+      title={<>Pemeriksaan file: {fmt(prep.rowCount)} unit siap disimpan (sheet &quot;{prep.sheet}&quot;).</>}
+      validation={prep.validation}
+      busy={busy}
+      onContinue={onContinue}
+      onCancel={onCancel}
+      extra={
+        prep.sheets.length > 1 ? (
+          <div className="uio-check-row">
+            📄 File ini punya {prep.sheets.length} sheet berisi data unit. Sheet yang dipakai:{" "}
+            <select value={prep.sheet} disabled={busy} onChange={(e) => onSheet(e.target.value)}>
+              {prep.sheets.map((sh) => (
+                <option key={sh.name} value={sh.name}>
+                  {sh.name} ({fmt(sh.rows)} baris)
+                </option>
+              ))}
+            </select>{" "}
+            <span className="muted">Hanya satu sheet yang disimpan.</span>
+          </div>
+        ) : undefined
+      }
+      modeText={
+        mg ? (
+          <>
+            ⟳ <b>Tambah / perbarui</b> (dicocokkan dengan Serial Number): <b>{fmt(mg.updated)}</b> unit diperbarui, <b>{fmt(mg.added)}</b> unit baru.
+            Unit lain di database ({fmt(Math.max(mg.existing - mg.updated, 0))}) tidak diubah.
+            {mg.noSerial > 0 && <> ⚠ <b>{fmt(mg.noSerial)} baris tanpa Serial Number</b> tidak disimpan (gunakan Ganti semua bila perlu).</>}
+          </>
+        ) : (
+          <>
+            ⟲ <b>Ganti semua</b>: isi file ini menjadi Data UIO yang baru. Unit lama yang tidak ada di file akan <b>dihapus</b> (setelah semua unit baru tersimpan).
+          </>
+        )
+      }
+    />
   );
 }
 
@@ -265,12 +228,10 @@ function Slot({
   busy,
   onPick,
   onTemplate,
-  onClear,
   extra,
   mode,
   onMode,
   matchBy,
-  confirmReplace = true,
   accept = ".xlsx,.xls"
 }: {
   title: string;
@@ -284,57 +245,25 @@ function Slot({
   download?: DownloadKind;
   status: SlotStatus;
   busy: boolean;
+  /** Dipanggil setelah file dipilih — file DIPERIKSA dulu, belum disimpan. */
   onPick: (file: File, mode: Mode) => void;
   onTemplate?: () => void;
   mode: Mode;
   onMode: (m: Mode) => void;
   /** Kunci pencocokan mode tambah / perbarui, mis. "Serial Number". */
   matchBy: string;
-  /** Mode ganti semua: minta konfirmasi dulu (Data UIO punya panel pemeriksaan sendiri). */
-  confirmReplace?: boolean;
-  /** Kalau diisi, muncul tombol "Hapus data" (dengan konfirmasi + PIN). */
-  onClear?: (pin: string) => void;
+  /** Panel pemeriksaan file (tampil di atas tombol Pilih File). */
   extra?: React.ReactNode;
   accept?: string;
 }) {
-  const [pending, setPending] = useState<File | null>(null);
+  const when = fmtDate(updatedAt);
   return (
     <div className="upload-slot">
       <h4>{title}</h4>
       {hint && <div className="hint">{hint}</div>}
-      <div className={"upload-state " + (count > 0 ? "has" : "empty")}>
-        {count > 0
-          ? `✓ Sudah ada ${fmt(count)} ${countUnit}${lastFile ? ` · upload terakhir: ${lastFile}` : ""}${fmtDate(updatedAt) ? ` (${fmtDate(updatedAt)})` : ""}`
-          : "● Belum ada data"}
-      </div>
-      <ModeChoice name={`mode-${title}`} mode={mode} onChange={(m) => { setPending(null); onMode(m); }} matchBy={matchBy} busy={busy} />
-      {pending && (
-        <div className="clear-confirm" style={{ marginBottom: 8 }}>
-          <div>
-            Mode <b>Ganti semua</b>: isi file <b>{pending.name}</b> menjadi data {countUnit} yang baru. {fmt(count)} {countUnit} lama yang
-            tidak ada di file akan <b>dihapus</b>. Lanjutkan?
-          </div>
-          <div className="upload-row">
-            <button
-              type="button"
-              className="danger-btn"
-              disabled={busy}
-              onClick={() => {
-                const f = pending;
-                setPending(null);
-                onPick(f, "replace");
-              }}
-            >
-              Ya, ganti semua
-            </button>
-            <button type="button" className="link-btn" onClick={() => setPending(null)}>
-              Batal
-            </button>
-          </div>
-        </div>
-      )}
+      <ModeChoice name={`mode-${title}`} mode={mode} onChange={onMode} matchBy={matchBy} busy={busy} />
       {extra}
-      <div className="upload-row">
+      <div className="upload-row upload-file-row">
         <input
           type="file"
           className="file-input"
@@ -342,13 +271,22 @@ function Slot({
           disabled={busy}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) {
-              if (mode === "replace" && confirmReplace && count > 0) setPending(f);
-              else onPick(f, mode);
-            }
+            if (f) onPick(f, mode);
             e.target.value = "";
           }}
         />
+        <span className="last-file" title={lastFile ? `${lastFile}${when ? ` · ${when}` : ""} · ${fmt(count)} ${countUnit} tersimpan` : undefined}>
+          {lastFile ? (
+            <>
+              File terakhir: <b>{lastFile}</b>
+              {when ? ` · ${when}` : ""} · {fmt(count)} {countUnit}
+            </>
+          ) : count > 0 ? (
+            `${fmt(count)} ${countUnit} tersimpan`
+          ) : (
+            "Belum ada data"
+          )}
+        </span>
       </div>
       <div className="slot-actions">
         {onTemplate && (
@@ -357,7 +295,6 @@ function Slot({
           </button>
         )}
         {download && count > 0 && <DownloadButton kind={download} busy={busy} />}
-        {onClear && <ClearControl count={count} countUnit={countUnit} busy={busy} onClear={onClear} />}
       </div>
       {status && <div className={"upload-status " + (status.ok ? "ok" : "err")}>{status.text}</div>}
     </div>
@@ -388,6 +325,9 @@ export default function UploadModal({
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
   const [stSync, setStSync] = useState<SlotStatus>(null);
   const [masterOpen, setMasterOpen] = useState(false);
+  // File Harga / Master Part yang sudah diperiksa, menunggu keputusan "Lanjutkan upload" / "Perbaiki file".
+  type Pend = { file: File; mode: Mode; check: FileCheck } | null;
+  const [pend, setPend] = useState<Record<CheckKind, Pend>>({ contract: null, non_contract: null, parts: null });
   // Cara upload per jenis data — bawaan "Tambah / perbarui" (tidak menghapus apa pun).
   const [modes, setModes] = useState<Record<"uio" | "contract" | "non_contract" | "parts", Mode>>({
     uio: "merge",
@@ -443,13 +383,51 @@ export default function UploadModal({
       return;
     }
     const v = r.prep.validation;
-    // Selalu tampilkan ringkasan sebelum menyimpan (berapa unit diperbarui / baru / diganti).
-    if (v.missingColumns.length > 0 || v.issues.length > 0 || r.prep.mode === "merge" || counts.uioUnits > 0 || r.prep.sheets.length > 1) {
-      setStUio(null);
-      setUioPending(r.prep);
-      return;
+    // Selalu tampilkan hasil pemeriksaan dulu; data baru disimpan setelah "Lanjutkan upload".
+    void v;
+    setStUio(null);
+    setUioPending(r.prep);
+  }
+
+  /** Harga / Master Part: periksa file dulu (baris dobel, harga berbeda, kolom kosong, …), belum disimpan. */
+  async function pickChecked(kind: CheckKind, setStatus: (s: SlotStatus) => void, f: File, mode: Mode) {
+    setPend((p) => ({ ...p, [kind]: null }));
+    setBusy(true);
+    setStatus({ text: "Memeriksa file…", ok: true });
+    try {
+      const check = await checkUploadFile(f, kind, lists);
+      setPend((p) => ({ ...p, [kind]: { file: f, mode, check } }));
+      setStatus(null);
+    } catch (err) {
+      setStatus({ text: "Gagal membaca file: " + ((err as Error).message || "file tidak terbaca"), ok: false });
     }
-    await run(setStUio, () => r.prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
+    setBusy(false);
+  }
+  const modeTextOf = (m: Mode, count: number, unit: string, matchBy: string) =>
+    m === "merge" ? (
+      <>⟳ <b>Tambah / perbarui</b> (dicocokkan per {matchBy}): yang sudah ada diperbarui, yang baru ditambahkan, data lain tidak diubah.</>
+    ) : (
+      <>⟲ <b>Ganti semua</b>: isi file ini menjadi data {unit} yang baru — {fmt(count)} {unit} lama yang tidak ada di file akan <b>dihapus</b> (setelah isi file tersimpan).</>
+    );
+  function checkPanel(kind: CheckKind, setStatus: (s: SlotStatus) => void, count: number, unit: string, matchBy: string, commit: (f: File, m: Mode) => void) {
+    const pd = pend[kind];
+    if (!pd) return null;
+    return (
+      <CheckPanel
+        title={<>Pemeriksaan file <b>{pd.file.name}</b>: {fmt(pd.check.rowCount)} baris siap disimpan dari {fmt(pd.check.totalRows)} baris (sheet &quot;{pd.check.sheet}&quot;).</>}
+        validation={pd.check}
+        modeText={modeTextOf(pd.mode, count, unit, matchBy)}
+        busy={busy}
+        onContinue={() => {
+          setPend((p) => ({ ...p, [kind]: null }));
+          commit(pd.file, pd.mode);
+        }}
+        onCancel={() => {
+          setPend((p) => ({ ...p, [kind]: null }));
+          setStatus({ text: "Upload dibatalkan — tidak ada data yang diubah. Perbaiki file lalu pilih file lagi.", ok: false });
+        }}
+      />
+    );
   }
 
   const skippedText = (j: any) => (j.skipped ? ` (${j.skipped} baris dilewati.)` : "");
@@ -513,7 +491,6 @@ export default function UploadModal({
           mode={modes.uio}
           onMode={setMode("uio")}
           matchBy="Product + Serial Number"
-          confirmReplace={false}
           extra={
             <>
             {uioPending && (
@@ -538,7 +515,6 @@ export default function UploadModal({
             </>
           }
           onTemplate={() => downloadUioTemplate(lists)}
-          onClear={(pin) => run(setStUio, () => clearData("uio_units", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
         <Slot
@@ -553,13 +529,13 @@ export default function UploadModal({
           download="contract"
           status={stContract}
           busy={busy}
-          onPick={(f, m) =>
+          extra={checkPanel("contract", setStContract, counts.contractPrices, "harga kontrak / SCPL", "Part Number + Customer Code + Price Type", (f, m) =>
             run(setStContract, () => uploadFile("/api/upload/price-contract", f, m), (j) =>
               `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${j.noCode ? ` (${fmt(j.noCode)} baris tanpa Cust. Code dilewati — Customer Code wajib)` : ""}${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
             )
-          }
+          )}
+          onPick={(f, m) => pickChecked("contract", setStContract, f, m)}
           onTemplate={() => downloadContractPriceTemplate(lists)}
-          onClear={(pin) => run(setStContract, () => clearData("price_contract", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
         <Slot
@@ -574,13 +550,13 @@ export default function UploadModal({
           download="non_contract"
           status={stNonContract}
           busy={busy}
-          onPick={(f, m) =>
+          extra={checkPanel("non_contract", setStNonContract, counts.nonContractPrices, "harga non kontrak", "Part Number", (f, m) =>
             run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f, m), (j) =>
               `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
             )
-          }
+          )}
+          onPick={(f, m) => pickChecked("non_contract", setStNonContract, f, m)}
           onTemplate={() => downloadNonContractPriceTemplate(lists)}
-          onClear={(pin) => run(setStNonContract, () => clearData("price_non_contract", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
         />
 
         <button type="button" className="upload-group-toggle" onClick={() => setMasterOpen((v) => !v)}>
@@ -601,13 +577,13 @@ export default function UploadModal({
             download="parts"
             status={stPart}
             busy={busy}
-            onPick={(f, m) =>
+            extra={checkPanel("parts", setStPart, counts.parts, "part", "Product + Model + Part Number", (f, m) =>
               run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true }), m), (j) =>
                 `Berhasil: ${fmt(j.rowCount)} part dari file —${mergeText(j, "part")}${dupText(j)}${skippedText(j)}`
               )
-            }
+            )}
+            onPick={(f, m) => pickChecked("parts", setStPart, f, m)}
             onTemplate={() => downloadMasterPartTemplate(lists)}
-          onClear={(pin) => run(setStPart, () => clearData("parts", pin), (j) => `Terhapus: ${fmt(j.deleted)} baris ${j.label}.`)}
             accept=".xlsx,.xls,.csv"
           />
         )}
@@ -619,11 +595,11 @@ export default function UploadModal({
           <div className="hint">
             Diambil otomatis tiap jam dari data penjualan di web Sales — admin cukup menginput di web Sales, tidak perlu menekan tombol apa pun.
           </div>
-          <div className={"upload-state " + (syncedAt ? "has" : "empty")}>
+          <div className="last-file" style={{ marginBottom: 8 }}>
             {syncedAt
-              ? `✓ Tersinkron otomatis · terakhir ${syncedAt.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
-                `${dataUntil ? ` · data sampai ${dataUntil.toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}`
-              : "● Belum pernah sinkron"}
+              ? `Sinkron terakhir: ${syncedAt.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
+                `${dataUntil ? ` · data web Sales sampai ${dataUntil.toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}`
+              : "Belum pernah sinkron"}
           </div>
           <div className="slot-actions">
             <button

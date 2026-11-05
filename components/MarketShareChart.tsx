@@ -26,7 +26,7 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
   }, [theme]);
 
   const hasActual = marketSizeYearRows.some((r) => r.actual_sales > 0);
-  const labels = marketShareYearRows.map((r) => String(r.year));
+  const labels = marketShareYearRows.map((r) => state.plan.labelOf(r.year));
   const values = marketShareYearRows.map((r) => r.market_share * 100);
 
   return (

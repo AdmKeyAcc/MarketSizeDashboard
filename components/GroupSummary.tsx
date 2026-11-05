@@ -129,7 +129,11 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [levels, setLevels] = useState<(SumDim | "")[]>(["group", "", "", ""]);
-  const act = useMemo(() => activeLevels(levels), [levels]);
+  // Level 1 = none → tabel datar per customer.
+  const act = useMemo(() => {
+    const a = activeLevels(levels);
+    return a.length > 0 ? a : (["customer"] as SumDim[]);
+  }, [levels]);
   const [kidShow, setKidShow] = useState<Map<string, number>>(new Map());
   const [search, setSearch] = useState("");
   const [sortCol, setSortCol] = useState<SortKey>("amount_market_size");
@@ -851,8 +855,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             levels={levels}
             dims={SUM_DIMS}
             labels={SUM_LABELS}
+            firstOptional
+            noneLabel="(none — per customer)"
             onChange={(next) => {
-              setLevels(next[0] ? next : (["group", ...next.slice(1)] as (SumDim | "")[]));
+              setLevels(next);
               setExpanded(new Set());
               setKidShow(new Map());
               setPage(1);

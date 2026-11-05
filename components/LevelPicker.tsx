@@ -9,7 +9,8 @@ export default function LevelPicker<D extends string>({
   dims,
   labels,
   onChange,
-  firstOptional = false
+  firstOptional = false,
+  noneLabel = "(none)"
 }: {
   levels: (D | "")[];
   dims: readonly D[];
@@ -17,6 +18,8 @@ export default function LevelPicker<D extends string>({
   onChange: (next: (D | "")[]) => void;
   /** true = Level 1 boleh kosong (tabel tampil datar). */
   firstOptional?: boolean;
+  /** Teks pilihan "none" di Level 1. */
+  noneLabel?: string;
 }) {
   function setLevel(i: number, v: D | "") {
     const next = levels.slice();
@@ -32,7 +35,7 @@ export default function LevelPicker<D extends string>({
           <label className={`hc-level${prevEmpty ? " off" : ""}`} key={i}>
             <span>Level {i + 1}</span>
             <select value={l} disabled={prevEmpty} onChange={(e) => setLevel(i, e.target.value as D | "")}>
-              <option value="">{i === 0 ? (firstOptional ? "(tanpa level — tabel per unit)" : "— pilih —") : "(tidak ada)"}</option>
+              <option value="">{i === 0 ? noneLabel : "(none)"}</option>
               {dims.map((d) => (
                 <option key={d} value={d} disabled={levels.some((x, j) => j !== i && x === d)}>
                   {labels[d]}

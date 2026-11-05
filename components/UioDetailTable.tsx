@@ -189,6 +189,7 @@ export default function UioDetailTable({ state }: { state: UseDashboardState }) 
           dims={UIO_DIMS}
           labels={UIO_LABELS}
           firstOptional
+          noneLabel="(none — tabel per unit)"
           onChange={(next) => {
             setLevels(next);
             setExpanded(new Set());
