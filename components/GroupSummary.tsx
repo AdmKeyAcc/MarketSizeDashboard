@@ -564,14 +564,22 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       w
     };
   };
+  /** Kalau filter dimensi yang sama aktif, nilai yang dipakai hierarki dibatasi ke pilihan filter
+   * (mis. filter Branch PTK → customer yang unitnya di PKU & PTK masuk ke baris PTK, bukan PKU). */
+  const within = (m: Map<string, number>, sel: string[]): Map<string, number> => {
+    if (sel.length === 0) return m;
+    const s = new Set(sel);
+    const out = new Map(Array.from(m).filter(([k]) => s.has(k)));
+    return out.size > 0 ? out : m;
+  };
   const dimOf = (d: SumDim, r: Row): string => {
     switch (d) {
-      case "katype": return r.kaList[0] || "(Tanpa Customer Type)";
+      case "katype": return (cKa.length > 0 ? r.kaList.find((k) => cKa.includes(k)) : undefined) || r.kaList[0] || "(Tanpa Customer Type)";
       case "group": return r.grp || "(Tanpa Group)";
       case "customer": return r.cname || "(Tanpa Nama)";
-      case "branch": return topKey(r.w.br) || "(Tanpa Branch)";
-      case "pss": return topKey(r.w.pss) || "(Tanpa PSS)";
-      case "pkind": return PRICE_OPTIONS.find((k) => r.w.pk.has(k)) || "Non-Kontrak";
+      case "branch": return topKey(within(r.w.br, cBranch)) || "(Tanpa Branch)";
+      case "pss": return topKey(within(r.w.pss, cPss)) || "(Tanpa PSS)";
+      case "pkind": return PRICE_OPTIONS.find((k) => r.w.pk.has(k) && (cPrice.length === 0 || cPrice.includes(k))) || PRICE_OPTIONS.find((k) => r.w.pk.has(k)) || "Non-Kontrak";
     }
   };
   const sortRows = <T extends { agg: RowM; label: string }>(list: T[]): T[] => {
@@ -603,7 +611,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     };
     return build(custList, 0, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custList, act, sortCol, sortDir, selMonths?.join(","), denMonths?.join(","), comparable]);
+  }, [custList, act, sortCol, sortDir, cBranch, cPss, cKa, cPrice, selMonths?.join(","), denMonths?.join(","), comparable]);
 
   const pages = Math.max(1, Math.ceil(tree.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages);
@@ -803,7 +811,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={cPrice}
             options={PRICE_OPTIONS}
             onChange={wrap(setCPrice)}
-            info="Price Type customer dari kolom Price Type di Data UIO (label). Harga: customer yang Customer Code-nya ada di Data Harga Kontrak / SCPL memakai harga itu; selain itu Harga Non Kontrak (harga tertera − 50%). Kalau Price Type di Data UIO belum diisi, label mengikuti Data Harga."
+            info="Price Type customer dari kolom Price Type di Data UIO. Non-Kontrak = Harga Non Kontrak (harga tertera − 50%). Kontrak / SCPL = harga di Data Harga Kontrak / SCPL lewat Customer Code; part yang tidak ada di daftar kontrak memakai Harga Non Kontrak. Kalau Price Type belum diisi, dianggap Kontrak bila Customer Code-nya punya harga kontrak."
           />
         </div>
       </div>

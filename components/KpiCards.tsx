@@ -66,7 +66,7 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
                 : undefined
           }
         >
-          {comparable ? `${periodLabel} · ${state.data.actualScope === "part" ? "part" : "produk"} ber-Master Part` : whyNot}
+          {comparable ? periodLabel : whyNot}
         </div>
       </div>
       <div className="kpi green">
