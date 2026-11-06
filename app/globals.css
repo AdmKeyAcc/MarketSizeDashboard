@@ -379,3 +379,4 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
   .topbar .tabs { order: 3; width: 100%; }
   .topbar .tabs .tab { flex: 1; padding-left: 6px; padding-right: 6px; }
 }
+.pin-input { width: 130px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }

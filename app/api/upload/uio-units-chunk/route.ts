@@ -1,3 +1,4 @@
+import { replacePinError } from "@/lib/adminPin";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -49,6 +50,12 @@ export async function POST(request: Request) {
 
     // Cap waktu satu upload; semua potongan menyimpan uploaded_at = cap ini.
     const sinceOk = body.since && !Number.isNaN(Date.parse(String(body.since))) ? String(body.since) : null;
+
+    // Mode "Ganti semua" wajib PIN admin: dicek di awal (sebelum ada data dikirim) dan sebelum data lama dihapus.
+    if (body.action === "start" || body.action === "finish") {
+      const pinErr = await replacePinError(body.mode === "replace" || (body as { replace?: unknown }).replace ? "replace" : body.mode, (body as { pin?: unknown }).pin);
+      if (pinErr) return NextResponse.json({ error: pinErr.error }, { status: pinErr.status });
+    }
 
     if (body.action === "start") {
       // Tidak menghapus apa pun di awal: mode ganti semua menghapus data lama SETELAH semua unit baru tersimpan.

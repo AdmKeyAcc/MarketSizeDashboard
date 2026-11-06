@@ -31,10 +31,11 @@ export type UploadCounts = {
 
 type Mode = "merge" | "replace";
 
-async function uploadFile(url: string, file: File, mode: Mode): Promise<Result> {
+async function uploadFile(url: string, file: File, mode: Mode, pin = ""): Promise<Result> {
   const form = new FormData();
   form.append("file", file);
   form.append("mode", mode);
+  if (mode === "replace") form.append("pin", pin);
   try {
     const res = await fetch(url, { method: "POST", body: form });
     const json = await res.json();
@@ -86,6 +87,7 @@ function CheckPanel({
   validation: v,
   extra,
   busy,
+  needPin,
   onContinue,
   onCancel
 }: {
@@ -94,9 +96,12 @@ function CheckPanel({
   validation: { missingColumns: string[]; issues: { level: "penting" | "info"; message: string; count: number; rows: number[] }[] };
   extra?: React.ReactNode;
   busy: boolean;
-  onContinue: () => void;
+  /** Mode Ganti semua → wajib isi PIN admin sebelum lanjut. */
+  needPin?: boolean;
+  onContinue: (pin: string) => void;
   onCancel: () => void;
 }) {
+  const [pin, setPin] = useState("");
   const penting = v.issues.filter((i) => i.level === "penting");
   const info = v.issues.filter((i) => i.level === "info");
   const rowsText = (rows: number[], count: number) =>
@@ -125,8 +130,22 @@ function CheckPanel({
         </div>
       ))}
       {!problem && info.length === 0 && <div className="uio-check-row muted">Tidak ada baris dobel atau bermasalah.</div>}
+      {needPin && (
+        <div className="uio-check-row">
+          🔒 Mode <b>Ganti semua</b> menghapus data lama — masukkan <b>PIN admin</b>:{" "}
+          <input
+            type="password"
+            className="pin-input"
+            value={pin}
+            autoComplete="off"
+            disabled={busy}
+            onChange={(e) => setPin(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && pin && onContinue(pin)}
+          />
+        </div>
+      )}
       <div className="upload-row">
-        <button type="button" className={problem ? "danger-btn" : "primary-btn"} disabled={busy} onClick={onContinue}>
+        <button type="button" className={problem || needPin ? "danger-btn" : "primary-btn"} disabled={busy || (needPin && !pin)} onClick={() => onContinue(pin)}>
           Lanjutkan upload
         </button>
         <button type="button" className="link-btn" disabled={busy} onClick={onCancel}>
@@ -147,7 +166,7 @@ function UioCheck({
 }: {
   prep: UioPrepared;
   busy: boolean;
-  onContinue: () => void;
+  onContinue: (pin: string) => void;
   onCancel: () => void;
   onSheet: (sheet: string) => void;
 }) {
@@ -157,6 +176,7 @@ function UioCheck({
       title={<>Pemeriksaan file: {fmt(prep.rowCount)} unit siap disimpan (sheet &quot;{prep.sheet}&quot;).</>}
       validation={prep.validation}
       busy={busy}
+      needPin={prep.mode === "replace"}
       onContinue={onContinue}
       onCancel={onCancel}
       extra={
@@ -409,7 +429,7 @@ export default function UploadModal({
     ) : (
       <>⟲ <b>Ganti semua</b>: isi file ini menjadi data {unit} yang baru — {fmt(count)} {unit} lama yang tidak ada di file akan <b>dihapus</b> (setelah isi file tersimpan).</>
     );
-  function checkPanel(kind: CheckKind, setStatus: (s: SlotStatus) => void, count: number, unit: string, matchBy: string, commit: (f: File, m: Mode) => void) {
+  function checkPanel(kind: CheckKind, setStatus: (s: SlotStatus) => void, count: number, unit: string, matchBy: string, commit: (f: File, m: Mode, pin: string) => void) {
     const pd = pend[kind];
     if (!pd) return null;
     return (
@@ -418,9 +438,10 @@ export default function UploadModal({
         validation={pd.check}
         modeText={modeTextOf(pd.mode, count, unit, matchBy)}
         busy={busy}
-        onContinue={() => {
+        needPin={pd.mode === "replace"}
+        onContinue={(pin) => {
           setPend((p) => ({ ...p, [kind]: null }));
-          commit(pd.file, pd.mode);
+          commit(pd.file, pd.mode, pin);
         }}
         onCancel={() => {
           setPend((p) => ({ ...p, [kind]: null }));
@@ -497,10 +518,10 @@ export default function UploadModal({
               <UioCheck
                 prep={uioPending}
                 busy={busy}
-                onContinue={() => {
+                onContinue={(pin) => {
                   const prep = uioPending;
                   setUioPending(null);
-                  run(setStUio, () => prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
+                  run(setStUio, () => prep.commit((t) => setStUio({ text: t, ok: true }), pin), uioDoneText);
                 }}
                 onSheet={(sh) => {
                   const last = uioFileRef.current;
@@ -529,8 +550,8 @@ export default function UploadModal({
           download="contract"
           status={stContract}
           busy={busy}
-          extra={checkPanel("contract", setStContract, counts.contractPrices, "harga kontrak / SCPL", "Part Number + Customer Code + Price Type", (f, m) =>
-            run(setStContract, () => uploadFile("/api/upload/price-contract", f, m), (j) =>
+          extra={checkPanel("contract", setStContract, counts.contractPrices, "harga kontrak / SCPL", "Part Number + Customer Code + Price Type", (f, m, pin) =>
+            run(setStContract, () => uploadFile("/api/upload/price-contract", f, m, pin), (j) =>
               `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${j.noCode ? ` (${fmt(j.noCode)} baris tanpa Cust. Code dilewati — Customer Code wajib)` : ""}${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
             )
           )}
@@ -550,8 +571,8 @@ export default function UploadModal({
           download="non_contract"
           status={stNonContract}
           busy={busy}
-          extra={checkPanel("non_contract", setStNonContract, counts.nonContractPrices, "harga non kontrak", "Part Number", (f, m) =>
-            run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f, m), (j) =>
+          extra={checkPanel("non_contract", setStNonContract, counts.nonContractPrices, "harga non kontrak", "Part Number", (f, m, pin) =>
+            run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f, m, pin), (j) =>
               `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
             )
           )}
@@ -577,8 +598,8 @@ export default function UploadModal({
             download="parts"
             status={stPart}
             busy={busy}
-            extra={checkPanel("parts", setStPart, counts.parts, "part", "Product + Model + Part Number", (f, m) =>
-              run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true }), m), (j) =>
+            extra={checkPanel("parts", setStPart, counts.parts, "part", "Product + Model + Part Number", (f, m, pin) =>
+              run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true }), m, pin), (j) =>
                 `Berhasil: ${fmt(j.rowCount)} part dari file —${mergeText(j, "part")}${dupText(j)}${skippedText(j)}`
               )
             )}

@@ -23,7 +23,7 @@ function errMessage(err: unknown): string {
   return (err as Error)?.message || "Gagal memproses file.";
 }
 
-export async function uploadMasterPart(file: File, onProgress?: (text: string) => void, mode: "merge" | "replace" = "merge"): Promise<Result> {
+export async function uploadMasterPart(file: File, onProgress?: (text: string) => void, mode: "merge" | "replace" = "merge", pin = ""): Promise<Result> {
   try {
     onProgress?.("Membaca file…");
     const parsed = await parseMasterPartFile(file);
@@ -40,7 +40,7 @@ export async function uploadMasterPart(file: File, onProgress?: (text: string) =
       if (!data || data.length < 1000) break;
     }
     const updated = parsed.rows.filter((r) => existing.has(k(r.product, r.model, r.part_number))).length;
-    const { since } = await post(url, { action: "start", mode });
+    const { since } = await post(url, { action: "start", mode, pin });
     for (let i = 0; i < parsed.rows.length; i += CHUNK) {
       onProgress?.(`Mengirim ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris…`);
       await post(url, {
@@ -52,7 +52,7 @@ export async function uploadMasterPart(file: File, onProgress?: (text: string) =
         since
       });
     }
-    const fin = await post(url, { action: "finish", filename: file.name, total: parsed.rows.length, mode, since });
+    const fin = await post(url, { action: "finish", filename: file.name, total: parsed.rows.length, mode, since, pin });
     return {
       ok: true,
       message: {
@@ -144,7 +144,8 @@ export type UioPrepared = {
   mode: UioUploadMode;
   /** Mode tambah/perbarui: perbandingan dengan isi database berdasarkan Serial Number. */
   merge?: { updated: number; added: number; noSerial: number; existing: number };
-  commit: (onProgress?: (text: string) => void) => Promise<Result>;
+  /** pin = PIN admin (wajib untuk mode Ganti semua). */
+  commit: (onProgress?: (text: string) => void, pin?: string) => Promise<Result>;
 };
 
 /** Kunci Product::Serial yang sudah ada di database (untuk mode tambah/perbarui). */
@@ -202,7 +203,7 @@ export async function prepareUioUpload(
       }
     }
 
-    const commit = async (onProgress?: (text: string) => void): Promise<Result> => {
+    const commit = async (onProgress?: (text: string) => void, pin = ""): Promise<Result> => {
       try {
         onProgress?.("Menyamakan nama customer dengan Master Customer…");
         const { supabaseBrowser } = await import("@/lib/supabase/client");
@@ -216,12 +217,12 @@ export async function prepareUioUpload(
         const mapped = canonicalizeUnits(parsed.rows, canon);
 
         const url = "/api/upload/uio-units-chunk";
-        const { since } = await post(url, { action: "start", mode });
+        const { since } = await post(url, { action: "start", mode, pin });
         for (let i = 0; i < mapped.rows.length; i += CHUNK) {
           onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
           await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name, mode, since });
         }
-        const fin = await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName, mode, since });
+        const fin = await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName, mode, since, pin });
         return {
           ok: true,
           message: {

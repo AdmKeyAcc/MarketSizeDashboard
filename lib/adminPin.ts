@@ -1,7 +1,7 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
 
-/** PIN admin (env ADMIN_PIN di Vercel) — dipakai tombol Hapus data & Sinkron ulang semua tahun. */
+/** PIN admin (env ADMIN_PIN di Vercel) — wajib untuk upload mode "Ganti semua". */
 export const adminPinConfigured = () => (process.env.ADMIN_PIN || "").length > 0;
 
 export function pinOk(given: unknown): boolean {
@@ -16,3 +16,14 @@ export const pinDelay = () => new Promise((r) => setTimeout(r, 1200));
 
 export const PIN_NOT_SET =
   "PIN admin belum diatur. Tambahkan ADMIN_PIN di Vercel → Settings → Environment Variables, lalu redeploy.";
+
+/** Upload mode "Ganti semua" wajib PIN admin. Mengembalikan pesan error (dan status) kalau ditolak, null kalau boleh. */
+export async function replacePinError(mode: unknown, pin: unknown): Promise<{ error: string; status: number } | null> {
+  if (mode !== "replace") return null;
+  if (!adminPinConfigured()) return { error: PIN_NOT_SET, status: 403 };
+  if (!pinOk(pin)) {
+    await pinDelay();
+    return { error: "PIN admin salah — mode Ganti semua butuh PIN admin. Tidak ada data yang diubah.", status: 401 };
+  }
+  return null;
+}

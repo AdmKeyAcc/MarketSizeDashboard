@@ -1,3 +1,4 @@
+import { replacePinError } from "@/lib/adminPin";
 import { NextResponse } from "next/server";
 import * as XLSX from "@e965/xlsx";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -14,6 +15,10 @@ const MAX_FILE_BYTES = 15 * 1024 * 1024;
 export async function POST(request: Request) {
   try {
     const form = await request.formData();
+    const mode = modeOf(form.get("mode"));
+    // Mode "Ganti semua" wajib PIN admin (dicek sebelum file dibaca / data diubah).
+    const pinErr = await replacePinError(mode, form.get("pin"));
+    if (pinErr) return NextResponse.json({ error: pinErr.error }, { status: pinErr.status });
     const file = form.get("file");
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Tidak ada file yang dikirim." }, { status: 400 });
@@ -29,7 +34,6 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
-    const mode = modeOf(form.get("mode"));
     const res = await savePrices(
       supabase,
       "contract",
