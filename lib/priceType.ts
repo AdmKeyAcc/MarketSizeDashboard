@@ -51,11 +51,14 @@ export const rowPriceType = (p: PriceRow): PriceType => {
 };
 
 /**
- * Pencari harga satu part untuk satu customer:
- *   1) Customer itu kontrak kalau Customer Code-nya punya harga di Data Harga Kontrak / SCPL → harga itu (nett).
- *      Kontrak dan SCPL diperlakukan sama; Price Type hanya label (SCPL dicari dulu bila Price Type customer SCPL).
- *   2) Selain itu non kontrak → Harga Non Kontrak (harga tertera − 50%).
- *   3) Tidak ada keduanya → `fallback` (Pricelist Master Part, biasanya 0).
+ * Pencari harga satu part untuk satu customer. Status kontrak diambil dari kolom Price Type di Data UIO (`type`):
+ *   1) Price Type Non-Kontrak → Harga Non Kontrak (harga tertera − 50%), harga kontrak TIDAK dicari.
+ *   2) Price Type Kontrak / SCPL → harga di Data Harga Kontrak / SCPL lewat Customer Code (nett).
+ *      Kontrak dan SCPL diperlakukan sama (SCPL dicari dulu bila Price Type SCPL).
+ *      Customer Code tidak punya harga untuk part itu → Harga Non Kontrak.
+ *   3) Price Type kosong (data lama) → seperti 2): ada harga Kontrak/SCPL untuk Customer Code-nya → dipakai,
+ *      selain itu Harga Non Kontrak.
+ *   4) Tidak ada harga sama sekali → `fallback` (Pricelist Master Part, biasanya 0).
  * Harga kontrak WAJIB punya Customer Code; baris kontrak tanpa Customer Code tidak dipakai.
  */
 type Lookup = (partNumber: string | null, codes: string[] | null, fallback: number, type?: PriceType | null) => PriceHit;
@@ -77,7 +80,7 @@ export function makePriceLookup(priceList: PriceRow[]): Lookup {
   });
   const fn: Lookup = (partNumber, codes, fallback, type = null) => {
     if (partNumber) {
-      if (codes && codes.length > 0) {
+      if (type !== "non_contract" && codes && codes.length > 0) {
         const order: PriceType[] = type === "scpl" ? ["scpl", "contract"] : ["contract", "scpl"];
         for (const c of codes) {
           const code = normCode(c);

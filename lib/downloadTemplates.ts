@@ -202,8 +202,10 @@ export type TemplateLists = {
   codes: string[];
   /** Hanya Master Part: product → model (untuk cek model saat upload Data UIO). */
   partModelsByProduct: Record<string, string[]>;
+  /** Customer Code yang punya harga Kontrak / SCPL (untuk cek Price Type saat upload Data UIO). */
+  contractCodes: string[];
 };
-export const EMPTY_LISTS: TemplateLists = { branches: [], pss: [], groups: [], names: [], custTypes: [], products: [], modelsByProduct: {}, partNumbers: [], codes: [], partModelsByProduct: {} };
+export const EMPTY_LISTS: TemplateLists = { branches: [], pss: [], groups: [], names: [], custTypes: [], products: [], modelsByProduct: {}, partNumbers: [], codes: [], partModelsByProduct: {}, contractCodes: [] };
 
 const thisYear = () => new Date().getFullYear();
 

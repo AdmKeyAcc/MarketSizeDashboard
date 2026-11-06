@@ -1,6 +1,6 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
-import { PRICE_TYPE_LABEL, normPriceType } from "@/lib/priceType";
+import { PRICE_TYPE_LABEL, normCode, normPriceType } from "@/lib/priceType";
 import { canonicalProduct } from "@/lib/calculations";
 import { uioSerialKey } from "@/lib/uioKey";
 
@@ -34,6 +34,8 @@ export type UioKnown = {
   custTypes?: string[];
   /** Product → model di Master Part. */
   partModelsByProduct?: Record<string, string[]>;
+  /** Customer Code yang punya harga di Data Harga Kontrak / SCPL. */
+  contractCodes?: string[];
 };
 
 export type UioUnitsParseResult = {
@@ -181,7 +183,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const K = opts.known;
   const knownBranch = K?.branches && K.branches.length > 0 ? new Set(K.branches.map((b) => b.trim().toUpperCase())) : null;
   const knownType = K?.custTypes && K.custTypes.length > 0 ? new Set(K.custTypes.map((b) => b.trim().toUpperCase())) : null;
-  const pm = K?.partModelsByProduct && Object.keys(K.partModelsByProduct).length > 0 ? K.partModelsByProduct : null;
+  const contractCodes = K?.contractCodes && K.contractCodes.length > 0 ? new Set(K.contractCodes.map(normCode)) : null;
+  const pm = K?.partModelsByProduct &&Object.keys(K.partModelsByProduct).length > 0 ? K.partModelsByProduct : null;
   const nm = (m: string) => m.toUpperCase().replace(/[\s-]/g, "");
   const partModels = new Map<string, string[]>();
   if (pm) Object.entries(pm).forEach(([p, ms]) => partModels.set(p.trim().toUpperCase(), ms.map(nm)));
@@ -340,7 +343,13 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     }
     const pt = normPriceType(priceTypeRaw);
     if (priceTypeRaw !== null && !pt) flag("pt-bad", "Price Type", "penting", "Price Type tidak dikenal (harus Kontrak / SCPL / Non-Kontrak) — dianggap kosong", rowNo);
-    else if (!pt && has("priceType")) flag("pt-empty", "Price Type", "info", "Price Type kosong — harga Kontrak/SCPL dipakai bila Customer Group-nya punya, selain itu Harga Non Kontrak", rowNo);
+    else if (!pt && has("priceType")) flag("pt-empty", "Price Type", "info", "Price Type kosong — harga Kontrak/SCPL dipakai bila Cust. Code-nya punya, selain itu Harga Non Kontrak", rowNo);
+    else if (pt === "contract" || pt === "scpl") {
+      const code = normCode(custCode);
+      if (!code) flag("pt-nocode", "Cust. Code", "penting", "Price Type Kontrak/SCPL tapi Cust. Code kosong — harga kontrak tidak bisa dicari, dipakai Harga Non Kontrak", rowNo);
+      else if (contractCodes && !contractCodes.has(code))
+        flag("pt-noprice", "Cust. Code", "info", "Price Type Kontrak/SCPL tapi Cust. Code ini belum punya harga di Data Harga Kontrak/SCPL — sementara dipakai Harga Non Kontrak", rowNo);
+    }
 
     const rec: UioUnitParsed = {
       year: yearNum,

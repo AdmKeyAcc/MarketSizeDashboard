@@ -2,6 +2,7 @@ import type { DashboardData } from "@/lib/types";
 import type { TemplateLists } from "@/lib/downloadTemplates";
 import { canonicalProduct } from "@/lib/calculations";
 import { refs } from "@/lib/references";
+import { codesWithContract } from "@/lib/priceType";
 
 const t = (v: string | null | undefined) => (v || "").trim();
 
@@ -72,6 +73,7 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
     modelsByProduct,
     partNumbers: arr(pns),
     codes: arr(codes),
-    partModelsByProduct
+    partModelsByProduct,
+    contractCodes: Array.from(codesWithContract(d.priceList).keys()).sort()
   };
 }
