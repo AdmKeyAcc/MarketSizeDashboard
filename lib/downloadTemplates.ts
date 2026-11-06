@@ -43,7 +43,7 @@ async function downloadWorkbook(
 
 /** Aturan isi satu kolom template (dropdown / angka), supaya isian cabang tidak typo. */
 export type ColRule =
-  /** Dropdown. strict = hanya boleh nilai di daftar; tidak strict = nilai baru boleh, tapi muncul peringatan. */
+  /** Dropdown. Selalu berupa peringatan (paste tidak diblokir); strict = pesan lebih tegas (nilai harus dari daftar). */
   | { kind: "list"; values: string[]; strict: boolean; hint?: string }
   /** Dropdown yang isinya tergantung kolom lain (mis. Model menurut Product). */
   | { kind: "dependent"; parentCol: number; map: Record<string, string[]>; strict: boolean; hint?: string }
@@ -81,26 +81,40 @@ const LIST_SHEET = "Daftar Pilihan";
 const depName = (v: string) => "M_" + v.toUpperCase().replace(/[ \-.\/&()]/g, "_");
 const uniqSorted = (a: string[]) => Array.from(new Set(a.map((x) => String(x).trim()).filter(Boolean))).sort((x, y) => x.localeCompare(y));
 
-/** Tulis satu atau beberapa sheet (header berwarna, baris judul dibekukan, dropdown & validasi angka) lalu unduh. */
+/** Warna penanda sel yang isinya salah / belum dikenal (merah muda) dan dobel (oranye). */
+const BAD_STYLE = { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFFFC7CE" } }, font: { color: { argb: "FF9C0006" } } };
+const DUP_STYLE = { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFFFE0B2" } }, font: { color: { argb: "FF8A4B00" } } };
+
+/**
+ * Tulis satu atau beberapa sheet (header berwarna, baris judul dibekukan) lalu unduh.
+ * Penjaga typo dibuat ramah paste:
+ *   - Dropdown tetap ada, tapi hanya PERINGATAN (tidak pernah memblokir), jadi data bisa di-paste sekaligus.
+ *   - Conditional formatting: sel yang isinya tidak ada di Daftar Pilihan / angka di luar rentang / dobel
+ *     otomatis berwarna. Rumus memakai INDIRECT supaya juga jalan di Google Sheets.
+ *   - Sheet "Daftar Pilihan" terlihat (contekan ejaan) dan sheet "Petunjuk".
+ * Pengecekan utama tetap di website saat upload.
+ */
 export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
-  // Sheet daftar pilihan (disembunyikan) dibuat bila ada dropdown panjang.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let listWs: any = null;
   let listCol = 0;
-  const putList = (title: string, values: string[], name?: string): string => {
+  /** Tulis daftar ke sheet Daftar Pilihan; hasil = alamat range (mis. 'Daftar Pilihan'!$A$2:$A$10) tanpa tanda $ juga. */
+  const putList = (title: string, values: string[], name?: string): { ref: string; plain: string } => {
     if (!listWs) {
-      listWs = wb.addWorksheet(LIST_SHEET);
-      listWs.state = "hidden";
+      listWs = wb.addWorksheet(LIST_SHEET, { views: [{ state: "frozen", ySplit: 1 }] });
     }
     const c = colLetter(listCol++);
     listWs.getCell(`${c}1`).value = title;
-    listWs.getCell(`${c}1`).font = { bold: true };
+    listWs.getCell(`${c}1`).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    listWs.getCell(`${c}1`).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E79" } };
+    listWs.getColumn(listCol).width = Math.min(40, Math.max(14, title.length + 2, ...values.slice(0, 500).map((v) => String(v).length + 2)));
     values.forEach((v, i) => (listWs.getCell(`${c}${i + 2}`).value = v));
-    const ref = `'${LIST_SHEET}'!$${c}$2:$${c}$${Math.max(values.length + 1, 2)}`;
+    const endRow = Math.max(values.length + 1, 2);
+    const ref = `'${LIST_SHEET}'!$${c}$2:$${c}$${endRow}`;
     if (name) wb.definedNames.add(ref, name);
-    return ref;
+    return { ref, plain: `'${LIST_SHEET}'!${c}2:${c}${endRow}` };
   };
 
   sheets.forEach((sh) => {
@@ -111,50 +125,62 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
       ws.getColumn(Number(i) + 1).numFmt = f;
     });
     const last = Math.max(LIST_ROWS, sh.rows.length + 1000);
+    const rangeOf = (i: number) => `${colLetter(i)}2:${colLetter(i)}${last}`;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const addDv = (i: number, dv: any) => (ws as any).dataValidations.add(`${colLetter(i)}2:${colLetter(i)}${last}`, dv);
+    const addDv = (i: number, dv: any) => (ws as any).dataValidations.add(rangeOf(i), dv);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const addCf = (i: number, formula: string, style: any = BAD_STYLE) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ws as any).addConditionalFormatting({ ref: rangeOf(i), rules: [{ type: "expression", priority: 1, formulae: [formula], style }] });
     const head = (i: number) => sh.headers[i];
-    Object.entries(sh.lists || {}).forEach(([k, opts]) => {
-      const i = Number(k);
+    const warnMsg = (i: number, text: string) => ({ showErrorMessage: true, errorStyle: "warning", errorTitle: head(i), error: text });
+    const prompt = (i: number, t: string) => ({ showInputMessage: true, promptTitle: head(i), prompt: t.slice(0, 250) });
+    /** Dropdown + penanda merah untuk daftar tetap. */
+    const listRule = (i: number, vals: string[], strict: boolean, hint?: string) => {
+      if (vals.length === 0) return;
+      const { ref, plain } = putList(head(i), vals);
+      const c = `${colLetter(i)}2`;
       addDv(i, {
-        type: "list", allowBlank: true, formulae: [`"${opts.join(",")}"`],
-        showErrorMessage: true, errorStyle: "stop", errorTitle: head(i), error: `Pilih salah satu: ${opts.join(" / ")}`,
-        showInputMessage: true, promptTitle: head(i), prompt: "Pilih dari dropdown."
+        type: "list", allowBlank: true, formulae: [ref],
+        ...warnMsg(i, strict ? `Nilai harus salah satu dari daftar (lihat sheet ${LIST_SHEET}). Klik No lalu pilih dari dropdown.` : "Nilai ini belum ada di daftar. Cek ejaannya — klik Yes kalau memang data baru."),
+        ...prompt(i, hint || (strict ? "Pilih dari dropdown." : "Pilih dari dropdown, atau ketik bila data baru."))
       });
-    });
+      addCf(i, `AND(TRIM(${c})<>"",COUNTIF(INDIRECT("${plain.replace(/"/g, '""')}"),TRIM(${c}))=0)`);
+    };
+    Object.entries(sh.lists || {}).forEach(([k, opts]) => listRule(Number(k), opts, true));
     Object.entries(sh.rules || {}).forEach(([k, r]) => {
       const i = Number(k);
-      const msg = (strict: boolean) =>
-        strict
-          ? { showErrorMessage: true, errorStyle: "stop", errorTitle: head(i), error: "Nilai harus dipilih dari dropdown." }
-          : { showErrorMessage: true, errorStyle: "warning", errorTitle: head(i), error: "Nilai ini belum ada di daftar. Cek ejaannya — klik Yes kalau memang data baru." };
-      const prompt = (t: string) => ({ showInputMessage: true, promptTitle: head(i), prompt: (r.hint || t).slice(0, 250) });
+      const c = `${colLetter(i)}2`;
       if (r.kind === "list") {
-        const vals = uniqSorted(r.values);
-        if (vals.length === 0) return;
-        const inline = `"${vals.join(",")}"`;
-        const formula = inline.length <= 250 && !vals.some((v) => v.includes(",")) ? inline : putList(head(i), vals);
-        addDv(i, { type: "list", allowBlank: true, formulae: [formula], ...msg(r.strict), ...prompt(r.strict ? "Pilih dari dropdown." : "Pilih dari dropdown, atau ketik bila data baru.") });
+        listRule(i, uniqSorted(r.values), r.strict, r.hint);
       } else if (r.kind === "dependent") {
         const keys = Object.keys(r.map).filter((p) => (r.map[p] || []).length > 0);
         if (keys.length === 0) return;
         keys.forEach((p) => putList(`${head(r.parentCol)}: ${p}`, uniqSorted(r.map[p]), depName(p)));
         const pc = `$${colLetter(r.parentCol)}2`;
-        const f = `INDIRECT("M_"&SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(UPPER(${pc})," ","_"),"-","_"),".","_"),"/","_"),"&","_"),"(","_"),")","_"))`;
-        addDv(i, { type: "list", allowBlank: true, formulae: [f], ...msg(r.strict), ...prompt(`Isi ${head(r.parentCol)} dulu, lalu pilih ${head(i)} dari dropdown (atau ketik bila model baru).`) });
+        const f = `INDIRECT("M_"&SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(UPPER(TRIM(${pc}))," ","_"),"-","_"),".","_"),"/","_"),"&","_"),"(","_"),")","_"))`;
+        addDv(i, {
+          type: "list", allowBlank: true, formulae: [f],
+          ...warnMsg(i, `${head(i)} ini belum ada untuk ${head(r.parentCol)} tersebut. Cek ejaannya — klik Yes kalau memang model baru.`),
+          ...prompt(i, r.hint || `Isi ${head(r.parentCol)} dulu, lalu pilih ${head(i)} dari dropdown (atau ketik bila model baru).`)
+        });
+        addCf(i, `AND(TRIM(${c})<>"",ISERROR(MATCH(TRIM(${c}),${f},0)))`);
       } else if (r.kind === "whole" || r.kind === "decimal") {
         addDv(i, {
           type: r.kind, operator: "between", allowBlank: true, formulae: [r.min, r.max],
-          showErrorMessage: true, errorStyle: "stop", errorTitle: head(i), error: `Isi angka ${r.kind === "whole" ? "bulat " : ""}${r.min}–${r.max}.`,
-          ...prompt(`Angka ${r.kind === "whole" ? "bulat " : ""}${r.min}–${r.max}.`)
+          ...warnMsg(i, `Isi angka ${r.kind === "whole" ? "bulat " : ""}${r.min}–${r.max}.`),
+          ...prompt(i, r.hint || `Angka ${r.kind === "whole" ? "bulat " : ""}${r.min}–${r.max}.`)
         });
+        const intCheck = r.kind === "whole" ? `,${c}<>INT(${c})` : "";
+        addCf(i, `AND(${c}<>"",OR(NOT(ISNUMBER(${c})),${c}<${r.min},${c}>${r.max}${intCheck}))`);
       } else if (r.kind === "unique") {
-        const c = colLetter(i);
+        const col = colLetter(i);
         addDv(i, {
-          type: "custom", allowBlank: true, formulae: [`COUNTIF($${c}$2:$${c}$${last},${c}2)<=1`],
-          showErrorMessage: true, errorStyle: "warning", errorTitle: head(i), error: `${head(i)} ini sudah ada di baris lain (dobel).`,
-          ...prompt(`${head(i)} tidak boleh dobel.`)
+          type: "custom", allowBlank: true, formulae: [`COUNTIF($${col}$2:$${col}$${last},${c})<=1`],
+          ...warnMsg(i, `${head(i)} ini sudah ada di baris lain (dobel).`),
+          ...prompt(i, r.hint || `${head(i)} tidak boleh dobel.`)
         });
+        addCf(i, `AND(${c}<>"",COUNTIF($${col}$2:$${col}$${last},${c})>1)`, DUP_STYLE);
       }
     });
     ws.getRow(1).eachCell((cell) => {
@@ -163,6 +189,26 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
       cell.alignment = { vertical: "middle", horizontal: "left" };
     });
   });
+
+  // Petunjuk singkat cara mengisi (terutama paste data banyak).
+  const help = wb.addWorksheet("Petunjuk");
+  help.getColumn(1).width = 110;
+  [
+    "Cara mengisi template",
+    "",
+    "1. Boleh mengetik satu per satu (pakai dropdown) atau paste data sekaligus dari file lain.",
+    "2. Saat paste, gunakan Paste Values (Ctrl+Shift+V, atau klik kanan > Paste Special > Values) supaya penanda warna tetap berfungsi.",
+    "3. Sel berwarna MERAH = isinya tidak ada di daftar (kemungkinan typo) atau angka di luar rentang. Cek ejaannya di sheet Daftar Pilihan.",
+    "4. Sel berwarna ORANYE = nilai dobel (mis. Serial Number yang sama muncul lebih dari sekali).",
+    "5. Kalau memang data baru (customer / model baru), sel merah boleh dibiarkan.",
+    "6. Saat upload, website mengecek ulang seluruh isi file: ejaan yang hanya beda huruf besar/kecil, spasi atau titik disamakan otomatis,",
+    "   dan typo diberi saran (\"mungkin maksudnya ...\"). Pilih Perbaiki file atau Lanjutkan upload."
+  ].forEach((t, i) => {
+    const cell = help.getCell(`A${i + 1}`);
+    cell.value = t;
+    if (i === 0) cell.font = { bold: true, size: 13 };
+  });
+
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);

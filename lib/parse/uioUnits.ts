@@ -1,6 +1,7 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
-import { PRICE_TYPE_LABEL, normCode, normPriceType } from "@/lib/priceType";
+import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, normCode, normPriceType } from "@/lib/priceType";
+import { loose, makeMatcher } from "@/lib/fuzzy";
 import { canonicalProduct } from "@/lib/calculations";
 import { uioSerialKey } from "@/lib/uioKey";
 
@@ -36,6 +37,10 @@ export type UioKnown = {
   partModelsByProduct?: Record<string, string[]>;
   /** Customer Code yang punya harga di Data Harga Kontrak / SCPL. */
   contractCodes?: string[];
+  /** Ejaan Customer Name / Customer Group / PSS yang sudah ada di website (cek typo). */
+  names?: string[];
+  groups?: string[];
+  pss?: string[];
 };
 
 export type UioUnitsParseResult = {
@@ -181,8 +186,23 @@ function str(v: unknown): string | null {
 export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: number; sheet?: string; known?: UioKnown } = {}): UioUnitsParseResult {
   // ---- daftar nilai yang dikenal (cek ejaan) ----
   const K = opts.known;
-  const knownBranch = K?.branches && K.branches.length > 0 ? new Set(K.branches.map((b) => b.trim().toUpperCase())) : null;
-  const knownType = K?.custTypes && K.custTypes.length > 0 ? new Set(K.custTypes.map((b) => b.trim().toUpperCase())) : null;
+  const matcherOf = (vals?: string[]) => (vals && vals.length > 0 ? makeMatcher(vals) : null);
+  const mBranch = matcherOf(K?.branches?.map((b) => b.trim().toUpperCase()));
+  const mType = matcherOf(K?.custTypes);
+  const mName = matcherOf(K?.names);
+  const mGroup = matcherOf(K?.groups);
+  const mPss = matcherOf(K?.pss);
+  const mPrice = makeMatcher(UIO_PRICE_TYPE_OPTIONS);
+  const mProduct = makeMatcher(Object.keys(K?.partModelsByProduct || {}));
+  const modelMatchers = new Map<string, ReturnType<typeof makeMatcher>>();
+  const modelMatcher = (pk: string) => {
+    let m = modelMatchers.get(pk);
+    if (!m) {
+      const raw = Object.entries(K?.partModelsByProduct || {}).find(([p]) => p.trim().toUpperCase() === pk)?.[1] || [];
+      modelMatchers.set(pk, (m = makeMatcher(raw)));
+    }
+    return m;
+  };
   const contractCodes = K?.contractCodes && K.contractCodes.length > 0 ? new Set(K.contractCodes.map(normCode)) : null;
   const pm = K?.partModelsByProduct &&Object.keys(K.partModelsByProduct).length > 0 ? K.partModelsByProduct : null;
   const nm = (m: string) => m.toUpperCase().replace(/[\s-]/g, "");
@@ -232,6 +252,35 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     if (!it) issueMap.set(key, (it = { field, level, message, count: 0, rows: [] }));
     it.count++;
     if (it.rows.length < 15) it.rows.push(row);
+  };
+  /**
+   * Ejaan satu nilai dibandingkan dengan data website:
+   *   - sama kecuali huruf besar/kecil, spasi, tanda baca → otomatis disamakan dengan ejaan di website (dilaporkan sebagai info);
+   *   - tidak ada, tapi ada yang sangat mirip → peringatan "mungkin maksudnya …?" (nilai tetap seperti di file);
+   *   - tidak ada sama sekali → pesan `none` (bila diisi).
+   */
+  const spell = (
+    field: string,
+    m: ReturnType<typeof makeMatcher> | null,
+    raw: unknown,
+    rowNo: number,
+    o: { level: UioIssue["level"]; key?: string; none?: string; note?: string }
+  ): string | null => {
+    const v = str(raw);
+    if (!v || !m) return v;
+    const r = m(v);
+    if (r.exact !== null) {
+      if (r.exact !== v) {
+        const k = `fixed:${field}`;
+        if (!issueMap.has(k)) flag(k, field, "info", `Ejaan ${field} disamakan otomatis dengan data website (contoh: "${v}" → "${r.exact}")`, rowNo);
+        else flag(k, field, "info", "", rowNo);
+      }
+      return r.exact;
+    }
+    if (r.suggest) {
+      flag(`typo:${field}|${loose(v)}`, field, o.level, `${field} "${v}" tidak dikenal — mungkin maksudnya "${r.suggest}"?${o.note ? ` (${o.note})` : ""}`, rowNo);
+    } else if (o.none) flag(o.key || `unknown:${field}`, field, o.level, o.none, rowNo);
+    return v;
   };
   const now = new Date();
   const thisYear = now.getFullYear();
@@ -332,17 +381,42 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     if (hm === null || hm <= 0 || hm > 24) flag("hm", "HM/Day", "info", "HM/Day kosong/tidak valid (harus 1–24) — dipakai nilai default", rowNo);
     if (dm === null || dm <= 0 || dm > 31) flag("dm", "Day/Month", "info", "Day/Month kosong/tidak valid (harus 1–31) — dipakai nilai default", rowNo);
     if (my === null || my <= 0 || my > 12) flag("my", "Month/Year", "info", "Month/Year kosong/tidak valid (harus 1–12) — dipakai nilai default", rowNo);
-    if (knownBranch && str(branch) && !knownBranch.has(str(branch)!.toUpperCase()))
-      flag("branch-unknown", "Branch", "penting", "Branch belum pernah ada di data (cek ejaan / kode cabang)", rowNo);
-    if (knownType && str(custType) && !knownType.has(str(custType)!.toUpperCase()))
-      flag("type-unknown", "Cust. Type", "penting", `Cust. Type tidak dikenal — harus salah satu: ${Array.from(knownType).join(", ")}`, rowNo);
+    // ---- ejaan: samakan dengan data website, atau beri saran bila typo ----
+    const branchV = spell("Branch", mBranch, branch, rowNo, {
+      level: "penting", key: "branch-unknown", none: "Branch belum pernah ada di data (cek ejaan / kode cabang)"
+    });
+    const typeV = spell("Cust. Type", mType, custType, rowNo, {
+      level: "penting", key: "type-unknown", none: `Cust. Type tidak dikenal — harus salah satu: ${(K?.custTypes || []).join(", ")}`
+    });
+    const nameV = spell("Cust. Name", mName, custName, rowNo, { level: "info", note: "cek typo; abaikan bila memang customer baru" });
+    const groupV = spell("Cust. Group", mGroup, custGroup, rowNo, { level: "info", note: "cek typo; abaikan bila memang group baru" });
+    const pssV = spell("Pss Name", mPss, pssName, rowNo, { level: "info", note: "cek typo; abaikan bila memang PSS baru" });
+    let modelV = str(model);
     if (pm) {
       const pk = canonicalProduct(String(product));
-      if (!partModels.has(pk)) flag("product-nomp", "Product", "info", "Product tidak ada di Master Part — unit tidak menyumbang Market Size", rowNo);
-      else if (str(model) && !modelMatches(pk, str(model)!)) flag("model-nomp", "Model", "info", "Model tidak cocok dengan model di Master Part (cek ejaan) — unit tidak menyumbang Market Size", rowNo);
+      if (!partModels.has(pk)) {
+        const s = mProduct(product).suggest;
+        if (s) flag(`product-typo:${loose(product)}`, "Product", "penting", `Product "${str(product)}" tidak ada di Master Part — mungkin maksudnya "${s}"?`, rowNo);
+        else flag("product-nomp", "Product", "info", "Product tidak ada di Master Part — unit tidak menyumbang Market Size", rowNo);
+      } else if (modelV && !modelMatches(pk, modelV)) {
+        const s = modelMatcher(pk)(modelV).suggest;
+        if (s) flag(`model-typo:${pk}|${loose(modelV)}`, "Model", "penting", `Model "${modelV}" (${pk}) tidak cocok dengan Master Part — mungkin maksudnya "${s}"?`, rowNo);
+        else flag("model-nomp", "Model", "info", "Model tidak cocok dengan model di Master Part (cek ejaan) — unit tidak menyumbang Market Size", rowNo);
+      }
     }
     const pt = normPriceType(priceTypeRaw);
-    if (priceTypeRaw !== null && !pt) flag("pt-bad", "Price Type", "penting", "Price Type tidak dikenal (harus Kontrak / SCPL / Non-Kontrak) — dianggap kosong", rowNo);
+    if (priceTypeRaw !== null && !pt) {
+      const s = mPrice(priceTypeRaw).suggest;
+      flag(
+        s ? `pt-typo:${loose(priceTypeRaw)}` : "pt-bad",
+        "Price Type",
+        "penting",
+        s
+          ? `Price Type "${str(priceTypeRaw)}" tidak dikenal — mungkin maksudnya "${s}"? (sementara dianggap kosong)`
+          : "Price Type tidak dikenal (harus Kontrak / SCPL / Non-Kontrak) — dianggap kosong",
+        rowNo
+      );
+    }
     else if (!pt && has("priceType")) flag("pt-empty", "Price Type", "info", "Price Type kosong — harga Kontrak/SCPL dipakai bila Cust. Code-nya punya, selain itu Harga Non Kontrak", rowNo);
     else if (pt === "contract" || pt === "scpl") {
       const code = normCode(custCode);
@@ -356,14 +430,14 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       month_inv: monthNum,
       // Kode product (PER, TYT, MFT, …) disimpan sebagai nama Product (PERKINS, TOYOTA, MF) supaya unit yang sama tidak tersimpan dua kali.
       product: str(product) ? canonicalProduct(str(product)) : null,
-      model: str(model),
-      customer_group: str(custGroup),
-      customer_name: str(custName),
-      branch: str(branch),
+      model: modelV,
+      customer_group: groupV,
+      customer_name: nameV,
+      branch: branchV,
       serial_number: ser,
-      pss_name: str(pssName),
+      pss_name: pssV,
       customer_code: str(custCode),
-      customer_type: str(custType),
+      customer_type: typeV,
       hm_day: hm,
       day_month: dm,
       month_year: my,

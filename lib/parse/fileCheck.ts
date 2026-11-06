@@ -9,6 +9,7 @@ import { parsePrice } from "@/lib/parse/priceList";
 import { normCode, normPriceType } from "@/lib/priceType";
 import { canonicalProduct } from "@/lib/calculations";
 import type { TemplateLists } from "@/lib/downloadTemplates";
+import { loose, makeMatcher } from "@/lib/fuzzy";
 
 export type CheckKind = "contract" | "non_contract" | "parts";
 export type FileCheck = UioValidation & {
@@ -84,6 +85,8 @@ export async function checkUploadFile(file: File, kind: CheckKind, known: Pick<T
 
   const codes = known.codes.length > 0 ? new Set(known.codes.map((c) => normCode(c))) : null;
   const pns = known.partNumbers.length > 0 ? new Set(known.partNumbers.map((p) => p.trim().toUpperCase())) : null;
+  const mPn = known.partNumbers.length > 0 ? makeMatcher(known.partNumbers) : null;
+  const mProduct = known.products.length > 0 ? makeMatcher(known.products) : null;
   const seen = new Map<string, { row: number; sig: string; price: number }>();
   const conflicts: { row: number; first: number; a: number; b: number; key: string }[] = [];
   let ok = 0;
@@ -106,6 +109,10 @@ export async function checkUploadFile(file: File, kind: CheckKind, known: Pick<T
       if (!Number.isFinite(freq) || freq <= 0) return flag("freq", "Frekuensi Ganti", "penting", "Frekuensi Ganti (HM) kosong / 0 — baris dilewati", row);
       const hmRaw = txt(pick(n, COLS.hm));
       if (hmRaw && !(Number(hmRaw) > 0 && Number(hmRaw) <= 24)) flag("hm", "HM per Hari", "info", "HM per Hari di luar 1–24 — dipakai nilai default", row);
+      if (mProduct) {
+        const m = mProduct(canonicalProduct(product));
+        if (m.exact === null && m.suggest) flag(`product-typo:${loose(product)}`, "Product", "penting", `Product "${product}" belum dikenal — mungkin maksudnya "${m.suggest}"? (abaikan bila memang brand baru)`, row);
+      }
       const key = `${canonicalProduct(product)}|${model.toUpperCase()}|${pn.toUpperCase()}`;
       const prev = seen.get(key);
       if (prev) {
@@ -123,7 +130,12 @@ export async function checkUploadFile(file: File, kind: CheckKind, known: Pick<T
     if (!pn) return flag("pn", "Part Number", "penting", "Part Number kosong — baris dilewati", row);
     if (price === null) return flag("price", "Harga", "penting", "Harga kosong / bukan angka — baris dilewati", row);
     if (price <= 0) flag("price0", "Harga", "penting", "Harga 0 atau negatif", row);
-    if (pns && !pns.has(pn.toUpperCase())) flag("pn-unknown", "Part Number", "info", "Part Number tidak ada di Master Part — harga belum terpakai di Market Size", row);
+    if (pns && !pns.has(pn.toUpperCase())) {
+      const m = mPn!(pn);
+      const s = m.exact ?? m.suggest;
+      if (s) flag(`pn-typo:${loose(pn)}`, "Part Number", "penting", `Part Number "${pn}" tidak ada di Master Part — mungkin maksudnya "${s}"?`, row);
+      else flag("pn-unknown", "Part Number", "info", "Part Number tidak ada di Master Part — harga belum terpakai di Market Size", row);
+    }
 
     let key = pn.toUpperCase();
     let who = `Part Number ${pn}`;
