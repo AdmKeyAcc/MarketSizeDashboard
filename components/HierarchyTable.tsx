@@ -197,7 +197,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
               <label className={`hc-level${prevEmpty ? " off" : ""}`} key={i}>
                 <span>Level {i + 1}</span>
                 <select value={l} disabled={prevEmpty} onChange={(e) => setLevel(i, e.target.value as HierDim | "")}>
-                  <option value={NONE}>{i === 0 ? "(none — Grand Total saja)" : "(none)"}</option>
+                  <option value={NONE}>None</option>
                   {HIER_DIMS.map((d) => (
                     <option key={d} value={d} disabled={levels.some((x, j) => j !== i && x === d)}>
                       {HIER_LABELS[d]}
@@ -220,10 +220,6 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
             >
               i
             </span>
-          </span>
-          <span>
-            Periode {periodLabel} (tahun acuan {refYear})
-            {tree ? ` · ${tree.customers.toLocaleString("id-ID")} customer` : ""}
           </span>
         </div>
 

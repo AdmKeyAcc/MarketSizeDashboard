@@ -320,7 +320,7 @@ export function UioFilterBar({ state }: { state: UseDashboardState }) {
               values={f[k]}
               options={o[k]}
               onChange={(v) => setUioFilter(k, v)}
-              info={k === "yearBast" ? "Tahun BAST (serah terima) unit. All = semua unit di Data UIO." : undefined}
+              info={k === "yearBast" ? "Tahun BAST unit. BAST = Berita Acara Serah Terima, yaitu dokumen saat unit diserahterimakan ke customer. All = semua unit di Data UIO." : k === "monthBast" ? "Bulan BAST unit. BAST = Berita Acara Serah Terima, yaitu dokumen saat unit diserahterimakan ke customer." : undefined}
             />
           ))}
         </div>

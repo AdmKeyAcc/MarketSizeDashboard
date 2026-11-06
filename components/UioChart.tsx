@@ -32,7 +32,7 @@ export default function UioChart({ state, theme }: { state: UseDashboardState; t
       <div className="panel-head">
         <h2>
           UIO per Product
-          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation) di Data UIO, sesuai Filter UIO. Year BAST = tahun serah terima (BAST) unit; All = semua unit.">i</span>
+          <span className="info-dot" title="UIO = jumlah unit yang beroperasi (unit in operation) di Data UIO, sesuai Filter UIO. Year BAST = tahun BAST unit (Berita Acara Serah Terima, yaitu dokumen saat unit diserahterimakan ke customer); All = semua unit.">i</span>
         </h2>
         <span className="note">
           {uioUnitsScoped.length > 0

@@ -764,7 +764,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fTahun}
             options={tahunOpts}
             onChange={wrap(setFTahun)}
-            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year BAST (tahun serah terima unit) sampai tahun ini. Kosong = tahun terbaru yang punya data UIO."
+            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year BAST sampai tahun ini (BAST = Berita Acara Serah Terima, yaitu dokumen saat unit diserahterimakan ke customer). Kosong = tahun terbaru yang punya data UIO."
           />
           <MultiSelectField
             label="Month"
@@ -856,7 +856,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             dims={SUM_DIMS}
             labels={SUM_LABELS}
             firstOptional
-            noneLabel="(none — per customer)"
             onChange={(next) => {
               setLevels(next);
               setExpanded(new Set());

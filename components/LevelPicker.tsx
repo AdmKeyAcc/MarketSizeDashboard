@@ -10,7 +10,7 @@ export default function LevelPicker<D extends string>({
   labels,
   onChange,
   firstOptional = false,
-  noneLabel = "(none)"
+  noneLabel = "None"
 }: {
   levels: (D | "")[];
   dims: readonly D[];
@@ -35,7 +35,7 @@ export default function LevelPicker<D extends string>({
           <label className={`hc-level${prevEmpty ? " off" : ""}`} key={i}>
             <span>Level {i + 1}</span>
             <select value={l} disabled={prevEmpty} onChange={(e) => setLevel(i, e.target.value as D | "")}>
-              <option value="">{i === 0 ? noneLabel : "(none)"}</option>
+              <option value="">{i === 0 ? noneLabel : "None"}</option>
               {dims.map((d) => (
                 <option key={d} value={d} disabled={levels.some((x, j) => j !== i && x === d)}>
                   {labels[d]}
