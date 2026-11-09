@@ -16,7 +16,8 @@ import {
   emptyUnitHm,
   normModel,
   partAnnualHm,
-  type UnitHm
+  type UnitHm,
+  unitActiveIn
 } from "@/lib/calculations";
 import { buildCustomerIndex, computeCustomerFacts, makeFactDeps, type CustInfo } from "@/lib/hierarchy";
 import { calendarWeights, sumPeriod } from "@/lib/period";
@@ -79,7 +80,7 @@ function matchedUnits(c: CustInfo, product: string, partModel: string, year: num
   const prefix: UioUnit[] = [];
   c.units.forEach((u) => {
     if (canonicalProduct(u.product) !== pk) return;
-    if (year !== null && u.year !== null && u.year > year) return;
+    if (year !== null && !unitActiveIn(u, year)) return;
     const nm = normModel(u.model);
     if (nm === pm) exact.push(u);
     else if (pm.length >= 3 && nm.startsWith(pm) && (!partModels || bestPartModel(nm, partModels) === pm)) prefix.push(u);

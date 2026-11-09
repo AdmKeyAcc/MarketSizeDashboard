@@ -772,7 +772,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
             values={fTahun}
             options={tahunOpts}
             onChange={wrap(setFTahun)}
-            info="Tahun perhitungan Market Size dan Actual Sales. UIO = semua unit dengan Year BAST sampai tahun ini (BAST = Berita Acara Serah Terima, yaitu dokumen saat unit diserahterimakan ke customer). Kosong = tahun terbaru yang punya data UIO."
+            info="Tahun perhitungan Market Size dan Actual Sales. UIO = unit yang masih dalam umur 10 tahun di tahun ini, yaitu Year BAST tahun ini − 9 sampai tahun ini (BAST = Berita Acara Serah Terima, yaitu dokumen saat unit diserahterimakan ke customer). Kosong = tahun terbaru yang punya data UIO."
           />
           <MultiSelectField
             label="Month"

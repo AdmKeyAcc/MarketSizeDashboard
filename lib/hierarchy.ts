@@ -13,7 +13,8 @@ import {
   type WorkdaysOf,
   normModel,
   type FilterState,
-  type MarketSizeYearRow
+  type MarketSizeYearRow,
+  unitActiveIn
 } from "@/lib/calculations";
 import type { ActualQtyYear, ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
@@ -229,7 +230,7 @@ export function computeCustomerFacts(c: CustInfo, d: FactDeps): Fact[] {
   // jumlah unit + jam operasi per product → model (dinormalisasi)
   const counts = new Map<string, Map<string, UnitHm>>();
   c.units.forEach((u) => {
-    if (u.year !== null && u.year > d.year) return;
+    if (!unitActiveIn(u, d.year)) return;
     const pk = canonicalProduct(u.product);
     let m = counts.get(pk);
     if (!m) counts.set(pk, (m = new Map()));

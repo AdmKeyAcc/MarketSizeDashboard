@@ -244,7 +244,7 @@ export default function FilterBar({ state }: { state: UseDashboardState }) {
             values={filters.tahun}
             options={options.tahun}
             onChange={(v) => setFilter("tahun", v)}
-            info="Tahun perhitungan Market Size dan Actual Sales. Market Size tahun ini dihitung dari semua unit dengan Year BAST sampai tahun ini."
+            info="Tahun perhitungan Market Size dan Actual Sales. Market Size tahun ini dihitung dari unit yang masih dalam umur 10 tahun: Year BAST tahun ini − 9 sampai tahun ini (mis. 2028 = unit BAST 2019–2028). Actual Sales = penjualan tahun itu saja."
           />
           <MultiSelectField label="Month" values={filters.bulan} options={options.bulan} onChange={(v) => setFilter("bulan", v)} />
           <MultiSelectField label="Branch" values={filters.area} options={options.area} onChange={(v) => setFilter("area", v)} />

@@ -216,7 +216,7 @@ export default function HierarchyTable({ state }: { state: UseDashboardState }) 
             Market Size vs Actual Sales{years.length > 1 ? ` — ${years[years.length - 1] - years[0] === years.length - 1 ? `${years[0]}–${refYear}` : years.join(", ")}` : refYear !== null ? ` — ${refYear}` : ""}
             <span
               className="info-dot"
-              title={`Tahun yang tampil mengikuti filter Year (All = semua tahun); Variance dan UIO memakai tahun terakhir yang tampil (${refYear ?? ""}). Baris diurutkan dari Market Size terbesar. Market Size tiap tahun = populasi UIO (unit sampai tahun itu) × kebutuhan part per tahun × harga. Actual = laporan penjualan tahun yang sama. Market Share = Actual ÷ Market Size. Variance = Actual − Market Size (tahun acuan). Semua filter berlaku sama untuk tabel, chart, dan KPI.`}
+              title={`Tahun yang tampil mengikuti filter Year (All = semua tahun); Variance dan UIO memakai tahun terakhir yang tampil (${refYear ?? ""}). Baris diurutkan dari Market Size terbesar. Market Size tiap tahun = populasi UIO (unit dengan Year BAST tahun itu − 9 sampai tahun itu, umur unit 10 tahun) × kebutuhan part per tahun × harga. Actual = laporan penjualan tahun yang sama. Market Share = Actual ÷ Market Size. Variance = Actual − Market Size (tahun acuan). Semua filter berlaku sama untuk tabel, chart, dan KPI.`}
             >
               i
             </span>

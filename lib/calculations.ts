@@ -188,10 +188,10 @@ function buildUnitScopeKeys(customers: Customer[] | undefined, f: FilterState | 
 /** Unit tanpa tahun (year null) dianggap populasi yang selalu berlaku di
  * tahun mana pun — jadi tetap terhitung walau tahun difilter. */
 function unitInScope(u: UioUnit, years: number[], f: FilterState | undefined, keys: UnitScopeKeys): boolean {
-  // UIO (unit in operation) pada tahun Y = semua unit yang sudah terjual
-  // (Year BAST) sampai tahun Y — unit tahun lalu masih beroperasi. Kalau
-  // beberapa tahun dipilih, dipakai tahun terbesar. Unit tanpa tahun selalu ikut.
-  if (years.length > 0 && u.year !== null && u.year > Math.max(...years)) return false;
+  // UIO (unit in operation) pada tahun Y = unit yang masih dalam umurnya di tahun Y
+  // (Year BAST Y − 9 sampai Y bila umur 10 tahun). Kalau beberapa tahun dipilih, cukup aktif
+  // di salah satunya. Unit tanpa tahun selalu ikut.
+  if (years.length > 0 && !years.some((y) => unitActiveIn(u, y))) return false;
   if (!f) return true;
   if (f.customerGroup.length > 0 && !setOf(f.customerGroup).has(u.customer_group || "")) return false;
   if (f.customerName.length > 0 && !setOf(f.customerName).has(u.customer_name || "")) return false;
@@ -299,11 +299,21 @@ export type WorkdaysOf = (product: string) => number;
 
 export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workdays_month;
 
+/**
+ * Unit masih dihitung (beroperasi) di tahun `year`? Umur unit = app_settings unit_life_years (default 10):
+ * unit BAST tahun X dihitung di tahun X sampai X + 9. Unit tanpa Year BAST selalu dihitung.
+ */
+export function unitActiveIn(u: { year: number | null | undefined }, year: number): boolean {
+  if (u.year === null || u.year === undefined) return true;
+  return u.year <= year && u.year > year - refs().settings.unit_life_years;
+}
+
 /** Bulan pertama (0–11) unit sudah beroperasi di tahun acuan: unit yang dibeli bulan ke-m di tahun acuan
  * baru dihitung mulai bulan itu. Tahun sesudahnya / Month BAST kosong → Januari (0). Unit setelah tahun acuan → 12 (tidak ada). */
 export function firstActiveMonth(u: UioUnit, refYear: number | null | undefined): number {
   if (refYear === null || refYear === undefined || u.year === null || u.year === undefined) return 0;
   if (u.year > refYear) return 12;
+  if (!unitActiveIn(u, refYear)) return 12; // sudah lewat umur unit
   if (u.year < refYear) return 0;
   const m = Number(u.month_inv);
   return Number.isInteger(m) && m >= 1 && m <= 12 ? m - 1 : 0;

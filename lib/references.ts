@@ -24,6 +24,9 @@ export type AppSettings = {
    * menyebar jam operasi setahun ke tiap bulan: bulan dengan hari kerja lebih sedikit (mis. Februari,
    * bulan Lebaran) mendapat jam lebih sedikit. Totalnya tetap sama. */
   workdays_by_month: number[];
+  /** Umur unit (tahun) yang dihitung di Market Size: unit BAST tahun X dihitung di tahun X sampai X + umur − 1
+   * (default 10 = tahun BAST + 9 tahun berikutnya). app_settings key: unit_life_years. */
+  unit_life_years: number;
 };
 
 export type References = {
@@ -38,7 +41,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   default_workdays_month: 22,
   default_months_year: 12,
   non_contract_discount: 0.5,
-  workdays_by_month: [22, 20, 22, 22, 21, 22, 23, 21, 22, 22, 21, 22]
+  workdays_by_month: [22, 20, 22, 22, 21, 22, 23, 21, 22, 22, 21, 22],
+  unit_life_years: 10
 };
 
 export const DEFAULT_REFERENCES: References = {
@@ -136,7 +140,8 @@ export function buildReferences(
     })(),
     workdays_by_month: DEFAULT_SETTINGS.workdays_by_month.map((d, i) =>
       pos(raw[`workdays_${String(i + 1).padStart(2, "0")}`], d, 31)
-    )
+    ),
+    unit_life_years: Math.round(pos(raw.unit_life_years, DEFAULT_SETTINGS.unit_life_years, 100))
   };
 
   return { productAlias, kaTypes, settings };

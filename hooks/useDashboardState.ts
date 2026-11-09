@@ -20,7 +20,8 @@ import {
   uioScopedUnits,
   marketSizeByYear,
   marketShareByYear,
-  findPartsWithoutPrice
+  findPartsWithoutPrice,
+  unitActiveIn
 } from "@/lib/calculations";
 import { MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
 import { applyReferences, kaRank } from "@/lib/references";
@@ -262,17 +263,18 @@ export function useDashboardState(initialData: DashboardData) {
   // empty selection in the checklist itself means "no restriction") ----
   // Ringkasan per customer untuk cascading filter: tahun UIO paling awal per product, dan tahun Actual per product.
   const cascadeInfo = useMemo(() => {
-    type Info = { c: Customer; prodMin: Map<string, number>; actProd: Map<string, Set<number>> };
+    type Info = { c: Customer; prodYears: Map<string, Set<number>>; actProd: Map<string, Set<number>> };
     const m = new Map<string, Info>();
     realCustomers.forEach((c) => {
-      m.set(custKey(c.customer_group, c.customer_name), { c, prodMin: new Map(), actProd: new Map() });
+      m.set(custKey(c.customer_group, c.customer_name), { c, prodYears: new Map(), actProd: new Map() });
     });
     data.uioUnits.forEach((u) => {
       const inf = m.get(custKey(u.customer_group, u.customer_name));
       if (!inf || u.year === null) return;
       const p = canonicalProduct(u.product);
-      const cur = inf.prodMin.get(p);
-      if (cur === undefined || u.year < cur) inf.prodMin.set(p, u.year);
+      let st = inf.prodYears.get(p);
+      if (!st) inf.prodYears.set(p, (st = new Set()));
+      st.add(u.year);
     });
     data.actualSalesYear.forEach((r) => {
       const inf = m.get(custKey(r.customer_group, r.customer_name));
@@ -299,14 +301,15 @@ export function useDashboardState(initialData: DashboardData) {
     const selProducts = filters.product;
     const hasDataFor = (inf: Info, ys: number[] | null, ps: string[] | null) => {
       if (!ys && !ps) return true;
-      const prods = ps ?? Array.from(new Set([...inf.prodMin.keys(), ...inf.actProd.keys()]));
+      const prods = ps ?? Array.from(new Set([...inf.prodYears.keys(), ...inf.actProd.keys()]));
       return prods.some((p) => {
         const pc = canonicalProduct(p);
-        const mn = inf.prodMin.get(pc);
+        const uy = inf.prodYears.get(pc);
         const act = inf.actProd.get(pc);
         const actAll = inf.actProd.get("");
-        if (!ys) return mn !== undefined || !!act;
-        return ys.some((y) => (mn !== undefined && mn <= y) || !!act?.has(y) || (!ps && !!actAll?.has(y)));
+        if (!ys) return !!uy || !!act;
+        // Unit dihitung di tahun y kalau masih dalam umurnya (lihat unitActiveIn).
+        return ys.some((y) => (!!uy && Array.from(uy).some((by) => unitActiveIn({ year: by }, y))) || !!act?.has(y) || (!ps && !!actAll?.has(y)));
       });
     };
     type Dim = "tahun" | "area" | "pss" | "customerGroup" | "customerName" | "tier" | "product";
@@ -363,7 +366,7 @@ export function useDashboardState(initialData: DashboardData) {
         (u) =>
           (filters.product.length === 0 || filters.product.includes(canonicalProduct(u.product)) || filters.product.includes(u.product || "")) &&
           (!okKeys || okKeys.has(custKey(u.customer_group, u.customer_name))) &&
-          (maxSelYear === null || (u.year !== null && u.year <= maxSelYear))
+          (maxSelYear === null || selYears.some((y) => unitActiveIn(u, y)))
       )
       .map((u) => u.model);
     const modelOpts = okKeys ? uniq(unitModels).sort() : uniq([...modelPool.map((p) => p.model), ...unitModels]).sort();
