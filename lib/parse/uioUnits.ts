@@ -1,7 +1,7 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
 import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, normCode, normPriceType } from "@/lib/priceType";
-import { loose, makeMatcher } from "@/lib/fuzzy";
+import { companyKey, loose, makeMatcher } from "@/lib/fuzzy";
 import { canonicalProduct } from "@/lib/calculations";
 import { uioSerialKey } from "@/lib/uioKey";
 
@@ -189,7 +189,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const matcherOf = (vals?: string[]) => (vals && vals.length > 0 ? makeMatcher(vals) : null);
   const mBranch = matcherOf(K?.branches?.map((b) => b.trim().toUpperCase()));
   const mType = matcherOf(K?.custTypes);
-  const mName = matcherOf(K?.names);
+  // Nama customer: "KAHATEX,PT" dan "PT. KAHATEX" dianggap sama (abaikan PT/CV/Tbk) → disamakan dengan ejaan di website.
+  const mName = K?.names && K.names.length > 0 ? makeMatcher(K.names, companyKey) : null;
   const mGroup = matcherOf(K?.groups);
   const mPss = matcherOf(K?.pss);
   const mPrice = makeMatcher(UIO_PRICE_TYPE_OPTIONS);
@@ -234,6 +235,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const parsed: UioUnitParsed[] = [];
   const seenRow = new Map<string, number>();
   const seenSerial = new Map<string, number>();
+  const seenZero = new Map<string, { raw: string; row: number }>();
   let duplicates = 0;
   let conflictSerial = 0;
   let skipped = 0;
@@ -462,6 +464,15 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
         conflictSerial++;
       }
       seenSerial.set(sk, rowNo);
+      // Serial yang sama kalau nol di depannya diabaikan (mis. "000006916615" dan "6916615") → kemungkinan unit dobel.
+      const ser = String(rec.serial_number).trim().toUpperCase();
+      const zk = `${canonicalProduct(rec.product)}::${ser.replace(/^0+(?=.)/, "")}`;
+      const z = seenZero.get(zk);
+      if (z && z.raw !== ser)
+        flag("dup-serial-zero", "Serial Number", "penting", `Serial Number "${ser}" sama dengan "${z.raw}" (baris ${z.row}) kalau nol di depan diabaikan — kemungkinan unit yang sama ditulis dua kali`, rowNo);
+      else if (!z) seenZero.set(zk, { raw: ser, row: rowNo });
+      if (/^0{3,}\d/.test(ser))
+        flag("serial-zero", "Serial Number", "info", "Serial Number diawali banyak angka 0 — pastikan penulisannya sama dengan data lain (mis. tanpa nol di depan)", rowNo);
     }
     parsed.push(rec);
   });

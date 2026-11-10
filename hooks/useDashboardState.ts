@@ -214,7 +214,7 @@ export function useDashboardState(initialData: DashboardData) {
   const custTypeMap = useMemo(() => {
     const m = new Map<string, string>();
     custIndex.forEach((c) => {
-      if (c.ka && !c.ka.startsWith("(")) m.set(c.key, c.ka);
+      if (c.ka && !c.ka.startsWith("(")) [c.key, ...c.aliasKeys].forEach((k) => m.set(k, c.ka));
     });
     return m;
   }, [custIndex]);

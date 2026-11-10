@@ -20,7 +20,8 @@ import { MultiSelectField } from "@/components/FilterBar";
 import LevelPicker, { activeLevels } from "@/components/LevelPicker";
 import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 import { comparePlan, periodOf, sumPeriod } from "@/lib/period";
-import { type UioUnit } from "@/lib/types";
+import { MONTH_ORDER, type UioUnit } from "@/lib/types";
+import { makeCustKeyResolver, pairUnitAndActual } from "@/lib/custMatch";
 import { kaRank } from "@/lib/references";
 import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, codesOf, codesWithContract, dominantPriceType, groupsWithGroupPrice, type PriceType } from "@/lib/priceType";
 
@@ -76,9 +77,9 @@ type ColDef = { key: SortKey; label: string; kind: "text" | "num" | "computed"; 
 const METRIC_COLS: ColDef[] = [
   { key: "customers", label: "Customer", kind: "num", width: 12 },
   { key: "uio", label: "UIO (unit)", kind: "num", width: 12 },
-  { key: "qty_market_size", label: "Qty Market Size", kind: "computed", width: 16 },
+  { key: "qty_market_size", label: "Qty Market Size /year", kind: "computed", width: 18 },
   { key: "qty_period", label: "Qty Market Size (period)", kind: "computed", width: 20 },
-  { key: "amount_market_size", label: "Market Size (Rp)", kind: "computed", width: 20 },
+  { key: "amount_market_size", label: "Market Size /year (Rp)", kind: "computed", width: 22 },
   { key: "amount_period", label: "Market Size (period) (Rp)", kind: "computed", width: 24 },
   { key: "actual_sales", label: "Actual Sales (Rp)", kind: "num", width: 20 },
   { key: "market_share", label: "Market Share", kind: "computed", width: 14 }
@@ -167,12 +168,15 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   };
   const custEntities = useMemo(() => {
     const m = new Map<string, GInfo>();
+    // Ejaan lain perusahaan yang sama di group yang sama digabung (lib/custMatch.ts) — sama dengan Dashboard.
+    const resolve = makeCustKeyResolver();
     const get = (rawGroup: string, rawName: string) => {
       const group = (rawGroup || "").trim();
       const name = (rawName || "").trim();
       if (!group && !name) return null;
-      const key = custKey(group || name, name);
+      const { key } = resolve(group || name, name);
       let g = m.get(key);
+      if (g && name) g.custNames.add(normGroup(name));
       if (!g) {
         g = {
           key,
@@ -227,6 +231,34 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         if (!arr) g.actualM.set(r.year, (arr = new Float64Array(12)));
         for (let i = 0; i < 12; i++) arr[i] += Number(r.amount_by_month[i]) || 0;
       }
+    });
+    // Customer punya unit tanpa Actual ↔ customer punya Actual tanpa unit, nama perusahaan sama → satu customer.
+    pairUnitAndActual(
+      Array.from(m.values()),
+      (g) => g.custName,
+      (g) => g.units.length > 0,
+      (g) => g.actual.size > 0 || g.kaAmount.size > 0
+    ).forEach(([u, a]) => {
+      a.actual.forEach((v, y) => u.actual.set(y, (u.actual.get(y) || 0) + v));
+      a.actualM.forEach((arr, y) => {
+        const cur = u.actualM.get(y);
+        if (!cur) u.actualM.set(y, Float64Array.from(arr));
+        else for (let i = 0; i < 12; i++) cur[i] += arr[i];
+      });
+      a.actualProd.forEach((pm, y) => {
+        let t = u.actualProd.get(y);
+        if (!t) u.actualProd.set(y, (t = new Map()));
+        pm.forEach((v, k) => addCount(t!, k, v));
+      });
+      a.kaAmount.forEach((v, k) => u.kaAmount.set(k, (u.kaAmount.get(k) || 0) + v));
+      if (!u.masterTier && a.masterTier) {
+        u.tiers = new Set(a.tiers);
+        u.masterTier = true;
+      }
+      a.branches.forEach((v, k) => addCount(u.branches, k, v));
+      a.pssNames.forEach((v, k) => addCount(u.pssNames, k, v));
+      a.custNames.forEach((n) => u.custNames.add(n));
+      m.delete(a.key);
     });
     return Array.from(m.values());
   }, [customers, data.uioUnits, data.actualSalesYear, fProduct]);
@@ -328,7 +360,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     () => ({ ...EMPTY_FILTERS, tahun: fTahun, bulan: fBulan, product: fProduct, modelUnit: fModel }),
     [fTahun, fBulan, fProduct, fModel]
   );
-  const monthsSelected = fBulan.length > 0 ? new Set(fBulan).size : 12;
 
   // Tahun acuan: tahun terpilih (terbesar) atau tahun UIO terbaru; kalau belum ada UIO, tahun Actual Sales terbaru.
   const refYear = useMemo(() => {
@@ -355,6 +386,16 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const denMonths = refYear !== null ? plan.monthsOf(refYear) : null;
   const actualMonths = refYear !== null ? plan.actualMonthsOf(refYear) : null;
   const isYtd = fBulan.length === 0 && denMonths !== null;
+  /** Kolom "periode": bulan filter, atau Januari s/d bulan terakhir Actual untuk tahun berjalan.
+   * Tahun penuh tanpa filter Bulan → kolom periode disembunyikan (isinya sama dengan /year). */
+  const periodMonths = fBulan.length > 0 ? selMonths : isYtd ? denMonths : null;
+  const showPeriod = periodMonths !== null && periodMonths.length < 12;
+  const periodName =
+    fBulan.length > 0
+      ? `${new Set(fBulan).size} bulan`
+      : isYtd && denMonths && denMonths.length > 0
+        ? `${MONTH_ORDER[denMonths[0]]?.slice(0, 3)}–${MONTH_ORDER[denMonths[denMonths.length - 1]]?.slice(0, 3)}`
+        : "";
   const comparable = refYear !== null && plan.actualOkOf(refYear);
   const actualOf = (g: { actual: Map<number, number>; actualM: Map<number, Float64Array> }) =>
     refYear === null ? 0 : sumPeriod(g.actualM.get(refYear), actualMonths, g.actual.get(refYear) || 0);
@@ -495,9 +536,11 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const last = act[act.length - 1] ?? "group";
     const used = new Set<string>(act.map((d) => DIM_COL[d]));
     const rel = new Set(RELATED_COLS[last].filter((k) => !used.has(k)));
-    const metrics = METRIC_COLS.filter((c) => !(c.key === "customers" && last === "customer"));
+    const metrics = METRIC_COLS.filter(
+      (c) => !(c.key === "customers" && last === "customer") && (showPeriod || (c.key !== "qty_period" && c.key !== "amount_period"))
+    );
     return [{ key: "hier" as SortKey, label: "Hierarchy", kind: "text", width: 34 }, ...LABEL_COLS.filter((c) => rel.has(String(c.key))), ...metrics];
-  }, [act]);
+  }, [act, showPeriod]);
   // Pencarian tetap memeriksa semua kolom teks (termasuk yang tidak tampil).
   const textKeys = useMemo(() => LABEL_COLS.map((c) => c.key), []);
 
@@ -507,8 +550,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     const den = sumPeriod(r.amount_months, denMonths, r.amount_market_size);
     return {
       ...r,
-      qty_period: sumPeriod(r.qty_months, selMonths, r.qty_market_size),
-      amount_period: sumPeriod(r.amount_months, selMonths, r.amount_market_size),
+      qty_period: sumPeriod(r.qty_months, periodMonths, r.qty_market_size),
+      amount_period: sumPeriod(r.amount_months, periodMonths, r.amount_market_size),
       share_den: den,
       market_share: comparable && den > 0 ? r.actual_sales / den : null
     };
@@ -611,7 +654,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     };
     return build(custList, 0, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custList, act, sortCol, sortDir, cBranch, cPss, cKa, cPrice, selMonths?.join(","), denMonths?.join(","), comparable]);
+  }, [custList, act, sortCol, sortDir, cBranch, cPss, cKa, cPrice, periodMonths?.join(","), denMonths?.join(","), comparable]);
 
   const pages = Math.max(1, Math.ceil(tree.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages);
@@ -664,7 +707,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       market_share: comparable && den > 0 ? sum((g) => g.actual_sales) / den : null
     } as Record<string, number | null>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [custList, comparable, selMonths?.join(","), denMonths?.join(",")]);
+  }, [custList, comparable, periodMonths?.join(","), denMonths?.join(",")]);
 
   function onSort(key: SortKey) {
     if (sortCol === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -704,12 +747,31 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   const headLabel = (c: ColDef) =>
     c.key === "amount_period"
-      ? `Market Size ${monthsSelected === 12 ? "/year" : `${monthsSelected} months`} (Rp)`
+      ? `Market Size ${periodName} (Rp)`
       : c.key === "qty_period"
-        ? `Qty Market Size ${monthsSelected === 12 ? "/year" : `${monthsSelected} months`}`
+        ? `Qty Market Size ${periodName}`
         : c.key === "actual_sales"
           ? `Actual Sales${refYear !== null ? ` ${refYear}` : ""} (Rp)`
           : c.label;
+
+  const [checking, setChecking] = useState(false);
+  async function onDataCheck() {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const { downloadDataCheck } = await import("@/lib/dataCheckReport");
+      await downloadDataCheck({
+        uioUnits: data.uioUnits,
+        parts: data.parts,
+        custIndex: state.custIndex,
+        rows: rows.map(withMetrics),
+        refYear,
+        periodLabel: refYear !== null ? plan.labelOf(refYear) : ""
+      });
+    } finally {
+      setChecking(false);
+    }
+  }
 
   async function onExport() {
     if (exporting || custList.length === 0) return;
@@ -845,6 +907,15 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
               title="Unduh tabel (sesuai filter) sebagai Excel"
             >
               {exporting ? "Menyiapkan…" : "⭳ Ekspor Excel"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={checking || rows.length === 0}
+              onClick={onDataCheck}
+              title="Unduh laporan cek data: model yang belum ada di Master Part, customer tanpa Actual, Actual tanpa unit, dan Market Share di atas 100% (sesuai filter)"
+            >
+              {checking ? "Menyiapkan…" : "⭳ Cek Data"}
             </button>
             <input
               className="search-input"

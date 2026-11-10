@@ -38,17 +38,17 @@ export type Match = {
 };
 
 /** Pembuat pencocok untuk satu daftar nilai terdaftar. Hasil per nilai di-cache. */
-export function makeMatcher(values: string[]): (v: unknown) => Match {
+export function makeMatcher(values: string[], keyOf: (v: unknown) => string = loose): (v: unknown) => Match {
   const byLoose = new Map<string, string>();
   values.forEach((x) => {
     const s = String(x ?? "").trim();
-    const k = loose(s);
+    const k = keyOf(s);
     if (k && !byLoose.has(k)) byLoose.set(k, s);
   });
   const keys = Array.from(byLoose.keys());
   const cache = new Map<string, Match>();
   return (v) => {
-    const k = loose(v);
+    const k = keyOf(v);
     if (!k) return { exact: null, suggest: null };
     const hit = cache.get(k);
     if (hit) return hit;
@@ -73,4 +73,21 @@ export function makeMatcher(values: string[]): (v: unknown) => Match {
     cache.set(k, res);
     return res;
   };
+}
+
+/** Kata badan usaha yang diabaikan saat mencocokkan nama perusahaan. */
+const ENTITY_WORDS = new Set(["PT", "CV", "TBK", "PERSERO", "UD", "PD", "FA", "PERUM", "PERSEROAN", "TERBATAS"]);
+
+/**
+ * Kunci nama perusahaan: huruf besar, tanda baca dibuang, kata badan usaha (PT, CV, Tbk, Persero, …) diabaikan.
+ * "PT. KAHATEX", "KAHATEX, PT" dan "Kahatex PT" → "KAHATEX".
+ */
+export function companyKey(v: unknown): string {
+  const words = String(v ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w && !ENTITY_WORDS.has(w));
+  return words.join("");
 }

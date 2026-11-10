@@ -19,6 +19,7 @@ import {
 import type { ActualQtyYear, ActualSalesYear, Customer, Part, PriceListEntry, UioUnit } from "@/lib/types";
 import { kaRank } from "@/lib/references";
 import { sumPeriod } from "@/lib/period";
+import { makeCustKeyResolver, pairUnitAndActual } from "@/lib/custMatch";
 import { codesOf, dominantPriceType, groupsWithGroupPrice, normCode, type PriceType } from "@/lib/priceType";
 
 /* ------------------------------------------------------------------ */
@@ -76,6 +77,9 @@ export type CustInfo = {
   priceType: PriceType | null;
   /** Customer Code customer ini (dari Data UIO) — kunci harga kontrak. */
   codes: string[];
+  /** Ejaan lain customer yang sama (mis. "PT. ABC" & "ABC, PT") dan kunci custKey-nya — ikut dipakai filter. */
+  names: string[];
+  aliasKeys: string[];
 };
 
 /** Satu baris fakta = Market Size satu customer untuk satu Product + Model pada tahun acuan.
@@ -97,14 +101,21 @@ export function buildCustomerIndex(
   const m = new Map<string, CustInfo>();
   const kaAmount = new Map<string, Map<string, number>>();
   const contractNames = groupsWithGroupPrice(priceList);
+  // Ejaan berbeda untuk perusahaan yang sama di Customer Group yang sama ("PT. ABC" / "ABC, PT" / "Abc PT")
+  // digabung jadi satu customer; ejaan pertama yang ditemukan dipakai sebagai nama tampilan.
+  const resolve = makeCustKeyResolver();
   const get = (group: string | null, name: string | null): CustInfo | null => {
     const nm = (name || "").trim();
     if (!nm) return null;
-    const key = custKey(group, nm);
+    const { key, raw } = resolve(group, nm);
     let c = m.get(key);
+    if (c && key !== raw && !c.aliasKeys.includes(raw)) {
+      c.aliasKeys.push(raw);
+      c.names.push(nm);
+    }
     if (!c) {
       const g = (group || "").trim();
-      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "", priceType: null, codes: [] };
+      c = { key, group: g, name: nm, ka: "", area: "", pss: "", actual: new Map(), actualByProduct: new Map(), actualMonthsByProduct: new Map(), actualQtyByProduct: new Map(), units: [], priceGroup: contractNames.get(g.toUpperCase()) || "", priceType: null, codes: [], names: [nm], aliasKeys: [] };
       m.set(key, c);
     }
     return c;
@@ -159,6 +170,60 @@ export function buildCustomerIndex(
       for (let i = 0; i < 12; i++) e.m[i] += Number(r.qty_by_month[i]) || 0;
     }
     bp.set(r.year, e);
+  });
+  // Pencocokan cadangan Actual ↔ Data UIO. Kunci utama = Customer Group + Customer Name persis sama.
+  // Kalau ejaannya beda (mis. Group "OTHERS" di Data UIO tapi group lain di web Sales, atau "KAHATEX,PT" vs "PT KAHATEX"),
+  // customer yang punya unit tapi tanpa Actual digabung dengan customer yang punya Actual tapi tanpa unit,
+  // asalkan nama perusahaannya sama (abaikan PT/CV/Tbk & tanda baca) dan pasangannya hanya satu di tiap sisi.
+  pairUnitAndActual(
+    Array.from(m.values()),
+    (c) => c.name,
+    (c) => c.units.length > 0,
+    (c) => c.actual.size > 0 || c.actualQtyByProduct.size > 0
+  ).forEach(([u, a]) => {
+    a.actual.forEach((v, y) => u.actual.set(y, (u.actual.get(y) || 0) + v));
+    a.actualByProduct.forEach((mp, pk) => {
+      let t = u.actualByProduct.get(pk);
+      if (!t) u.actualByProduct.set(pk, (t = new Map()));
+      mp.forEach((v, y) => t!.set(y, (t!.get(y) || 0) + v));
+    });
+    a.actualMonthsByProduct.forEach((mp, pk) => {
+      let t = u.actualMonthsByProduct.get(pk);
+      if (!t) u.actualMonthsByProduct.set(pk, (t = new Map()));
+      mp.forEach((arr, y) => {
+        const cur = t!.get(y);
+        if (!cur) t!.set(y, Float64Array.from(arr));
+        else for (let i = 0; i < 12; i++) cur[i] += arr[i];
+      });
+    });
+    a.actualQtyByProduct.forEach((mp, pk) => {
+      let t = u.actualQtyByProduct.get(pk);
+      if (!t) u.actualQtyByProduct.set(pk, (t = new Map()));
+      mp.forEach((e, y) => {
+        const cur = t!.get(y);
+        if (!cur) t!.set(y, { qty: e.qty, m: e.m ? Float64Array.from(e.m) : null });
+        else {
+          cur.qty += e.qty;
+          if (e.m) {
+            if (!cur.m) cur.m = new Float64Array(12);
+            for (let i = 0; i < 12; i++) cur.m[i] += e.m[i];
+          }
+        }
+      });
+    });
+    const ka = kaAmount.get(a.key);
+    if (ka) {
+      let t = kaAmount.get(u.key);
+      if (!t) kaAmount.set(u.key, (t = new Map()));
+      ka.forEach((v, kk) => t!.set(kk, (t!.get(kk) || 0) + v));
+    }
+    if (!master.has(u.key) && master.has(a.key)) master.set(u.key, master.get(a.key)!);
+    a.names.forEach((n) => !u.names.includes(n) && u.names.push(n));
+    u.aliasKeys.push(a.key, ...a.aliasKeys);
+    if (!u.area) u.area = a.area;
+    if (!u.pss) u.pss = a.pss;
+    if (!u.ka) u.ka = a.ka;
+    m.delete(a.key);
   });
   m.forEach((c) => {
     c.priceType = dominantPriceType(c.units);
@@ -313,7 +378,10 @@ export type TreeNode = {
 export function customerPasses(c: CustInfo, f: FilterState): boolean {
   const up = (a: string[]) => new Set(a.map((x) => x.trim().toUpperCase()));
   if (f.customerGroup.length > 0 && !up(f.customerGroup).has(c.group.toUpperCase()) && !(c.group === NO_GROUP && up(f.customerGroup).has(""))) return false;
-  if (f.customerName.length > 0 && !up(f.customerName).has(c.name.toUpperCase())) return false;
+  if (f.customerName.length > 0) {
+    const sel = up(f.customerName);
+    if (!c.names.some((n) => sel.has(n.toUpperCase()))) return false;
+  }
   if (f.area.length > 0 && !up(f.area).has(c.area.toUpperCase())) return false;
   if (f.pss.length > 0 && !up(f.pss).has(c.pss.toUpperCase())) return false;
   if (f.tier.length > 0 && !up(f.tier).has(c.ka.toUpperCase())) return false;

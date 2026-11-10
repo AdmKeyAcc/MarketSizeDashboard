@@ -94,7 +94,7 @@ const DUP_STYLE = { fill: { type: "pattern", pattern: "solid", bgColor: { argb: 
  *   - Sheet "Daftar Pilihan" terlihat (contekan ejaan) dan sheet "Petunjuk".
  * Pengecekan utama tetap di website saat upload.
  */
-export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
+export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: { help?: boolean } = {}) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -190,7 +190,8 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
     });
   });
 
-  // Petunjuk singkat cara mengisi (terutama paste data banyak).
+  // Petunjuk singkat cara mengisi (terutama paste data banyak) — hanya untuk template isian.
+  if (opts.help !== false) {
   const help = wb.addWorksheet("Petunjuk");
   help.getColumn(1).width = 110;
   [
@@ -208,6 +209,7 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string) {
     cell.value = t;
     if (i === 0) cell.font = { bold: true, size: 13 };
   });
+  }
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
