@@ -11,7 +11,7 @@ import {
   downloadNonContractPriceTemplate,
   downloadMasterPartTemplate
 } from "@/lib/downloadTemplates";
-import { uploadMasterPart, prepareUioUpload, type UioPrepared, type UioUploadMode } from "@/lib/parse/uploadChunked";
+import { uploadMasterPart, uploadPricesChunked, prepareUioUpload, type UioPrepared, type UioUploadMode } from "@/lib/parse/uploadChunked";
 import { downloadCurrentData, type DownloadKind } from "@/lib/downloadCurrent";
 import { checkUploadFile, type CheckKind, type FileCheck } from "@/lib/parse/fileCheck";
 import { syncActualSales } from "@/lib/syncActual";
@@ -30,21 +30,6 @@ export type UploadCounts = {
 };
 
 type Mode = "merge" | "replace";
-
-async function uploadFile(url: string, file: File, mode: Mode, pin = ""): Promise<Result> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("mode", mode);
-  if (mode === "replace") form.append("pin", pin);
-  try {
-    const res = await fetch(url, { method: "POST", body: form });
-    const json = await res.json();
-    if (!res.ok) return { ok: false, message: json.error || "Gagal memproses file." };
-    return { ok: true, message: json };
-  } catch (err) {
-    return { ok: false, message: (err as Error).message || "Gagal terhubung ke server." };
-  }
-}
 
 const fmt = (n: number) => n.toLocaleString("id-ID");
 const fmtDate = (iso: string | null | undefined) => {
@@ -551,7 +536,7 @@ export default function UploadModal({
           status={stContract}
           busy={busy}
           extra={checkPanel("contract", setStContract, counts.contractPrices, "harga kontrak / SCPL", "Part Number + Customer Code + Price Type", (f, m, pin) =>
-            run(setStContract, () => uploadFile("/api/upload/price-contract", f, m, pin), (j) =>
+            run(setStContract, () => uploadPricesChunked("contract", f, m, pin, (t) => setStContract({ text: t, ok: true })), (j) =>
               `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${j.noCode ? ` (${fmt(j.noCode)} baris tanpa Cust. Code dilewati — Customer Code wajib)` : ""}${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
             )
           )}
@@ -572,7 +557,7 @@ export default function UploadModal({
           status={stNonContract}
           busy={busy}
           extra={checkPanel("non_contract", setStNonContract, counts.nonContractPrices, "harga non kontrak", "Part Number", (f, m, pin) =>
-            run(setStNonContract, () => uploadFile("/api/upload/price-non-contract", f, m, pin), (j) =>
+            run(setStNonContract, () => uploadPricesChunked("non_contract", f, m, pin, (t) => setStNonContract({ text: t, ok: true })), (j) =>
               `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
             )
           )}

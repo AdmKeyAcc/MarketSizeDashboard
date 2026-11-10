@@ -258,3 +258,54 @@ export async function uploadUioUnits(file: File, onProgress?: (text: string) => 
   if (!r.ok) return { ok: false, message: r.message };
   return r.prep.commit(onProgress);
 }
+
+/**
+ * Upload Data Harga (Kontrak/SCPL atau Non Kontrak) bertahap: file dibaca di browser, lalu dikirim per potongan
+ * ke /api/upload/price-chunk. File harga puluhan ribu baris tidak lagi kena batas 60 detik Vercel.
+ * Hasil `message` sama dengan route lama (rowCount, skipped, duplicates, noCode, scpl, updated, added, removed).
+ */
+export async function uploadPricesChunked(
+  kind: "contract" | "non_contract",
+  file: File,
+  mode: "merge" | "replace" = "merge",
+  pin = "",
+  onProgress?: (text: string) => void
+): Promise<Result> {
+  const url = "/api/upload/price-chunk";
+  try {
+    onProgress?.("Membaca file…");
+    const XLSX = await import("@e965/xlsx");
+    const { parseContractPriceWorkbook, parseNonContractPriceWorkbook } = await import("@/lib/parse/priceList");
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const start = await post(url, { action: "start", kind, mode, pin });
+    const since: string = start.since;
+    const discount: number = typeof start.discount === "number" ? start.discount : 0.5;
+
+    let rows: Record<string, unknown>[] = [];
+    const info: Record<string, unknown> = {};
+    if (kind === "contract") {
+      const r = parseContractPriceWorkbook(wb);
+      rows = r.rows.map((x) => ({ part_number: x.part_number, customer_group: x.customer_group, customer_code: x.customer_code, customer_name: x.customer_name, customer_type: x.customer_type, price: x.price, list_price: null, price_type: x.price_type }));
+      Object.assign(info, { skipped: r.skipped, duplicates: r.duplicates, nonContractRows: r.nonContractRows, noCode: r.noCode, scpl: r.rows.filter((x) => x.price_type === "scpl").length });
+    } else {
+      const r = parseNonContractPriceWorkbook(wb, discount);
+      rows = r.rows.map((x) => ({ part_number: x.part_number, customer_group: "", customer_code: "", price: x.price, list_price: x.list_price }));
+      Object.assign(info, { skipped: r.skipped, duplicates: r.duplicates, discount });
+    }
+    if (rows.length === 0) throw new Error("Tidak ada baris harga yang bisa dibaca dari file.");
+
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      onProgress?.(`Menyimpan harga ${Math.min(i + CHUNK, rows.length).toLocaleString("id-ID")} / ${rows.length.toLocaleString("id-ID")}…`);
+      await post(url, { action: "rows", kind, mode, since, filename: file.name, rows: rows.slice(i, i + CHUNK) });
+    }
+    onProgress?.(mode === "replace" ? "Menghapus harga lama…" : "Menyelesaikan…");
+    const fin = await post(url, { action: "finish", kind, mode, pin, since, filename: file.name, rowCount: rows.length, discount });
+    const added = Math.max(0, (fin.afterUpsert ?? 0) - (start.before ?? 0));
+    return {
+      ok: true,
+      message: { ok: true, rowCount: rows.length, mode, ...info, added, updated: Math.max(0, rows.length - added), removed: fin.removed ?? 0, totalInDb: fin.totalInDb }
+    };
+  } catch (err) {
+    return { ok: false, message: errMessage(err) };
+  }
+}
