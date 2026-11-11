@@ -197,8 +197,15 @@ async function fetchActualQtyYear(supabase: SupabaseClient): Promise<ActualQtyYe
   return out;
 }
 
+/** Cabang yang tidak dihitung (tabel actual_branch_exclusions — sama dengan sinkron Actual Sales). */
+async function fetchExcludedBranches(supabase: SupabaseClient): Promise<string[]> {
+  const { data, error } = await supabase.from("actual_branch_exclusions").select("business_area");
+  if (error || !data) return [];
+  return data.map((r: { business_area: string | null }) => String(r.business_area || "").trim().toUpperCase()).filter(Boolean);
+}
+
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, customers, actualTxCount, actualSalesYear, uioUnits, priceList, metaRows, references, actualQtyYear] = await Promise.all([
+  const [parts, customers, actualTxCount, actualSalesYear, uioUnitsAll, priceList, metaRows, references, actualQtyYear, excludedBranches] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<Customer>(supabase, "customers"),
     countActualSalesTx(supabase),
@@ -207,8 +214,13 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchAll<PriceListEntry>(supabase, "price_list"),
     fetchAll<{ key: string; updated_at?: string | null; value: { filename?: string | null; mode?: string | null; ytd_year?: number | null; ytd_month?: string | null; synced_at?: string | null; max_date?: string | null } }>(supabase, "app_meta", "key"),
     fetchReferences(supabase),
-    fetchActualQtyYear(supabase)
+    fetchActualQtyYear(supabase),
+    fetchExcludedBranches(supabase)
   ]);
+  // Cakupan website = cabang PAC. Unit di cabang yang Actual-nya tidak dihitung (MHB: JKT, SBY, SMG, BDG)
+  // juga tidak dihitung di Market Size / UIO, supaya Market Size dan Actual Sales membandingkan cabang yang sama.
+  const exSet = new Set(excludedBranches);
+  const uioUnits = exSet.size > 0 ? uioUnitsAll.filter((u) => !exSet.has(String(u.branch || "").trim().toUpperCase())) : uioUnitsAll;
 
   const findMeta = (key: string) => metaRows.find((m) => m.key === key)?.value ?? {};
   const updatedAt = (key: string) => metaRows.find((m) => m.key === key)?.updated_at ?? null;
@@ -238,7 +250,9 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     kalkulator_mode: (findMeta("kalkulator").mode as "replace" | "merge" | null) ?? null,
     price_contract_mode: (findMeta("price_contract").mode as "replace" | "merge" | null) ?? null,
     price_non_contract_mode: (findMeta("price_non_contract").mode as "replace" | "merge" | null) ?? null,
-    price_list_type: ((findMeta("price_list") as { type?: string | null }).type) ?? null
+    price_list_type: ((findMeta("price_list") as { type?: string | null }).type) ?? null,
+    excluded_branches: excludedBranches,
+    uio_excluded_count: uioUnitsAll.length - uioUnits.length
   };
   const actualSalesTx: ActualSalesTx[] = [];
 

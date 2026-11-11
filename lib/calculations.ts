@@ -946,6 +946,8 @@ export type MarketSizeYearRow = {
   period_months: number;
   /** false = Actual Sales tahunan tidak bisa dipecah sesuai filter (Bulan/Product/Model/Part), jadi tidak dibandingkan. */
   actual_comparable?: boolean;
+  /** Rincian per Product (Market Size & Actual, Rp) — untuk Market Share hanya dari product yang punya data Actual. */
+  by_product?: Record<string, { ms: number; act: number }>;
 };
 
 /** Market Size per tahun = jumlah (Price × ROUND(Annual HM ÷ Frekuensi ganti

@@ -600,15 +600,21 @@ export function marketRowsFromFacts(
     const actualMonths = opts.actualMonthsOf(year);
     const ok = opts.actualOkOf(year);
     let ms = 0, qty = 0, actual = 0, actualQty = 0;
+    const byP: Record<string, { ms: number; act: number }> = {};
+    const bp = (p: string) => (byP[p || "(tanpa product)"] ||= { ms: 0, act: 0 });
     passed.forEach((c) => {
       (facts?.get(c.key) || []).forEach((f) => {
-        ms += sumPeriod(f.msM, months, f.ms);
+        const v = sumPeriod(f.msM, months, f.ms);
+        ms += v;
+        bp(f.product).ms += v;
         qty += sumPeriod(f.qtyM, months, f.qty);
       });
       if (ok) {
         c.actualByProduct.forEach((_byYear, pk) => {
           if (prodSet && !prodSet.has(pk)) return;
-          actual += actualFor(c, pk, year, actualMonths);
+          const a = actualFor(c, pk, year, actualMonths);
+          actual += a;
+          bp(pk).act += a;
         });
         c.actualQtyByProduct.forEach((_byYear, pk) => {
           if (prodSet && !prodSet.has(pk)) return;
@@ -623,7 +629,8 @@ export function marketRowsFromFacts(
       actual_sales: Math.round(actual),
       actual_qty: Math.round(actualQty),
       period_months: months ? months.length : 12,
-      actual_comparable: ok
+      actual_comparable: ok,
+      by_product: byP
     };
   });
 }

@@ -174,6 +174,10 @@ export type ActualQtyYear = {
 };
 
 export type DataMeta = {
+  /** Cabang di luar cakupan (MHB) — unitnya tidak dihitung, Actual-nya juga tidak disinkronkan. */
+  excluded_branches?: string[];
+  /** Jumlah unit Data UIO yang tidak dihitung karena cabangnya di luar cakupan. */
+  uio_excluded_count?: number;
   /** Data tahun terbaru di Actual Sales tahunan baru sampai bulan ini (null = setahun penuh). */
   actual_year_ytd_year?: number | null;
   actual_year_ytd_month?: string | null;
