@@ -37,8 +37,16 @@ export type Match = {
   suggest: string | null;
 };
 
-/** Pembuat pencocok untuk satu daftar nilai terdaftar. Hasil per nilai di-cache. */
-export function makeMatcher(values: string[], keyOf: (v: unknown) => string = loose): (v: unknown) => Match {
+/** Nama ≥ 30 huruf kemungkinan terpotong oleh batas panjang kolom di sistem sumber (mis. 35 karakter). */
+export const TRUNC_MIN = 30;
+
+/**
+ * Pembuat pencocok untuk satu daftar nilai terdaftar. Hasil per nilai di-cache.
+ * `opts.truncated`: nama yang terpotong dianggap sama — kalau salah satu ejaan panjangnya ≥ 30 huruf dan kuncinya
+ * adalah awal dari kunci ejaan lain ("…PANDU ENGINEERI" = "…PANDU ENGINEERING", "NIK : 620205231066000" =
+ * "NIK : 6202052310660001"), hanya bila pasangannya satu.
+ */
+export function makeMatcher(values: string[], keyOf: (v: unknown) => string = loose, opts: { truncated?: boolean } = {}): (v: unknown) => Match {
   const byLoose = new Map<string, string>();
   values.forEach((x) => {
     const s = String(x ?? "").trim();
@@ -46,6 +54,13 @@ export function makeMatcher(values: string[], keyOf: (v: unknown) => string = lo
     if (k && !byLoose.has(k)) byLoose.set(k, s);
   });
   const keys = Array.from(byLoose.keys());
+  const longKeys = keys.filter((k) => byLoose.get(k)!.length >= TRUNC_MIN);
+  const truncMatch = (k: string, rawLen: number): string | null => {
+    const hits = new Set<string>();
+    if (rawLen >= TRUNC_MIN) for (const c of keys) if (c.length > k.length && c.startsWith(k)) hits.add(c);
+    for (const c of longKeys) if (c.length < k.length && k.startsWith(c)) hits.add(c);
+    return hits.size === 1 ? Array.from(hits)[0] : null;
+  };
   const cache = new Map<string, Match>();
   return (v) => {
     const k = keyOf(v);
@@ -54,7 +69,9 @@ export function makeMatcher(values: string[], keyOf: (v: unknown) => string = lo
     if (hit) return hit;
     let res: Match;
     const ex = byLoose.get(k);
+    const tk = ex === undefined && opts.truncated ? truncMatch(k, String(v ?? "").trim().length) : null;
     if (ex !== undefined) res = { exact: ex, suggest: null };
+    else if (tk) res = { exact: byLoose.get(tk)!, suggest: null };
     else {
       const lim = maxDist(k.length);
       let best: string | null = null, bestD = lim + 1, ties = 0;
@@ -90,4 +107,13 @@ export function companyKey(v: unknown): string {
     .split(" ")
     .filter((w) => w && !ENTITY_WORDS.has(w));
   return words.join("");
+}
+
+/** Dua nama perusahaan dianggap sama: kunci perusahaan sama, atau salah satunya nama terpotong (≥ 30 huruf) dari yang lain. */
+export function sameCompany(a: unknown, b: unknown): boolean {
+  const ka = companyKey(a), kb = companyKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  const [sRaw, sk, lk] = ka.length <= kb.length ? [String(a ?? ""), ka, kb] : [String(b ?? ""), kb, ka];
+  return sRaw.trim().length >= TRUNC_MIN && lk.startsWith(sk);
 }

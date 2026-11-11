@@ -192,8 +192,9 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const mBranch = matcherOf(K?.branches?.map((b) => b.trim().toUpperCase()));
   const mType = matcherOf(K?.custTypes);
   // Nama customer: "KAHATEX,PT" dan "PT. KAHATEX" dianggap sama (abaikan PT/CV/Tbk) → disamakan dengan ejaan di website.
-  const mName = K?.names && K.names.length > 0 ? makeMatcher(K.names, companyKey) : null;
-  const mGroup = matcherOf(K?.groups);
+  // Nama terpotong (≥ 30 huruf, mis. "…PANDU ENGINEERI" vs "…PANDU ENGINEERING") juga dianggap sama.
+  const mName = K?.names && K.names.length > 0 ? makeMatcher(K.names, companyKey, { truncated: true }) : null;
+  const mGroup = K?.groups && K.groups.length > 0 ? makeMatcher(K.groups, companyKey, { truncated: true }) : null;
   const mPss = matcherOf(K?.pss);
   const mPrice = makeMatcher(UIO_PRICE_TYPE_OPTIONS);
   const mProduct = makeMatcher(Object.keys(K?.partModelsByProduct || {}));
@@ -268,13 +269,14 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     m: ReturnType<typeof makeMatcher> | null,
     raw: unknown,
     rowNo: number,
-    o: { level: UioIssue["level"]; key?: string; none?: string; note?: string }
+    o: { level: UioIssue["level"]; key?: string; none?: string; note?: string; quietFix?: boolean }
   ): string | null => {
     const v = str(raw);
     if (!v || !m) return v;
     const r = m(v);
     if (r.exact !== null) {
-      if (r.exact !== v) {
+      // quietFix: beda hanya PT/CV di depan/belakang, tanda baca, spasi, atau nama terpotong → disamakan tanpa keterangan.
+      if (r.exact !== v && !o.quietFix) {
         const k = `fixed:${field}`;
         if (!issueMap.has(k)) flag(k, field, "info", `Ejaan ${field} disamakan otomatis dengan data website (contoh: "${v}" → "${r.exact}")`, rowNo);
         else flag(k, field, "info", "", rowNo);
@@ -394,8 +396,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const typeV = spell("Cust. Type", mType, custType, rowNo, {
       level: "penting", key: "type-unknown", none: `Cust. Type tidak dikenal — harus salah satu: ${(K?.custTypes || []).join(", ")}`
     });
-    const nameV = spell("Cust. Name", mName, custName, rowNo, { level: "info", note: "cek typo; abaikan bila memang customer baru" });
-    const groupV = spell("Cust. Group", mGroup, custGroup, rowNo, { level: "info", note: "cek typo; abaikan bila memang group baru" });
+    const nameV = spell("Cust. Name", mName, custName, rowNo, { level: "info", note: "cek typo; abaikan bila memang customer baru", quietFix: true });
+    const groupV = spell("Cust. Group", mGroup, custGroup, rowNo, { level: "info", note: "cek typo; abaikan bila memang group baru", quietFix: true });
     const pssV = spell("Pss Name", mPss, pssName, rowNo, { level: "info", note: "cek typo; abaikan bila memang PSS baru" });
     let modelV = str(model);
     if (pm) {
