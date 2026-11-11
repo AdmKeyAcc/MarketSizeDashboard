@@ -31,7 +31,7 @@ const KID_CAP = 50;
 const PRICE_OPTIONS = UIO_PRICE_TYPE_OPTIONS; // Kontrak, SCPL, Non-Kontrak
 
 /** Satu baris tabel = satu Customer Group; tombol + membuka baris per Customer di bawahnya. */
-type Weights = { grp: Map<string, number>; ka: Map<string, number>; br: Map<string, number>; pss: Map<string, number>; prod: Map<string, number>; model: Map<string, number>; pk: Map<string, number>; names: Set<string> };
+type Weights = { grp: Map<string, number>; ka: Map<string, number>; br: Map<string, number>; pss: Map<string, number>; prod: Map<string, number>; model: Map<string, number>; pk: Map<string, number>; names: Set<string>; ids: Set<string> };
 type Row = GroupRow & {
   id: string; grp: string; cname: string; branch: string; pss: string; katype: string; pkind: string;
   /** Product / Model yang ada di baris ini (Market Size terbesar dulu) — mengikuti filter Product / Model unit. */
@@ -39,16 +39,20 @@ type Row = GroupRow & {
   kaList: string[]; allNames: string;
   /** Bobot mentah untuk menggabungkan baris (level hierarki). */
   w: Weights;
+  /** Baris customer ini dipecah per Product (dipakai kalau Product menjadi level hierarki). */
+  split: Row[];
 };
+/** Label Actual yang tidak punya Product. */
+const NOPROD = "(Tanpa Product)";
 
 /** Dimensi Hierarchy Controls di tabel Summary. */
-const SUM_DIMS = ["katype", "group", "customer", "branch", "pss", "pkind"] as const;
+const SUM_DIMS = ["katype", "group", "customer", "branch", "pss", "product", "pkind"] as const;
 type SumDim = (typeof SUM_DIMS)[number];
 const SUM_LABELS: Record<SumDim, string> = {
-  katype: "Customer Type", group: "Customer Group", customer: "Customer Name", branch: "Branch", pss: "PSS", pkind: "Price Type"
+  katype: "Customer Type", group: "Customer Group", customer: "Customer Name", branch: "Branch", pss: "PSS", product: "Product", pkind: "Price Type"
 };
 /** Kolom tabel untuk tiap dimensi hierarki. */
-const DIM_COL: Record<SumDim, string> = { katype: "katype", group: "grp", customer: "cname", branch: "branch", pss: "pss", pkind: "pkind" };
+const DIM_COL: Record<SumDim, string> = { katype: "katype", group: "grp", customer: "cname", branch: "branch", pss: "pss", product: "product", pkind: "pkind" };
 /** Kolom yang berkaitan dengan level terakhir hierarki (atribut dari baris di level itu). */
 const RELATED_COLS: Record<SumDim, string[]> = {
   katype: ["product", "model", "pkind"],
@@ -56,6 +60,7 @@ const RELATED_COLS: Record<SumDim, string[]> = {
   customer: ["grp", "katype", "branch", "pss", "product", "model", "pkind"],
   branch: ["pss", "product", "model"],
   pss: ["branch", "product", "model"],
+  product: ["model"],
   pkind: ["katype", "product", "model"]
 };
 const topKey = (m: Map<string, number>) => {
@@ -162,6 +167,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     actual: Map<number, number>; // tahun -> Rp
     actualM: Map<number, Float64Array>; // tahun -> Rp per bulan (kalau data Actual punya rincian bulan)
     actualProd: Map<number, Map<string, number>>; // tahun -> Product -> Rp (untuk kolom Product)
+    actualProdM: Map<number, Map<string, Float64Array>>; // tahun -> Product -> Rp per bulan (level hierarki Product)
     units: UioUnit[];
     branches: Map<string, number>; // Branch -> bobot (Master Customer = 1000, tiap unit UIO = 1)
     pssNames: Map<string, number>;
@@ -188,6 +194,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
           actual: new Map(),
           actualM: new Map(),
           actualProd: new Map(),
+          actualProdM: new Map(),
           units: [],
           branches: new Map(),
           pssNames: new Map()
@@ -225,11 +232,20 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       g.actual.set(r.year, (g.actual.get(r.year) || 0) + r.amount);
       let pm = g.actualProd.get(r.year);
       if (!pm) g.actualProd.set(r.year, (pm = new Map()));
-      if (r.product) addCount(pm, canonicalProduct(r.product), r.amount);
+      const pk = r.product ? canonicalProduct(r.product) : NOPROD;
+      addCount(pm, pk, r.amount);
       if (Array.isArray(r.amount_by_month) && r.amount_by_month.length === 12) {
         let arr = g.actualM.get(r.year);
         if (!arr) g.actualM.set(r.year, (arr = new Float64Array(12)));
-        for (let i = 0; i < 12; i++) arr[i] += Number(r.amount_by_month[i]) || 0;
+        let pmm = g.actualProdM.get(r.year);
+        if (!pmm) g.actualProdM.set(r.year, (pmm = new Map()));
+        let parr = pmm.get(pk);
+        if (!parr) pmm.set(pk, (parr = new Float64Array(12)));
+        for (let i = 0; i < 12; i++) {
+          const v = Number(r.amount_by_month[i]) || 0;
+          arr[i] += v;
+          parr[i] += v;
+        }
       }
     });
     // Customer punya unit tanpa Actual ↔ customer punya Actual tanpa unit, nama perusahaan sama → satu customer.
@@ -249,6 +265,15 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         let t = u.actualProd.get(y);
         if (!t) u.actualProd.set(y, (t = new Map()));
         pm.forEach((v, k) => addCount(t!, k, v));
+      });
+      a.actualProdM.forEach((pm, y) => {
+        let t = u.actualProdM.get(y);
+        if (!t) u.actualProdM.set(y, (t = new Map()));
+        pm.forEach((arr, k) => {
+          const cur = t!.get(k);
+          if (!cur) t!.set(k, Float64Array.from(arr));
+          else for (let i = 0; i < 12; i++) cur[i] += arr[i];
+        });
       });
       a.kaAmount.forEach((v, k) => u.kaAmount.set(k, (u.kaAmount.get(k) || 0) + v));
       if (!u.masterTier && a.masterTier) {
@@ -457,10 +482,12 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       addCount(prodW, d.product, d.amount_market_size);
       addCount(modelW, d.model, d.amount_market_size);
     });
-    if (refYear !== null) g.actualProd.get(refYear)?.forEach((v, k) => addCount(prodW, k, v));
+    const ap = refYear !== null ? g.actualProd.get(refYear) : undefined;
+    const apm = refYear !== null ? g.actualProdM.get(refYear) : undefined;
+    ap?.forEach((v, k) => k !== NOPROD && addCount(prodW, k, v));
     const ka = kaOf(g);
     const cname = isCustomer ? g.custName : nCust > 1 ? `${nCust.toLocaleString("id-ID")} customer` : Array.from(g.custNames)[0] || "";
-    return {
+    const row: Row = {
       ...agg,
       actual_sales: actual,
       id: g.key,
@@ -482,9 +509,32 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         prod: prodW,
         model: modelW,
         pk: new Map(priceKinds(g).map((k) => [k, 1])),
-        names: new Set(isCustomer ? [g.custName] : Array.from(g.custNames))
-      }
+        names: new Set(isCustomer ? [g.custName] : Array.from(g.custNames)),
+        ids: new Set([g.key])
+      },
+      split: []
     };
+    // Pecahan per Product: Market Size dari part product itu, Actual dari penjualan product itu.
+    const prods = new Set<string>();
+    list.forEach((d) => prods.add(canonicalProduct(d.product)));
+    ap?.forEach((v, k) => v !== 0 && prods.add(k));
+    row.split = Array.from(prods).map((p) => {
+      const lp = list.filter((d) => canonicalProduct(d.product) === p);
+      const a = aggregateGroup(g.name, nCust, lp);
+      const mW = new Map<string, number>();
+      lp.forEach((d) => addCount(mW, d.model, d.amount_market_size));
+      return {
+        ...row,
+        ...a,
+        actual_sales: sumPeriod(apm?.get(p), actualMonths, ap?.get(p) || 0),
+        id: `${g.key}¦${p}`,
+        product: p,
+        model: topList(mW),
+        w: { ...row.w, prod: new Map([[p, 1]]), model: mW },
+        split: []
+      };
+    });
+    return row;
   }
 
   // ---- hitung baris per Customer (bertahap supaya halaman tetap responsif); level hierarki = gabungan customer ----
@@ -564,7 +614,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
 
   /** Gabungkan beberapa baris customer jadi satu baris level. */
   const aggRows = (list: Row[], id: string, label: string): Row => {
-    const w: Weights = { grp: new Map(), ka: new Map(), br: new Map(), pss: new Map(), prod: new Map(), model: new Map(), pk: new Map(), names: new Set() };
+    const w: Weights = { grp: new Map(), ka: new Map(), br: new Map(), pss: new Map(), prod: new Map(), model: new Map(), pk: new Map(), names: new Set(), ids: new Set() };
     const g = aggregateGroup(label, 0, []);
     list.forEach((r) => {
       g.customers += r.customers;
@@ -588,7 +638,10 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       mergeInto(w.model, r.w.model);
       mergeInto(w.pk, r.w.pk);
       r.w.names.forEach((n) => w.names.add(n));
+      r.w.ids.forEach((n) => w.ids.add(n));
     });
+    // Jumlah customer = customer unik (satu customer bisa muncul di beberapa Product).
+    g.customers = w.ids.size;
     const kaList = Array.from(w.ka.keys()).sort(byTier);
     const nNames = w.names.size;
     return {
@@ -604,7 +657,8 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       kaList,
       pkind: PRICE_OPTIONS.filter((k) => w.pk.has(k)).join(", "),
       allNames: "",
-      w
+      w,
+      split: []
     };
   };
   /** Kalau filter dimensi yang sama aktif, nilai yang dipakai hierarki dibatasi ke pilihan filter
@@ -622,6 +676,7 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
       case "customer": return r.cname || "(Tanpa Nama)";
       case "branch": return topKey(within(r.w.br, cBranch)) || "(Tanpa Branch)";
       case "pss": return topKey(within(r.w.pss, cPss)) || "(Tanpa PSS)";
+      case "product": return r.product || NOPROD;
       case "pkind": return PRICE_OPTIONS.find((k) => r.w.pk.has(k) && (cPrice.length === 0 || cPrice.includes(k))) || PRICE_OPTIONS.find((k) => r.w.pk.has(k)) || "Non-Kontrak";
     }
   };
@@ -652,7 +707,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         })
       );
     };
-    return build(custList, 0, "");
+    // Product sebagai level → baris customer dipecah per Product dulu.
+    const base = act.includes("product") ? custList.flatMap((r) => (r.split.length > 0 ? r.split : [r])) : custList;
+    return build(base, 0, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [custList, act, sortCol, sortDir, cBranch, cPss, cKa, cPrice, periodMonths?.join(","), denMonths?.join(","), comparable]);
 
@@ -753,25 +810,6 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
         : c.key === "actual_sales"
           ? `Actual Sales${refYear !== null ? ` ${refYear}` : ""} (Rp)`
           : c.label;
-
-  const [checking, setChecking] = useState(false);
-  async function onDataCheck() {
-    if (checking) return;
-    setChecking(true);
-    try {
-      const { downloadDataCheck } = await import("@/lib/dataCheckReport");
-      await downloadDataCheck({
-        uioUnits: data.uioUnits,
-        parts: data.parts,
-        custIndex: state.custIndex,
-        rows: rows.map(withMetrics),
-        refYear,
-        periodLabel: refYear !== null ? plan.labelOf(refYear) : ""
-      });
-    } finally {
-      setChecking(false);
-    }
-  }
 
   async function onExport() {
     if (exporting || custList.length === 0) return;
@@ -904,18 +942,9 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
               className="btn btn-ghost"
               disabled={exporting || custList.length === 0}
               onClick={onExport}
-              title="Unduh tabel (sesuai filter) sebagai Excel"
+              title="Unduh tabel ini sebagai Excel (sesuai filter, pencarian dan Hierarchy Controls)"
             >
-              {exporting ? "Menyiapkan…" : "⭳ Ekspor Excel"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={checking || rows.length === 0}
-              onClick={onDataCheck}
-              title="Unduh laporan cek data: model yang belum ada di Master Part, customer tanpa Actual, Actual tanpa unit, dan Market Share di atas 100% (sesuai filter)"
-            >
-              {checking ? "Menyiapkan…" : "⭳ Cek Data"}
+              {exporting ? "Menyiapkan…" : "⭳ Download Excel"}
             </button>
             <input
               className="search-input"

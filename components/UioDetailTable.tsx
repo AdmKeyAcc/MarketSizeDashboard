@@ -143,6 +143,24 @@ export default function UioDetailTable({ state }: { state: UseDashboardState }) 
     setExpanded(ids);
   }
   const totalUnits = sorted.length;
+  const [downloading, setDownloading] = useState(false);
+  async function download() {
+    if (downloading || sorted.length === 0) return;
+    setDownloading(true);
+    try {
+      const { downloadUioXlsx } = await import("@/lib/downloadUio");
+      await downloadUioXlsx({
+        units: sorted,
+        cols: COLS,
+        tree,
+        levels: act.map((d) => ({ key: d, label: UIO_LABELS[d], of: (u: UioUnit) => dimOf(d, u) })),
+        filters: state.uioFilters,
+        search
+      });
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages);
@@ -163,6 +181,15 @@ export default function UioDetailTable({ state }: { state: UseDashboardState }) 
         <h2>Detail UIO</h2>
         <div className="panel-tools">
           <span className="detail-filters-info">{fmtInt(filtered.length)} unit</span>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={downloading || sorted.length === 0}
+            onClick={download}
+            title="Unduh tabel ini sebagai Excel (sesuai filter UIO, pencarian dan Hierarchy Controls)"
+          >
+            {downloading ? "Menyiapkan…" : "⭳ Download Excel"}
+          </button>
           <input
             className="search-input"
             placeholder="Cari customer / model / serial number…"
