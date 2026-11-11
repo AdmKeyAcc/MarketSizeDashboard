@@ -21,7 +21,8 @@ import {
   marketSizeByYear,
   marketShareByYear,
   findPartsWithoutPrice,
-  unitActiveIn
+  unitActiveIn,
+  MARKET_START_YEAR
 } from "@/lib/calculations";
 import { MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
 import { applyReferences, kaRank } from "@/lib/references";
@@ -233,7 +234,8 @@ export function useDashboardState(initialData: DashboardData) {
   const factYears = useMemo(() => {
     const ys = new Set<number>();
     data.uioUnits.forEach((u) => {
-      if (u.year !== null) ys.add(u.year);
+      // Unit BAST sebelum 2018 tetap dihitung di tahun 2018 dst. (selama umurnya), tapi tahun < 2018 tidak ditampilkan.
+      if (u.year !== null) ys.add(Math.max(u.year, MARKET_START_YEAR));
     });
     data.actualSalesYear.forEach((r) => ys.add(r.year));
     return Array.from(ys).sort((a, b) => a - b);
@@ -291,7 +293,7 @@ export function useDashboardState(initialData: DashboardData) {
   // dengan filter lain yang sedang aktif (supaya tidak bisa memilih kombinasi yang pasti kosong).
   const options = useMemo(() => {
     const years = actualPeriods.years;
-    const uioYearsAll = uniq(data.uioUnits.map((u) => u.year)).filter((y): y is number => y !== null).sort((a, b) => a - b);
+    const uioYearsAll = uniq(data.uioUnits.map((u) => (u.year === null ? null : Math.max(u.year, MARKET_START_YEAR)))).filter((y): y is number => y !== null).sort((a, b) => a - b);
     const allYears = uniq([...years, ...uioYearsAll.map(String)]).sort();
     const monthOpts = actualPeriods.months.slice().sort((a, b) => monthIndex(a) - monthIndex(b));
 

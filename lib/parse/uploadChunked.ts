@@ -6,8 +6,7 @@
 import { parseMasterPartFile, parseActualSalesYearFile, UploadParseError } from "@/lib/parse/uploadClient";
 
 const CHUNK = 2000;
-/** Data UIO dibaca mulai tahun ini saja (populasi sebelum 2018 diabaikan). */
-const UIO_MIN_YEAR = 2018;
+import { uioMinYear } from "@/lib/calculations";
 
 type Result = { ok: boolean; message: any };
 
@@ -174,7 +173,7 @@ export async function prepareUioUpload(
     const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
-    const parsed = parseUioUnitsWorkbook(wb, { minYear: UIO_MIN_YEAR, sheet, known });
+    const parsed = parseUioUnitsWorkbook(wb, { minYear: uioMinYear(), sheet, known });
     const { uioSerialKey } = await import("@/lib/uioKey");
 
     // Mode tambah/perbarui: hanya unit dengan Serial Number valid (bisa dicocokkan) yang disimpan.
@@ -230,7 +229,7 @@ export async function prepareUioUpload(
             skipped: parsed.skipped,
             returns: parsed.returns,
             beforeMinYear: parsed.beforeMinYear,
-            minYear: UIO_MIN_YEAR,
+            minYear: uioMinYear(),
             sheet: parsed.sheetName,
             exact: mapped.exact,
             remapped: mapped.remapped,

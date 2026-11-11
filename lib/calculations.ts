@@ -303,6 +303,14 @@ export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workd
  * Unit masih dihitung (beroperasi) di tahun `year`? Umur unit = app_settings unit_life_years (default 10):
  * unit BAST tahun X dihitung di tahun X sampai X + 9. Unit tanpa Year BAST selalu dihitung.
  */
+/** Tahun pertama yang ditampilkan di Market Size (= awal data Actual). */
+export const MARKET_START_YEAR = 2018;
+
+/** Tahun BAST paling awal yang masih perlu disimpan: unit BAST (2018 − 9) = 2009 masih beroperasi di 2018. */
+export function uioMinYear(): number {
+  return MARKET_START_YEAR - (refs().settings.unit_life_years - 1);
+}
+
 export function unitActiveIn(u: { year: number | null | undefined }, year: number): boolean {
   if (u.year === null || u.year === undefined) return true;
   return u.year <= year && u.year > year - refs().settings.unit_life_years;
