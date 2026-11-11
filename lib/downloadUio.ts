@@ -1,16 +1,14 @@
 import type { UioUnit } from "@/lib/types";
 import { UIO_FILTER_LABELS, type UioFilterKey, type UioFilterState } from "@/lib/uioFilter";
+import type { HierRow } from "@/lib/xlsxHier";
 
 export type UioExportNode = { id: string; label: string; depth: number; units: UioUnit[]; children: UioExportNode[] };
 export type UioExportCol = { key: string; label: string; num?: boolean; get: (u: UioUnit) => string | number | null };
 
-const NAVY = "FF1E293B";
-const SOFT = "FFF1F5F9";
-
 /**
  * Download Detail UIO ke Excel, sama dengan tabel di layar:
- *   - dengan Hierarchy Controls → sheet "Hierarki" (baris bertingkat + grup outline, unit & %),
- *     lalu sheet "Unit" berisi semua unit dengan kolom level hierarki di depan;
+ *   - dengan Hierarchy Controls → sheet "UIO" bergaya Laporan Sales (HIERARKI DATA, unit, % unit; baris yang tertutup
+ *     di tabel ikut tersembunyi), lalu sheet "Unit" berisi semua unit dengan kolom level hierarki di depan;
  *   - tanpa hierarki → sheet "Unit" saja (urutan sesuai sort tabel).
  * Ikut filter UIO dan pencarian. Sheet "Filter" mencatat filter yang dipakai.
  */
@@ -19,46 +17,26 @@ export async function downloadUioXlsx(inp: {
   cols: UioExportCol[];
   tree: UioExportNode[];
   levels: { key: string; label: string; of: (u: UioUnit) => string }[];
+  expanded: Set<string>;
   filters: UioFilterState;
   search: string;
 }) {
   const ExcelJS = (await import("exceljs")).default;
-  const { units, cols, tree, levels, filters, search } = inp;
+  const { writeHierSheet, writeInfoSheet, saveXlsx } = await import("@/lib/xlsxHier");
+  const { units, cols, tree, levels, expanded, filters, search } = inp;
   const wb = new ExcelJS.Workbook();
-  const head = (ws: import("exceljs").Worksheet) => {
-    ws.getRow(1).eachCell((c) => {
-      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
-      c.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      c.alignment = { vertical: "middle", wrapText: true };
-    });
-    ws.getRow(1).height = 22;
-  };
   const total = units.length;
+  const pct = (n: number) => (total > 0 ? n / total : null);
 
   if (levels.length > 0) {
-    const ws = wb.addWorksheet("Hierarki", { views: [{ state: "frozen", ySplit: 1 }] });
-    ws.properties.outlineProperties = { summaryBelow: false, summaryRight: false };
-    ws.columns = [
-      { header: `Hierarchy (${levels.map((l) => l.label).join(" › ")})`, width: 50 },
-      { header: "UIO (unit)", width: 14 },
-      { header: "% unit", width: 10 }
-    ];
-    head(ws);
-    const walk = (ns: UioExportNode[]) =>
+    const rows: HierRow[] = [];
+    const walk = (ns: UioExportNode[], hidden: boolean) =>
       ns.forEach((n) => {
-        const r = ws.addRow([n.label, n.units.length, total > 0 ? n.units.length / total : null]);
-        r.outlineLevel = Math.min(n.depth, 7);
-        r.getCell(1).alignment = { indent: n.depth };
-        r.getCell(2).numFmt = "#,##0";
-        r.getCell(3).numFmt = "0.0%";
-        if (n.depth === 0) r.eachCell((c) => { c.font = { bold: true }; c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SOFT } }; });
-        walk(n.children);
+        rows.push({ label: n.label, depth: n.depth, values: [n.units.length, pct(n.units.length)], hidden });
+        walk(n.children, hidden || !expanded.has(n.id));
       });
-    walk(tree);
-    const t = ws.addRow(["Grand Total", total, total > 0 ? 1 : null]);
-    t.font = { bold: true };
-    t.getCell(2).numFmt = "#,##0";
-    t.getCell(3).numFmt = "0.0%";
+    walk(tree, false);
+    writeHierSheet(wb.addWorksheet("UIO"), [{ header: "UIO (unit)", kind: "num" }, { header: "% unit", kind: "pct", width: 12 }], rows, [total, pct(total)]);
   }
 
   // Sheet unit: urutan baris mengikuti hierarki (kalau ada), kolom level di depan.
@@ -67,7 +45,12 @@ export async function downloadUioXlsx(inp: {
     ...levels.map((l) => ({ header: l.label, width: 22 })),
     ...cols.map((c) => ({ header: c.label, width: c.num ? 11 : c.key === "customer_name" ? 34 : 18 }))
   ];
-  head(us);
+  us.getRow(1).height = 24;
+  us.getRow(1).eachCell((c) => {
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
+    c.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    c.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  });
   const ordered: UioUnit[] = [];
   if (levels.length > 0) {
     const walk = (ns: UioExportNode[]) => ns.forEach((n) => (n.children.length > 0 ? walk(n.children) : ordered.push(...n.units)));
@@ -76,26 +59,15 @@ export async function downloadUioXlsx(inp: {
   ordered.forEach((u) => us.addRow([...levels.map((l) => l.of(u)), ...cols.map((c) => c.get(u) ?? "")]));
   us.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: levels.length + cols.length } };
 
-  const info = wb.addWorksheet("Filter");
-  info.columns = [{ width: 22 }, { width: 70 }];
-  const put = (k: string, v: string) => (info.addRow([k, v]).getCell(1).font = { bold: true });
-  put("Laporan", "Detail UIO");
-  put("Jumlah unit", total.toLocaleString("id-ID"));
-  put("Level hierarki", levels.length > 0 ? levels.map((l) => l.label).join(" > ") : "Tanpa hierarki (daftar unit)");
-  info.addRow([]);
-  (Object.keys(UIO_FILTER_LABELS) as UioFilterKey[]).forEach((k) => put(UIO_FILTER_LABELS[k], filters[k].length > 0 ? filters[k].join(", ") : "Semua"));
-  put("Pencarian", search.trim() || "-");
-  info.addRow([]);
-  put("Diunduh", new Date().toLocaleString("id-ID"));
-
-  const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `Detail_UIO_${new Date().toISOString().slice(0, 10)}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  writeInfoSheet(wb.addWorksheet("Filter"), [
+    ["Laporan", "Detail UIO"],
+    ["Jumlah unit", total.toLocaleString("id-ID")],
+    ["Level hierarki", levels.length > 0 ? levels.map((l) => l.label).join(" > ") : "Tanpa hierarki (daftar unit)"],
+    ["", ""],
+    ...(Object.keys(UIO_FILTER_LABELS) as UioFilterKey[]).map((k) => [UIO_FILTER_LABELS[k], filters[k].length > 0 ? filters[k].join(", ") : "Semua"] as [string, string]),
+    ["Pencarian", search.trim() || "-"],
+    ["", ""],
+    ["Diunduh", new Date().toLocaleString("id-ID")]
+  ]);
+  await saveXlsx(wb, `Detail_UIO_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

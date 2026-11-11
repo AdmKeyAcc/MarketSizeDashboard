@@ -154,6 +154,7 @@ export default function UioDetailTable({ state }: { state: UseDashboardState }) 
         cols: COLS,
         tree,
         levels: act.map((d) => ({ key: d, label: UIO_LABELS[d], of: (u: UioUnit) => dimOf(d, u) })),
+        expanded,
         filters: state.uioFilters,
         search
       });

@@ -18,7 +18,6 @@ import {
 } from "@/lib/calculations";
 import { MultiSelectField } from "@/components/FilterBar";
 import LevelPicker, { activeLevels } from "@/components/LevelPicker";
-import { exportSummaryTableToExcel } from "@/lib/exportDetail";
 import { comparePlan, periodOf, sumPeriod } from "@/lib/period";
 import { MONTH_ORDER, type UioUnit } from "@/lib/types";
 import { makeCustKeyResolver, pairUnitAndActual } from "@/lib/custMatch";
@@ -815,37 +814,45 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
     if (exporting || custList.length === 0) return;
     setExporting(true);
     try {
-      const ecols = cols.map((c) => ({ key: String(c.key), label: headLabel(c), width: c.width }));
-      const num = (v: unknown, pct = false) => (typeof v === "number" ? (pct ? Math.round(v * 1000) / 10 : Math.round(v)) : "");
-      const toRow = (r: Record<string, unknown>, label: string) => {
-        const o: Record<string, string | number | null> = {};
-        cols.forEach((c) => {
-          const v = c.key === "hier" ? label : r[c.key as string];
-          o[String(c.key)] = c.kind === "text" ? ((v as string) ?? "") : c.key === "market_share" ? (v === null ? "" : num(v, true)) : num(v);
+      // Excel bergaya Laporan Sales: kolom HIERARKI DATA + kolom tabel; baris yang tertutup di tabel ikut tersembunyi.
+      const ExcelJS = (await import("exceljs")).default;
+      const { writeHierSheet, writeInfoSheet, saveXlsx } = await import("@/lib/xlsxHier");
+      const dataCols = cols.filter((c) => c.key !== "hier");
+      const hcols = dataCols.map((c) => ({
+        header: headLabel(c),
+        kind: (c.kind === "text" ? "text" : c.key === "market_share" ? "pct" : "num") as "text" | "pct" | "num",
+        width: c.kind === "text" ? c.width : Math.max(16, c.width ?? 16)
+      }));
+      const valsOf = (r: Record<string, unknown>) =>
+        dataCols.map((c) => {
+          const v = r[c.key as string];
+          if (c.kind === "text") return (v as string) || "";
+          if (typeof v !== "number") return null;
+          return c.key === "market_share" ? v : Math.round(v);
         });
-        return o;
-      };
-      // Semua level ditulis lengkap (seperti semua baris dibuka); indentasi menunjukkan level.
-      const out: Record<string, string | number | null>[] = [];
-      const pad = (d: number) => "    ".repeat(d);
-      const walk = (ns: SNode[]) =>
+      const rowsX: { label: string; depth: number; values: (string | number | null)[]; hidden: boolean }[] = [];
+      const walk = (ns: SNode[], hidden: boolean) =>
         ns.forEach((n) => {
-          out.push(toRow(n.agg as unknown as Record<string, unknown>, pad(n.depth) + n.label));
-          if (n.children.length > 0) walk(n.children);
+          rowsX.push({ label: n.label, depth: n.depth, values: valsOf(n.agg as unknown as Record<string, unknown>), hidden });
+          const kidHidden = hidden || !expanded.has(n.id);
+          if (n.children.length > 0) walk(n.children, kidHidden);
           else if (!lastIsCustomer)
             sortRows(n.custs.map((r) => ({ agg: withMetrics(r), label: r.cname }))).forEach((x) =>
-              out.push(toRow(x.agg as unknown as Record<string, unknown>, pad(n.depth + 1) + x.label))
+              rowsX.push({ label: x.label, depth: n.depth + 1, values: valsOf(x.agg as unknown as Record<string, unknown>), hidden: kidHidden })
             );
         });
-      walk(tree);
-      const totalRow = toRow({ ...total }, "TOTAL");
-      await exportSummaryTableToExcel(
-        "Summary",
-        ecols,
-        out,
-        totalRow,
-        `${filterNote()}${filterNote() ? " | " : ""}Hierarchy: ${act.map((d) => SUM_LABELS[d]).join(" > ")}${lastIsCustomer ? "" : " > Customer"}`
-      );
+      walk(tree, false);
+      const wb = new ExcelJS.Workbook();
+      writeHierSheet(wb.addWorksheet("Summary"), hcols, rowsX, dataCols.map((c) => (c.kind === "text" ? "" : (total[c.key as string] ?? null))));
+      writeInfoSheet(wb.addWorksheet("Filter"), [
+        ["Laporan", "Summary Market Size vs Actual Sales"],
+        ["Periode", refYear !== null ? (fBulan.length > 0 ? `${refYear} · ${fBulan.join(", ")}` : plan.labelOf(refYear)) : "-"],
+        ["Level hierarki", `${act.map((d) => SUM_LABELS[d]).join(" > ")}${lastIsCustomer ? "" : " > Customer"}`],
+        ["Filter", filterNote() || "Tanpa filter"],
+        ["", ""],
+        ["Diunduh", new Date().toLocaleString("id-ID")]
+      ]);
+      await saveXlsx(wb, `Summary_Market_Size_${refYear ?? ""}_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } finally {
       setExporting(false);
     }
