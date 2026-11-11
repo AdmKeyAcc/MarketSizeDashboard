@@ -32,27 +32,38 @@ export function useYearFacts(
     years.forEach((y) => out.set(y, new Map()));
     let i = 0;
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
+    // Dikerjakan per potongan ±40 ms supaya halaman tetap responsif. Jeda antar potongan memakai MessageChannel
+    // (tidak diperlambat seperti setTimeout saat tab di belakang), dan progres hanya dilaporkan tiap ±250 ms —
+    // setiap laporan progres membuat seluruh dashboard dirender ulang, jadi terlalu sering = jauh lebih lambat.
+    const ch = new MessageChannel();
+    let lastReport = performance.now();
     setProgress(0);
     const step = () => {
       if (cancelled) return;
       const t0 = performance.now();
-      while (i < withUnits.length && performance.now() - t0 < 12) {
+      while (i < withUnits.length && performance.now() - t0 < 40) {
         const c = withUnits[i++];
         depsByYear.forEach(({ year, deps }) => out.get(year)!.set(c.key, computeCustomerFacts(c, deps)));
       }
       if (i < withUnits.length) {
-        setProgress(i / withUnits.length);
-        timer = setTimeout(step, 0);
+        const now = performance.now();
+        if (now - lastReport > 250) {
+          lastReport = now;
+          setProgress(i / withUnits.length);
+        }
+        ch.port2.postMessage(0);
       } else {
         setFacts(out);
         setProgress(null);
       }
     };
-    timer = setTimeout(step, 0);
+    ch.port1.onmessage = step;
+    ch.port2.postMessage(0);
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      ch.port1.onmessage = null;
+      ch.port1.close();
+      ch.port2.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [custs, parts, priceList, yearsKey, filters.product, filters.modelUnit, filters.partNumber, filters.partName]);

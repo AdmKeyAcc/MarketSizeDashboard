@@ -542,30 +542,39 @@ export default function GroupSummary({ state }: { state: UseDashboardState }) {
   const [calcPct, setCalcPct] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const out: Row[] = [];
     let i = 0;
     setBusy(true);
     setCalcPct(0);
+    // Potongan ±40 ms, jeda lewat MessageChannel, progres tiap ±250 ms (lihat hooks/useYearFacts.ts).
+    const ch = new MessageChannel();
+    let lastReport = performance.now();
     const step = () => {
       if (cancelled) return;
       const t0 = performance.now();
-      while (i < passed.length && performance.now() - t0 < 14) {
+      while (i < passed.length && performance.now() - t0 < 40) {
         const r = computeRow(passed[i++], true);
         if (r) out.push(r);
       }
       if (i < passed.length) {
-        setCalcPct(i / passed.length);
-        timers.push(setTimeout(step, 0));
+        const now = performance.now();
+        if (now - lastReport > 250) {
+          lastReport = now;
+          setCalcPct(i / passed.length);
+        }
+        ch.port2.postMessage(0);
       } else {
         setRows(out);
         setBusy(false);
       }
     };
-    timers.push(setTimeout(step, 0));
+    ch.port1.onmessage = step;
+    ch.port2.postMessage(0);
     return () => {
       cancelled = true;
-      timers.forEach(clearTimeout);
+      ch.port1.onmessage = null;
+      ch.port1.close();
+      ch.port2.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [passed, contractNameByKey, data, calcFilters, refYear, detailCtx]);
