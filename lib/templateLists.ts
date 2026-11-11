@@ -44,6 +44,9 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
     if (t(u.customer_name)) names.add(t(u.customer_name));
     if (t(u.customer_code)) codes.add(t(u.customer_code).toUpperCase());
   });
+  // Cabang di luar cakupan (MHB) tetap kode cabang yang sah — unitnya disimpan tapi tidak dihitung.
+  const excluded = (d.meta.excluded_branches || []).map((b) => t(b).toUpperCase()).filter(Boolean);
+  excluded.forEach((b) => branches.add(b));
   d.customers.forEach((c) => {
     if (t(c.customer_code)) codes.add(t(c.customer_code).toUpperCase());
     if (t(c.cabang)) branches.add(t(c.cabang).toUpperCase());
@@ -65,6 +68,7 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
   partModels.forEach((s, p) => (partModelsByProduct[p] = arr(s)));
   return {
     branches: arr(branches),
+    excludedBranches: arr(new Set(excluded)),
     pss: arr(pss),
     groups: arr(groups),
     names: arr(names),

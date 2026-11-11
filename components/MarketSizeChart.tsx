@@ -23,7 +23,10 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, BarController, LineElem
 const FALLBACK = { ink: "#47566A", blue: "#175596", red: "#AC1F2C", border: "#DCE2E9", surface: "#FFFFFF" };
 
 export default function MarketSizeChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { marketSizeYearRows, marketSizeView, setMarketSizeView } = state;
+  const { marketSizeView, setMarketSizeView } = state;
+  // Filter Year = 1 tahun → per bulan di tahun itu; selain itu per tahun.
+  const monthly = state.chartMonthly;
+  const marketSizeYearRows = monthly ? monthly.rows : state.marketSizeYearRows;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -39,12 +42,14 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
 
   const isQty = marketSizeView === "quantity";
   // Tahun berjalan diberi label periodenya (mis. "2026 · Jan–Sep") supaya batang yang lebih pendek tidak terbaca sebagai penurunan.
-  const labels = marketSizeYearRows.map((r) => state.plan.labelOf(r.year));
+  const labels = monthly ? monthly.rows.map((r) => r.label) : marketSizeYearRows.map((r) => state.plan.labelOf(r.year));
   const marketData = marketSizeYearRows.map((r) => (isQty ? r.market_qty : r.market_size));
   // Tahun yang data Actual-nya sama sekali tidak punya qty (mis. web Sales 2018–2019 tanpa quantity) → kosong, bukan 0.
   const qtyYears = new Set((state.data.actualQtyYear || []).filter((r) => r.qty !== 0).map((r) => r.year));
-  const actualData = marketSizeYearRows.map((r) => (isQty ? (qtyYears.has(r.year) ? r.actual_qty : null) : r.actual_sales));
-  const partialYears = marketSizeYearRows.filter((r) => r.period_months < 12);
+  const actualData = marketSizeYearRows.map((r) =>
+    monthly && !monthly.actualOk ? null : isQty ? (qtyYears.has(r.year) ? r.actual_qty : null) : r.actual_sales
+  );
+  const partialYears = monthly ? [] : marketSizeYearRows.filter((r) => r.period_months < 12);
   const fmtVal = (v: number) => (isQty ? `${fmtInt(v)} pcs` : fmtIDRFull(v));
   // Actual Qty berasal dari actual_qty_year (migration v21 + sinkron). Belum ada → beri tahu, bukan nol diam-diam.
   const noActualQty = isQty && (state.data.actualQtyYear || []).length === 0;
@@ -53,7 +58,15 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
     <div className="panel">
       <div className="panel-head">
         <h2>
-          Market Size per Year
+          {monthly ? `Market Size per Month · ${monthly.year}` : "Market Size per Year"}
+          {monthly && (
+            <span
+              className="info-dot"
+              title={`Filter Year berisi 1 tahun, jadi chart menampilkan per bulan di ${monthly.year}. Market Size per bulan = Market Size setahun × hari kerja bulan itu ÷ total hari kerja setahun (unit yang BAST di tahun itu dihitung mulai bulan BAST-nya).${monthly.actualOk ? "" : " Actual tahun ini belum punya rincian bulanan, jadi hanya Market Size yang tampil."} Kosongkan filter Year atau pilih lebih dari 1 tahun untuk kembali ke tampilan per tahun.`}
+            >
+              i
+            </span>
+          )}
           {partialYears.length > 0 && (
             <span
               className="info-dot"

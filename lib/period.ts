@@ -11,6 +11,8 @@ import { refs } from "@/lib/references";
 export type Period = { months: number[] | null; label: string };
 
 export const ALL_MONTHS = Array.from({ length: 12 }, (_, i) => i);
+/** Nama bulan singkat untuk label chart. */
+export const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
 export function monthIdx(name: string | null | undefined): number {
   return (MONTH_ORDER as readonly string[]).findIndex((m) => m.toLowerCase() === String(name || "").trim().toLowerCase());

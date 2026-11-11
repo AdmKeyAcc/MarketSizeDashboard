@@ -12,7 +12,11 @@ ChartJS.register(CategoryScale, LinearScale, LineElement, LineController, PointE
 const FALLBACK = { ink: "#47566A", green: "#227A46", border: "#DCE2E9", surface: "#FFFFFF" };
 
 export default function MarketShareChart({ state, theme }: { state: UseDashboardState; theme: Theme }) {
-  const { marketShareYearRows, marketSizeYearRows } = state;
+  const monthly = state.chartMonthly;
+  const marketSizeYearRows = monthly ? monthly.rows : state.marketSizeYearRows;
+  const marketShareYearRows = monthly
+    ? monthly.rows.map((r) => ({ year: r.year, market_share: r.market_size > 0 ? r.actual_sales / r.market_size : 0, period_months: 1 }))
+    : state.marketShareYearRows;
   const [colors, setColors] = useState(FALLBACK);
 
   useEffect(() => {
@@ -25,15 +29,15 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
     });
   }, [theme]);
 
-  const hasActual = marketSizeYearRows.some((r) => r.actual_sales > 0);
-  const labels = marketShareYearRows.map((r) => state.plan.labelOf(r.year));
+  const hasActual = (!monthly || monthly.actualOk) && marketSizeYearRows.some((r) => r.actual_sales > 0);
+  const labels = monthly ? monthly.rows.map((r) => r.label) : marketShareYearRows.map((r) => state.plan.labelOf(r.year));
   const values = marketShareYearRows.map((r) => r.market_share * 100);
 
   return (
     <div className="panel">
       <div className="panel-head">
         <h2>
-          Market Share per Year
+          {monthly ? `Market Share per Month · ${monthly.year}` : "Market Share per Year"}
           <span className="info-dot" title="Market share = Actual Sales ÷ Market Size (persentase), untuk periode yang sama.">i</span>
         </h2>
       </div>
@@ -44,6 +48,8 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
       ) : labels.length > 0 && !hasActual ? (
         <div className="empty-hint" style={{ margin: 0 }}>
           {(() => {
+            if (monthly && !monthly.actualOk && state.plan.actualOkOf(monthly.year))
+              return "Actual tahun ini belum punya rincian bulanan, jadi Market Share per bulan belum bisa dihitung.";
             const bad = marketSizeYearRows.find((r) => r.actual_comparable === false);
             return bad ? state.plan.whyNot(bad.year) : "Belum ada data Actual Sales untuk filter ini, jadi Market Share belum bisa dihitung.";
           })()}

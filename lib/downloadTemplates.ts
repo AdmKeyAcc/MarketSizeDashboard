@@ -237,6 +237,8 @@ export const MASTER_PART_WIDTHS = [14, 18, 20, 28, 13, 20, 12];
 /** Daftar pilihan untuk dropdown template — diambil dari data yang sudah ada di website. */
 export type TemplateLists = {
   branches: string[];
+  /** Cabang di luar cakupan (MHB): unit disimpan tapi tidak dihitung. */
+  excludedBranches?: string[];
   pss: string[];
   groups: string[];
   names: string[];

@@ -26,7 +26,7 @@ import {
 } from "@/lib/calculations";
 import { MONTH_ORDER, type Customer, type DashboardData } from "@/lib/types";
 import { applyReferences, kaRank } from "@/lib/references";
-import { comparePlan } from "@/lib/period";
+import { comparePlan, ALL_MONTHS, MONTH_SHORT } from "@/lib/period";
 import { buildCustomerIndex, marketRowsFromFacts } from "@/lib/hierarchy";
 import { useYearFacts } from "@/hooks/useYearFacts";
 
@@ -257,6 +257,26 @@ export function useDashboardState(initialData: DashboardData) {
     return marketRowsFromFacts(custIndex, yearFacts, years, filters, plan);
   }, [legacyMarketRows, factsProgress, yearFacts, custIndex, factYears, filters, data.actualSalesYear, data.parts.length, plan]);
   const marketShareYearRows = useMemo(() => marketShareByYear(marketSizeYearRows), [marketSizeYearRows]);
+
+  // Filter Market Year = tepat 1 tahun → chart menampilkan per BULAN di tahun itu (bulan-bulan periode tahun itu:
+  // tahun berjalan s/d bulan Actual terakhir, atau bulan yang dipilih di filter Month). Selain itu chart per tahun.
+  const chartMonthly = useMemo(() => {
+    if (filters.tahun.length !== 1 || marketSizeYearRows.length !== 1) return null;
+    const year = marketSizeYearRows[0].year;
+    const months = plan.monthsOf(year) ?? ALL_MONTHS;
+    // Actual per bulan hanya bisa kalau data Actual tahun itu punya rincian bulanan.
+    const monthly = data.actualSalesYear.some((r) => r.year === year && Array.isArray(r.amount_by_month) && r.amount_by_month.length === 12);
+    const ok = plan.actualOkOf(year) && monthly;
+    const rows = months.map((m) => {
+      const r = marketRowsFromFacts(custIndex, yearFacts, [year], filters, {
+        monthsOf: () => [m],
+        actualMonthsOf: () => [m],
+        actualOkOf: () => ok
+      })[0];
+      return { ...r, period_months: 1, label: `${MONTH_SHORT[m]} ${year}` };
+    });
+    return { year, rows, actualOk: ok };
+  }, [filters, marketSizeYearRows, plan, data.actualSalesYear, custIndex, yearFacts]);
   const partsWithoutPrice = useMemo(
     () => findPartsWithoutPrice(data.parts, data.priceList),
     [data.parts, data.priceList]
@@ -414,6 +434,7 @@ export function useDashboardState(initialData: DashboardData) {
     setMarketSizeView,
     marketSizeYearRows,
     marketShareYearRows,
+    chartMonthly,
     custIndex,
     factYears,
     yearFacts,

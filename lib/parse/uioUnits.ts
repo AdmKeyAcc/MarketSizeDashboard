@@ -32,6 +32,8 @@ export type UioUnitParsed = {
 /** Nilai yang sudah dikenal (dari data website) untuk mengecek ejaan isian file. */
 export type UioKnown = {
   branches?: string[];
+  /** Cabang di luar cakupan (MHB). */
+  excludedBranches?: string[];
   custTypes?: string[];
   /** Product → model di Master Part. */
   partModelsByProduct?: Record<string, string[]>;
@@ -387,6 +389,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const branchV = spell("Branch", mBranch, branch, rowNo, {
       level: "penting", key: "branch-unknown", none: "Branch belum pernah ada di data (cek ejaan / kode cabang)"
     });
+    if (K?.excludedBranches && K.excludedBranches.includes(String(branchV ?? branch ?? "").trim().toUpperCase()))
+      flag("branch-excluded", "Branch", "info", `Branch di luar cakupan (${K.excludedBranches.join(", ")}) — unit disimpan tapi tidak dihitung di Market Size`, rowNo);
     const typeV = spell("Cust. Type", mType, custType, rowNo, {
       level: "penting", key: "type-unknown", none: `Cust. Type tidak dikenal — harus salah satu: ${(K?.custTypes || []).join(", ")}`
     });
