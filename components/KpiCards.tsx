@@ -6,8 +6,8 @@ import { fmtIDR, fmtPct } from "@/lib/calculations";
 export default function KpiCards({ state }: { state: UseDashboardState }) {
   const { marketSizeYearRows, filters } = state;
 
-  // Jumlah dari semua tahun yang sedang tampil di chart (semua tahun kalau
-  // filter Tahun kosong), untuk periode yang sama antara Market Size dan Actual Sales.
+  // Jumlah dari semua tahun yang sedang tampil di chart (semua tahun kalau filter Tahun kosong = All),
+  // untuk periode yang sama antara Market Size dan Actual Sales. All = semua tahun dicentang.
   const ms = marketSizeYearRows.reduce((s, r) => s + r.market_size, 0);
   const act = marketSizeYearRows.reduce((s, r) => s + r.actual_sales, 0);
   const comparable = marketSizeYearRows.every((r) => r.actual_comparable !== false);
@@ -44,7 +44,13 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       : years.length === 1
       ? String(years[0])
       : `${years[0]}–${years[years.length - 1]}`;
-  const periodLabel = filters.bulan.length > 0 ? `${yearLabel} · ${filters.bulan.join(", ")}` : yearLabel;
+  // Lebih dari satu tahun → angka KPI = TOTAL tahun-tahun itu; labelnya menyebut jumlah tahun + rata-rata per tahun.
+  const multi = years.length > 1;
+  const last = marketSizeYearRows[marketSizeYearRows.length - 1];
+  const partialNote = multi && filters.bulan.length === 0 && last && last.period_months < 12 ? ` · ${state.plan.labelOf(last.year)}` : "";
+  const base = multi ? `Total ${yearLabel} (${years.length} tahun)${partialNote}` : yearLabel;
+  const periodLabel = filters.bulan.length > 0 ? `${base} · ${filters.bulan.join(", ")}` : base;
+  const avg = (v: number) => (multi ? <div className="kpi-sub">Rata-rata {fmtIDR(v / years.length)} / tahun</div> : null);
 
   return (
     <div className="kpis">
@@ -52,6 +58,7 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
         <div className="kpi-label">Market Size</div>
         <div className="kpi-value mono">{fmtIDR(ms)}</div>
         <div className="kpi-sub">{periodLabel}</div>
+        {avg(ms)}
       </div>
       <div className="kpi red">
         <div className="kpi-label">Actual Sales</div>
@@ -68,16 +75,19 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
         >
           {comparable ? periodLabel : whyNot}
         </div>
+        {comparable && avg(act)}
       </div>
       <div className="kpi green">
         <div className="kpi-label">Market Share</div>
         <div className="kpi-value mono">{fmtPct(marketShare)}</div>
         <div className="kpi-sub">{comparable ? "Actual sales ÷ market size" : "Perlu Actual yang sebanding"}</div>
+        {comparable && multi && <div className="kpi-sub">{periodLabel}</div>}
       </div>
       <div className="kpi">
         <div className="kpi-label">Gap (Opportunity)</div>
         <div className="kpi-value mono">{comparable ? fmtIDR(gap) : "–"}</div>
         <div className="kpi-sub">{comparable ? "Market size − actual sales" : "Perlu Actual yang sebanding"}</div>
+        {comparable && avg(gap)}
       </div>
     </div>
   );
