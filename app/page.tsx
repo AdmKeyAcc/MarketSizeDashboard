@@ -1,11 +1,11 @@
-import { fetchDashboardData } from "@/lib/fetchDashboardData";
-import Dashboard from "@/components/Dashboard";
+import DashboardLoader from "@/components/DashboardLoader";
 
-// Always fetch fresh data on request — this is an internal dashboard, not a
-// marketing page, and the data changes whenever someone uploads a file.
+// Halaman dikirim kosong (ringan), lalu data diambil langsung oleh browser dari Supabase.
+// Sebelumnya seluruh data (puluhan ribu unit + harga) ditanam di HTML (±50 MB) sehingga website lama terbuka
+// dan browser sempat "not responding".
+// Tetap dirender per permintaan (tidak dibuat statis saat build).
 export const dynamic = "force-dynamic";
 
-export default async function Page() {
-  const initialData = await fetchDashboardData();
-  return <Dashboard initialData={initialData} />;
+export default function Page() {
+  return <DashboardLoader />;
 }

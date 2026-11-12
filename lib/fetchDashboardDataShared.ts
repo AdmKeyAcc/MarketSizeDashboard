@@ -31,19 +31,30 @@ export async function fetchAll<T>(
   // .order() is required for pagination to be stable across pages — without
   // it Postgres can return rows in a different order per request, which
   // would silently skip or duplicate rows across the .range() calls below.
+  // Halaman diambil beberapa sekaligus (paralel) supaya tabel besar (puluhan ribu baris) cepat termuat;
+  // hasil disusun ulang menurut nomor halaman, jadi urutannya tetap sama.
+  const PAR = 6;
+  const pages: T[][] = [];
+  for (let start = 0; ; start += PAR) {
+    const batch = await Promise.all(
+      Array.from({ length: PAR }, async (_, j) => {
+        const from = (start + j) * PAGE_SIZE;
+        const { data, error } = await supabase
+          .from(table)
+          .select(select)
+          .order(orderBy, { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw new Error(`${table}: ${error.message}`);
+        return (data ?? []) as T[];
+      })
+    );
+    pages.push(...batch);
+    if (batch.some((rows) => rows.length < PAGE_SIZE)) break;
+  }
   const all: T[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(select)
-      .order(orderBy, { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    const rows = (data ?? []) as T[];
+  for (const rows of pages) {
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
   }
   return all;
 }
