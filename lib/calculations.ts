@@ -306,9 +306,12 @@ export const defaultWorkdaysOf: WorkdaysOf = () => refs().settings.default_workd
 /** Tahun pertama yang ditampilkan di Market Size (= awal data Actual). */
 export const MARKET_START_YEAR = 2018;
 
-/** Tahun BAST paling awal yang masih perlu disimpan: unit BAST (2018 − 9) = 2009 masih beroperasi di 2018. */
+/**
+ * Tahun BAST paling awal yang disimpan saat upload Data UIO. Semua tahun disimpan (Data UIO = populasi apa adanya,
+ * supaya bisa divalidasi manual); unit yang umurnya sudah lewat otomatis tidak dihitung di Market Size.
+ */
 export function uioMinYear(): number {
-  return MARKET_START_YEAR - (refs().settings.unit_life_years - 1);
+  return 1980;
 }
 
 export function unitActiveIn(u: { year: number | null | undefined }, year: number): boolean {
