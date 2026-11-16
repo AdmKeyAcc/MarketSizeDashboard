@@ -94,7 +94,7 @@ const DUP_STYLE = { fill: { type: "pattern", pattern: "solid", bgColor: { argb: 
  *   - Sheet "Daftar Pilihan" terlihat (contekan ejaan) dan sheet "Petunjuk".
  * Pengecekan utama tetap di website saat upload.
  */
-export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: { help?: boolean } = {}) {
+export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: { help?: boolean; note?: string[] } = {}) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -203,7 +203,8 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: 
     "4. Sel berwarna ORANYE = nilai dobel (mis. Serial Number yang sama muncul lebih dari sekali).",
     "5. Kalau memang data baru (customer / model baru), sel merah boleh dibiarkan.",
     "6. Saat upload, website mengecek ulang seluruh isi file: ejaan yang hanya beda huruf besar/kecil, spasi atau titik disamakan otomatis,",
-    "   dan typo diberi saran (\"mungkin maksudnya ...\"). Pilih Perbaiki file atau Lanjutkan upload."
+    "   dan typo diberi saran (\"mungkin maksudnya ...\"). Pilih Perbaiki file atau Lanjutkan upload.",
+    ...(opts.note && opts.note.length ? ["", ...opts.note.map((x, i) => `${7 + i}. ${x}`)] : [])
   ].forEach((t, i) => {
     const cell = help.getCell(`A${i + 1}`);
     cell.value = t;
@@ -223,14 +224,14 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: 
   URL.revokeObjectURL(url);
 }
 
-export const UIO_HEADERS = ["Branch", "Pss Name", "Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Product", "Model", "Serial Number", "Year BAST", "Month BAST", "HM/Day", "Day/Month", "Month/Year"];
-export const UIO_WIDTHS = [14, 18, 14, 28, 22, 18, 14, 14, 16, 20, 10, 11, 10, 11, 12];
+export const UIO_HEADERS = ["Branch", "Pss Name", "Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Product", "Model", "Serial Number", "Year BAST", "Month BAST", "HM/Day", "Day/Month", "Month/Year", "Engine Number"];
+export const UIO_WIDTHS = [14, 18, 14, 28, 22, 18, 14, 14, 16, 20, 10, 11, 10, 11, 12, 20];
 export const UIO_PRICE_COL = 6;
-export const CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Part Number", "Harga"];
-export const CONTRACT_WIDTHS = [14, 28, 22, 18, 14, 20, 16];
+export const CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Price Type", "Part Number", "Harga", "Tanggal Berlaku"];
+export const CONTRACT_WIDTHS = [14, 28, 22, 18, 14, 20, 16, 16];
 export const CONTRACT_PRICE_COL = 4;
-export const NON_CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Part Number", "Harga"];
-export const NON_CONTRACT_WIDTHS = [14, 28, 22, 18, 20, 16];
+export const NON_CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Part Number", "Harga", "Tanggal Berlaku"];
+export const NON_CONTRACT_WIDTHS = [14, 28, 22, 18, 20, 16, 16];
 export const MASTER_PART_HEADERS = ["Product", "Model Unit", "Part Number", "Part Name", "Qty per Unit", "Frekuensi Ganti (HM)", "HM per Hari"];
 export const MASTER_PART_WIDTHS = [14, 18, 20, 28, 13, 20, 12];
 
@@ -254,6 +255,8 @@ export type TemplateLists = {
   partModelsByProduct: Record<string, string[]>;
   /** Customer Code yang punya harga Kontrak / SCPL (untuk cek Price Type saat upload Data UIO). */
   contractCodes: string[];
+  /** Per cabang: customer / group / PSS / Customer Code yang ada di cabang itu (template cabang). */
+  byBranch?: Record<string, { names: string[]; groups: string[]; pss: string[]; codes: string[] }>;
 };
 export const EMPTY_LISTS: TemplateLists = { branches: [], pss: [], groups: [], names: [], custTypes: [], products: [], modelsByProduct: {}, partNumbers: [], codes: [], partModelsByProduct: {}, contractCodes: [] };
 
@@ -274,7 +277,8 @@ export function uioRules(L: TemplateLists): Record<number, ColRule> {
     11: { kind: "whole", min: 1, max: 12 },
     12: { kind: "decimal", min: 0, max: 24 },
     13: { kind: "whole", min: 1, max: 31 },
-    14: { kind: "whole", min: 1, max: 12 }
+    14: { kind: "whole", min: 1, max: 12 },
+    15: { kind: "unique", hint: "Engine Number (opsional). Unit dengan Engine Number sama dianggap unit yang sama." }
   };
 }
 export function contractRules(L: TemplateLists): Record<number, ColRule> {
@@ -304,18 +308,27 @@ export function masterPartRules(L: TemplateLists): Record<number, ColRule> {
   };
 }
 
-export async function downloadUioTemplate(L: TemplateLists = EMPTY_LISTS) {
+/** Template Data UIO. `branch` diisi → template cabang: dropdown Branch hanya cabang itu, dan dropdown
+ * Customer Name / Group / PSS hanya berisi yang ada di cabang itu (daftar lebih pendek, peluang salah pilih kecil;
+ * customer baru tetap boleh diketik). */
+export async function downloadUioTemplate(L: TemplateLists = EMPTY_LISTS, branch?: string | null) {
+  let lists = L;
+  if (branch) {
+    const b = L.byBranch?.[branch];
+    lists = { ...L, branches: [branch], names: b?.names?.length ? b.names : L.names, groups: b?.groups?.length ? b.groups : L.groups, pss: b?.pss?.length ? b.pss : L.pss, codes: b?.codes?.length ? b.codes : L.codes };
+  }
   // Hanya baris header (tanpa contoh data). Product wajib terisi; kolom lain boleh kosong.
   await saveWorkbook(
-    [{ name: "Data UIO", headers: UIO_HEADERS, widths: UIO_WIDTHS, rows: [], lists: { [UIO_PRICE_COL]: UIO_PRICE_TYPE_OPTIONS }, rules: uioRules(L) }],
-    "template_data_uio.xlsx"
+    [{ name: "Data UIO", headers: UIO_HEADERS, widths: UIO_WIDTHS, rows: [], lists: { [UIO_PRICE_COL]: UIO_PRICE_TYPE_OPTIONS }, rules: uioRules(lists) }],
+    branch ? `template_data_uio_${branch}.xlsx` : "template_data_uio.xlsx",
+    branch ? { note: [`Template cabang ${branch}: kolom Branch boleh dikosongkan (otomatis ${branch}). Baris cabang lain tidak akan disimpan.`, "Unit yang Serial Number-nya sudah ada di website tidak diubah — hubungi admin untuk mengubah / menghapus unit."] } : {}
   );
 }
 
 export async function downloadContractPriceTemplate(L: TemplateLists = EMPTY_LISTS) {
   // Data Harga Kontrak / SCPL — harga sudah nett. Hanya header.
   await saveWorkbook(
-    [{ name: "Data Harga Kontrak", headers: CONTRACT_HEADERS, widths: CONTRACT_WIDTHS, rows: [], numFmt: { 6: "#,##0" }, lists: { [CONTRACT_PRICE_COL]: CONTRACT_PRICE_TYPE_OPTIONS }, rules: contractRules(L) }],
+    [{ name: "Data Harga Kontrak", headers: CONTRACT_HEADERS, widths: CONTRACT_WIDTHS, rows: [], numFmt: { 6: "#,##0", 7: "dd/mm/yyyy" }, lists: { [CONTRACT_PRICE_COL]: CONTRACT_PRICE_TYPE_OPTIONS }, rules: contractRules(L) }],
     "template_data_harga_kontrak_scpl.xlsx"
   );
 }
@@ -323,7 +336,7 @@ export async function downloadContractPriceTemplate(L: TemplateLists = EMPTY_LIS
 export async function downloadNonContractPriceTemplate(L: TemplateLists = EMPTY_LISTS) {
   // Data Harga Non Kontrak — harga tertera, sistem otomatis dikurangi 50% saat upload. Hanya header.
   await saveWorkbook(
-    [{ name: "Data Harga Non Kontrak", headers: NON_CONTRACT_HEADERS, widths: NON_CONTRACT_WIDTHS, rows: [], numFmt: { 5: "#,##0" }, rules: nonContractRules(L) }],
+    [{ name: "Data Harga Non Kontrak", headers: NON_CONTRACT_HEADERS, widths: NON_CONTRACT_WIDTHS, rows: [], numFmt: { 5: "#,##0", 6: "dd/mm/yyyy" }, rules: nonContractRules(L) }],
     "template_data_harga_non_kontrak.xlsx"
   );
 }

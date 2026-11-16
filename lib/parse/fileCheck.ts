@@ -5,7 +5,7 @@
  * Data UIO punya pemeriksaan sendiri (lib/parse/uioUnits.ts) dengan bentuk hasil yang sama.
  */
 import type { UioIssue, UioValidation } from "@/lib/parse/uioUnits";
-import { parsePrice } from "@/lib/parse/priceList";
+import { PRICE_DATE_COLS, newerPrice, parseDateCell, parsePrice } from "@/lib/parse/priceList";
 import { normCode, normPriceType } from "@/lib/priceType";
 import { canonicalProduct } from "@/lib/calculations";
 import type { TemplateLists } from "@/lib/downloadTemplates";
@@ -52,8 +52,18 @@ function pick(n: Record<string, unknown>, keys: string[]): unknown {
   return null;
 }
 
-/** Periksa isi file. `known` = data yang sudah ada di website (untuk cek Customer Code / Part Number yang belum dikenal). */
-export async function checkUploadFile(file: File, kind: CheckKind, known: Pick<TemplateLists, "codes" | "partNumbers" | "products">): Promise<FileCheck> {
+/** Harga yang sudah ada di database, per kunci yang sama dengan file:
+ *   Kontrak/SCPL → "CODE|PART NUMBER|contract|scpl" (harga nett); Non Kontrak → "PART NUMBER" (harga tertera / list). */
+export type ExistingPrices = Map<string, number>;
+
+/** Periksa isi file. `known` = data yang sudah ada di website (untuk cek Customer Code / Part Number yang belum dikenal).
+ * `existing` (Data Harga) = harga di database, untuk ringkasan harga berubah / baru. */
+export async function checkUploadFile(
+  file: File,
+  kind: CheckKind,
+  known: Pick<TemplateLists, "codes" | "partNumbers" | "products">,
+  existing?: ExistingPrices | null
+): Promise<FileCheck> {
   const XLSX = await import("@e965/xlsx");
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array", raw: /\.csv$/i.test(file.name) });
@@ -87,7 +97,7 @@ export async function checkUploadFile(file: File, kind: CheckKind, known: Pick<T
   const pns = known.partNumbers.length > 0 ? new Set(known.partNumbers.map((p) => p.trim().toUpperCase())) : null;
   const mPn = known.partNumbers.length > 0 ? makeMatcher(known.partNumbers) : null;
   const mProduct = known.products.length > 0 ? makeMatcher(known.products) : null;
-  const seen = new Map<string, { row: number; sig: string; price: number }>();
+  const seen = new Map<string, { row: number; sig: string; price: number; date?: number | null }>();
   const conflicts: { row: number; first: number; a: number; b: number; key: string }[] = [];
   let ok = 0;
 
@@ -148,33 +158,63 @@ export async function checkUploadFile(file: File, kind: CheckKind, known: Pick<T
       key = `${code}|${pn.toUpperCase()}|${t === "scpl" ? "scpl" : "contract"}`;
       who = `Customer ${code} · Part Number ${pn}`;
     }
+    const date = parseDateCell(pick(n, PRICE_DATE_COLS));
     const prev = seen.get(key);
     if (prev) {
+      const replace = newerPrice(prev.date, date);
       if (prev.price === price) flag("dup", "Baris dobel", "info", `Harga sama dengan baris ${prev.row} (${who}) — disimpan satu kali`, row);
       else {
         conflicts.push({ row, first: prev.row, a: prev.price, b: price, key: who });
+        const dated = prev.date !== null && prev.date !== undefined && date !== null;
         flag(
-          "conflict",
+          dated ? "conflict-dated" : "conflict",
           "Harga berbeda",
-          "penting",
-          kind === "contract"
-            ? "Customer Code + Part Number sama tapi harganya berbeda — yang disimpan baris paling bawah"
-            : "Part Number sama tapi harganya berbeda — yang disimpan baris paling bawah",
+          dated ? "info" : "penting",
+          (kind === "contract" ? "Customer Code + Part Number sama tapi harganya berbeda" : "Part Number sama tapi harganya berbeda") +
+            (dated
+              ? " — dipakai harga dengan Tanggal Berlaku paling baru"
+              : " — yang disimpan baris paling bawah. Tambahkan kolom Tanggal Berlaku supaya sistem otomatis memakai harga terbaru, atau hapus baris yang salah"),
           row
         );
       }
-      seen.set(key, { row, sig, price });
+      if (replace) seen.set(key, { row, sig, price, date });
       return;
     }
-    seen.set(key, { row, sig, price });
+    seen.set(key, { row, sig, price, date });
     ok++;
   });
 
   // Contoh harga yang bentrok (supaya mudah dicek di Excel).
-  const c = issues.get("conflict");
+  const c = issues.get("conflict") ?? issues.get("conflict-dated");
   if (c && conflicts.length > 0) {
     const ex = conflicts.slice(0, 3).map((x) => `${x.key}: baris ${x.first} ${fmtRp(x.a)} vs baris ${x.row} ${fmtRp(x.b)}`).join("; ");
     c.message += ` (contoh: ${ex}${conflicts.length > 3 ? "; …" : ""})`;
+  }
+
+  // Dibandingkan dengan harga di database: harga baru, harga berubah, dan perubahan besar (kemungkinan salah ketik).
+  if (kind !== "parts" && existing && existing.size > 0) {
+    const changed: { key: string; row: number; a: number; b: number }[] = [];
+    const big: typeof changed = [];
+    let fresh = 0;
+    seen.forEach((v, key) => {
+      const old = existing.get(key);
+      if (old === undefined) {
+        fresh++;
+        return;
+      }
+      if (Math.abs(old - v.price) < 0.5) return;
+      const x = { key: key.replace(/\|(contract|scpl)$/, (m) => (m === "|scpl" ? " (SCPL)" : "")).replace("|", " · "), row: v.row, a: old, b: v.price };
+      changed.push(x);
+      if (old > 0 && (v.price > old * 1.5 || v.price < old * 0.5)) big.push(x);
+    });
+    const ex = (xs: typeof changed) => xs.slice(0, 3).map((x) => `${x.key}: ${fmtRp(x.a)} → ${fmtRp(x.b)} (baris ${x.row})`).join("; ") + (xs.length > 3 ? "; …" : "");
+    const put = (key: string, level: UioIssue["level"], message: string, xs: { row: number }[]) => {
+      if (xs.length === 0) return;
+      issues.set(key, { field: "Harga", level, message, count: xs.length, rows: xs.slice(0, 15).map((x) => x.row) });
+    };
+    put("db-big", "penting", `Harga berubah lebih dari ±50% dibanding harga di website — cek kemungkinan salah ketik (kurang/lebih nol). Contoh: ${ex(big)}`, big);
+    put("db-changed", "info", `Harga berbeda dengan yang sudah ada di website — harga lama diganti harga di file (contoh: ${ex(changed)})`, changed);
+    if (fresh > 0) issues.set("db-new", { field: "Harga", level: "info", message: "Harga baru (belum ada di website) — ditambahkan", count: fresh, rows: [] });
   }
   const order = { penting: 0, info: 1 };
   return {

@@ -60,7 +60,7 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
           const t = normPriceType(r.price_type);
           return t ? PRICE_TYPE_LABEL[t] : null;
         })(),
-        v(r.product), v(r.model), v(r.serial_number), num(r.year), num(r.month_inv), num(r.hm_day), num(r.day_month), num(r.month_year)
+        v(r.product), v(r.model), v(r.serial_number), num(r.year), num(r.month_inv), num(r.hm_day), num(r.day_month), num(r.month_year), v(r.engine_number)
       ])
     };
   }

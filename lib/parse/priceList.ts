@@ -41,6 +41,29 @@ export function parsePrice(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Kolom tanggal berlaku harga (opsional). Kalau satu harga muncul beberapa kali, yang tanggal berlakunya paling baru yang dipakai. */
+export const PRICE_DATE_COLS = ["tanggalberlaku", "tglberlaku", "berlakumulai", "berlaku", "validfrom", "effectivedate", "tanggal", "date"];
+
+/** Tanggal dari sel Excel/CSV → milidetik (UTC); null bila kosong / tidak terbaca.
+ * Diterima: tanggal Excel, nomor seri tanggal Excel, "dd/mm/yyyy", "dd-mm-yyyy", "yyyy-mm-dd". */
+export function parseDateCell(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.getTime();
+  if (typeof v === "number") return v > 20000 && v < 80000 ? Math.round((v - 25569) * 86400000) : null;
+  const t = String(v).trim();
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(t);
+  if (m) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/.exec(t);
+  if (m) return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  return null;
+}
+
+/** Baris kembar dengan kunci sama: true = baris baru menggantikan yang lama (tanggal berlaku lebih baru, atau tanpa tanggal → baris paling bawah). */
+export function newerPrice(prevDate: number | null | undefined, date: number | null): boolean {
+  if (prevDate === null || prevDate === undefined || date === null) return true;
+  return date >= prevDate;
+}
+
 function readRows(wb: XLSX.WorkBook): Record<string, unknown>[] {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: null });
@@ -69,11 +92,12 @@ export type ContractPriceParseResult = { rows: ContractPriceRow[]; skipped: numb
 
 /** Data Harga Kontrak / SCPL. Kolom: Cust. Code (WAJIB), Cust. Name, Cust. Group, Cust. Type,
  * Price Type (Kontrak / SCPL; kosong = Kontrak), Part Number, Harga. Harga sudah nett — dipakai apa adanya.
- * Satu baris per Part Number + Cust. Code + Price Type (baris kembar: yang terakhir dipakai).
+ * Satu baris per Part Number + Cust. Code + Price Type (baris kembar: tanggal berlaku terbaru; tanpa tanggal: baris paling bawah).
  * Baris ber-Price Type Non-Kontrak dilewati (harga non kontrak di-upload di slot sendiri). */
 export function parseContractPriceWorkbook(wb: XLSX.WorkBook): ContractPriceParseResult {
   const rows = readRows(wb);
   const map = new Map<string, ContractPriceRow>();
+  const dateOf = new Map<string, number | null>();
   let skipped = 0;
   let duplicates = 0;
   let nonContractRows = 0;
@@ -103,7 +127,12 @@ export function parseContractPriceWorkbook(wb: XLSX.WorkBook): ContractPricePars
       continue;
     }
     const key = `${partNumber}|${code}|${priceType}`;
-    if (map.has(key)) duplicates++;
+    const date = parseDateCell(pick(n, PRICE_DATE_COLS));
+    if (map.has(key)) {
+      duplicates++;
+      if (!newerPrice(dateOf.get(key), date)) continue; // baris lama punya tanggal berlaku lebih baru
+    }
+    dateOf.set(key, date);
     map.set(key, {
       part_number: partNumber,
       customer_group: group,
@@ -132,6 +161,7 @@ export type NonContractPriceParseResult = { rows: NonContractPriceRow[]; skipped
 export function parseNonContractPriceWorkbook(wb: XLSX.WorkBook, discount: number = NON_CONTRACT_DISCOUNT): NonContractPriceParseResult {
   const rows = readRows(wb);
   const map = new Map<string, NonContractPriceRow>();
+  const dateOf = new Map<string, number | null>();
   let skipped = 0;
   let duplicates = 0;
   for (const r of rows) {
@@ -142,7 +172,12 @@ export function parseNonContractPriceWorkbook(wb: XLSX.WorkBook, discount: numbe
       skipped++;
       continue;
     }
-    if (map.has(partNumber)) duplicates++;
+    const date = parseDateCell(pick(n, PRICE_DATE_COLS));
+    if (map.has(partNumber)) {
+      duplicates++;
+      if (!newerPrice(dateOf.get(partNumber), date)) continue;
+    }
+    dateOf.set(partNumber, date);
     map.set(partNumber, {
       part_number: partNumber,
       list_price: listPrice,

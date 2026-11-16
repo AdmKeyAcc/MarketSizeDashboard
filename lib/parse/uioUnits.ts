@@ -27,6 +27,10 @@ export type UioUnitParsed = {
   month_year: number | null;
   /** Price Type unit: "Kontrak" / "SCPL" / "Non-Kontrak"; null = kosong (aturan lama). */
   price_type: string | null;
+  /** Engine Number (opsional) — kunci kedua untuk cek unit dobel. */
+  engine_number?: string | null;
+  /** Nomor baris di Excel (untuk pesan pemeriksaan; tidak disimpan). */
+  row_no?: number;
 };
 
 /** Nilai yang sudah dikenal (dari data website) untuk mengecek ejaan isian file. */
@@ -108,13 +112,23 @@ const COLS = {
   hmDay: ["hmday", "hmperhari"],
   dayMonth: ["daymonth", "activedaysmonth", "harikerjabulan", "dayspermonth"],
   monthYear: ["monthyear", "bulantahun", "monthsperyear"],
-  priceType: ["pricetype", "tipeharga", "jenisharga", "pricecategory"]
+  priceType: ["pricetype", "tipeharga", "jenisharga", "pricecategory"],
+  engine: ["enginenumber", "engineno", "enginenum", "engineserialnumber", "esn", "nomormesin", "nomesin", "noengine"]
 };
+/** Kolom opsional: tidak dilaporkan sebagai "kolom tidak ditemukan". */
+const OPTIONAL_COLS = new Set<string>(["engine"]);
 const COL_LABEL: Record<keyof typeof COLS, string> = {
   year: "Year BAST", month: "Month BAST", product: "Product", model: "Model", custGroup: "Cust. Group",
   custName: "Cust. Name", branch: "Branch", serial: "Serial Number", hmDay: "HM/Day", dayMonth: "Day/Month",
-  monthYear: "Month/Year", priceType: "Price Type"
+  monthYear: "Month/Year", priceType: "Price Type", engine: "Engine Number"
 };
+
+/** Engine Number dinormalkan (huruf besar, tanpa spasi); kosong / placeholder / < 3 karakter → null. */
+export function engineKey(v: unknown): string | null {
+  const t = String(v ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (t.length < 3 || ["-", "N/A", "NA", "NAN", "NONE", "#N/A", "TIDAKADA"].includes(t)) return null;
+  return t;
+}
 
 const ALL_KEYS = new Set(Object.values(COLS).flat());
 
@@ -239,6 +253,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const seenRow = new Map<string, number>();
   const seenSerial = new Map<string, number>();
   const seenZero = new Map<string, { raw: string; row: number }>();
+  const seenEngine = new Map<string, { row: number; key: string; idx: number }>();
+  const dropIdx = new Set<number>();
   let duplicates = 0;
   let conflictSerial = 0;
   let skipped = 0;
@@ -249,7 +265,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const headerKeys = new Set<string>();
   best.rows.slice(0, 50).forEach((r) => Object.keys(r).forEach((k) => headerKeys.add(normKey(k))));
   const missingColumns = (Object.keys(COLS) as (keyof typeof COLS)[])
-    .filter((f) => !COLS[f].some((c) => headerKeys.has(c)))
+    .filter((f) => !OPTIONAL_COLS.has(f) && !COLS[f].some((c) => headerKeys.has(c)))
     .map((f) => COL_LABEL[f]);
   const issueMap = new Map<string, UioIssue>();
   const flag = (key: string, field: string, level: UioIssue["level"], message: string, row: number) => {
@@ -316,6 +332,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const monthYear = pick(norm, COLS.monthYear);
     const qty = num(pick(norm, ["invoicedquantity", "invoicedqty"]));
     const priceTypeRaw = pick(norm, COLS.priceType);
+    const engineRaw = pick(norm, COLS.engine);
 
     // Baris kosong total (mis. sisa format di bawah tabel) dilewati tanpa dilaporkan.
     if (Object.values(r).every((v) => v === null || v === undefined || String(v).trim() === "")) return;
@@ -449,7 +466,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       hm_day: hm,
       day_month: dm,
       month_year: my,
-      price_type: pt ? PRICE_TYPE_LABEL[pt] : null
+      price_type: pt ? PRICE_TYPE_LABEL[pt] : null,
+      engine_number: engineKey(engineRaw)
     };
     // ---- baris dobel ----
     // 1) Baris yang isinya sama persis dengan baris lain → disimpan satu kali saja.
@@ -480,6 +498,18 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       if (/^0{3,}\d/.test(ser))
         flag("serial-zero", "Serial Number", "info", "Serial Number diawali banyak angka 0 — pastikan penulisannya sama dengan data lain (mis. tanpa nol di depan)", rowNo);
     }
+    // 3) Engine Number sama dengan baris lain tapi Product + Serial Number berbeda → unit yang sama; yang disimpan baris paling bawah.
+    const ek = rec.engine_number ?? null;
+    const myKey = sk ?? `row:${rowNo}`;
+    if (ek) {
+      const prevE = seenEngine.get(ek);
+      if (prevE && prevE.key !== myKey) {
+        flag("dup-engine", "Engine Number", "penting", `Engine Number sama dengan baris ${prevE.row} tapi Serial Number berbeda — dianggap unit yang sama, yang disimpan baris paling bawah`, rowNo);
+        dropIdx.add(prevE.idx);
+      }
+    }
+    rec.row_no = rowNo;
+    if (ek) seenEngine.set(ek, { row: rowNo, key: myKey, idx: parsed.length });
     parsed.push(rec);
   });
 
@@ -492,7 +522,7 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const order = { penting: 0, info: 1 };
   const issues = Array.from(issueMap.values()).sort((a, b) => order[a.level] - order[b.level] || b.count - a.count);
   return {
-    rows: parsed,
+    rows: dropIdx.size ? parsed.filter((_, i) => !dropIdx.has(i)) : parsed,
     skipped,
     returns,
     beforeMinYear,

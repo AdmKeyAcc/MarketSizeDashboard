@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { authUpload } from "@/lib/uploadAuth";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -28,6 +29,9 @@ const s = (v: unknown): string | null => {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
+    // Actual Sales biasanya tersinkron otomatis; upload manual hanya oleh admin (PIN dicek di setiap request).
+    const a = await authUpload((body as { auth?: Record<string, unknown> }).auth ?? { role: "admin", pin: (body as { pin?: unknown }).pin }, false);
+    if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 

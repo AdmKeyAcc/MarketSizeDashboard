@@ -1,4 +1,4 @@
-import { replacePinError } from "@/lib/adminPin";
+import { authUpload, logUpload } from "@/lib/uploadAuth";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { fetchReferences } from "@/lib/fetchDashboardDataShared";
@@ -13,6 +13,7 @@ type Body = {
   kind?: Kind;
   mode?: "merge" | "replace";
   pin?: unknown;
+  auth?: Record<string, unknown>;
   since?: string;
   filename?: string;
   rows?: Record<string, unknown>[];
@@ -44,10 +45,9 @@ export async function POST(request: Request) {
       return count ?? 0;
     };
 
-    if (body.action === "start" || body.action === "finish") {
-      const pinErr = await replacePinError(mode, body.pin);
-      if (pinErr) return NextResponse.json({ error: pinErr.error }, { status: pinErr.status });
-    }
+    // Data Harga hanya bisa diubah admin: PIN dicek di SETIAP request (start, rows, finish).
+    const a = await authUpload(body.auth ?? { role: "admin", pin: body.pin }, false);
+    if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
 
     if (body.action === "start") {
       const { settings } = await fetchReferences(supabase);
@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       if (kind === "non_contract" && typeof body.discount === "number") value.discount = body.discount;
       await supabase.from("app_meta").upsert({ key: kind === "contract" ? "price_contract" : "price_non_contract", value, updated_at: now });
       await supabase.from("app_meta").upsert({ key: "price_list", value, updated_at: now });
+      await logUpload({ who: a.who, kind: kind === "contract" ? "price_contract" : "price_non_contract", mode, filename: body.filename ?? null, rows_sent: body.rowCount ?? null, rows_saved: body.rowCount ?? null, note: removed ? `${removed} harga lama dihapus` : null });
       return NextResponse.json({ ok: true, removed, afterUpsert, totalInDb: await countType() });
     }
 

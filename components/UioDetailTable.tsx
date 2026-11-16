@@ -68,7 +68,8 @@ const COLS: Col[] = [
   { key: "month_inv", label: "Month BAST", num: true, get: (u) => u.month_inv ?? null },
   { key: "hm_day", label: "HM/Day", num: true, get: (u) => u.hm_day ?? null },
   { key: "day_month", label: "Day/Month", num: true, get: (u) => u.day_month ?? null },
-  { key: "month_year", label: "Month/Year", num: true, get: (u) => u.month_year ?? null }
+  { key: "month_year", label: "Month/Year", num: true, get: (u) => u.month_year ?? null },
+  { key: "engine_number", label: "Engine Number", get: (u) => u.engine_number ?? null }
 ];
 const PAGE_SIZE = 20;
 

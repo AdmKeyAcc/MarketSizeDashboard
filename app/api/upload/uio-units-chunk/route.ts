@@ -1,4 +1,4 @@
-import { replacePinError } from "@/lib/adminPin";
+import { authUpload, logUpload, normBranch } from "@/lib/uploadAuth";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -11,7 +11,7 @@ export const maxDuration = 60;
 type Row = {
   year?: unknown; product?: unknown; model?: unknown; customer_group?: unknown; customer_name?: unknown; branch?: unknown;
   serial_number?: unknown; pss_name?: unknown; customer_code?: unknown; customer_type?: unknown;
-  hm_day?: unknown; day_month?: unknown; month_year?: unknown; month_inv?: unknown; price_type?: unknown;
+  hm_day?: unknown; day_month?: unknown; month_year?: unknown; month_inv?: unknown; price_type?: unknown; engine_number?: unknown;
 };
 type Body = {
   action?: "start" | "rows" | "finish";
@@ -20,8 +20,13 @@ type Body = {
   total?: number;
   sheet?: string;
   replace?: boolean;
-  /** "merge" = tambah / perbarui per Serial Number (bawaan); "replace" = ganti semua. */
-  mode?: "replace" | "merge";
+  /** "merge" = tambah / perbarui per Serial Number; "replace" = ganti semua (keduanya admin);
+   *  "branch_add" = cabang menambah unit baru (unit yang sudah ada tidak diubah). */
+  mode?: "replace" | "merge" | "branch_add";
+  /** Identitas pengupload — dicek di SETIAP request (lib/uploadAuth). */
+  auth?: Record<string, unknown>;
+  /** Ringkasan dari browser untuk catatan upload (action finish). */
+  summary?: { saved?: number; rejected?: number; note?: string };
   /** Cap waktu upload dari action "start" (dipakai semua potongan). */
   since?: string;
 };
@@ -41,7 +46,20 @@ function dedupeKey(product: string | null, serial: string | null): string {
   return uioSerialKey(product, serial) ?? `no-serial::${randomUUID()}`;
 }
 
-/** Upload Data UIO bertahap (file dibaca di browser, dikirim per potongan supaya tidak kena batas ukuran request Vercel). */
+/** Engine Number dinormalkan (huruf besar, tanpa spasi); kosong / placeholder / < 3 karakter → null. */
+function engineKey(v: unknown): string | null {
+  const t = String(v ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (t.length < 3 || ["-", "N/A", "NA", "NAN", "NONE", "#N/A", "TIDAKADA"].includes(t)) return null;
+  return t;
+}
+
+/**
+ * Upload Data UIO bertahap (file dibaca di browser, dikirim per potongan supaya tidak kena batas ukuran request Vercel).
+ * Hak akses (dicek di server untuk setiap potongan):
+ *   - admin (PIN): merge = tambah / perbarui, replace = ganti semua.
+ *   - cabang (kode akses): selalu branch_add — hanya unit BARU untuk cabangnya sendiri, wajib Serial Number;
+ *     unit yang Serial Number / Engine Number-nya sudah ada di database tidak diubah.
+ */
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
@@ -51,11 +69,12 @@ export async function POST(request: Request) {
     // Cap waktu satu upload; semua potongan menyimpan uploaded_at = cap ini.
     const sinceOk = body.since && !Number.isNaN(Date.parse(String(body.since))) ? String(body.since) : null;
 
-    // Mode "Ganti semua" wajib PIN admin: dicek di awal (sebelum ada data dikirim) dan sebelum data lama dihapus.
-    if (body.action === "start" || body.action === "finish") {
-      const pinErr = await replacePinError(body.mode === "replace" || (body as { replace?: unknown }).replace ? "replace" : body.mode, (body as { pin?: unknown }).pin);
-      if (pinErr) return NextResponse.json({ error: pinErr.error }, { status: pinErr.status });
-    }
+    const a = await authUpload(body.auth, true);
+    if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
+    const who = a.who;
+    // Cabang selalu mode branch_add, apa pun yang dikirim browser. Admin: merge / replace.
+    const mode: "merge" | "replace" | "branch_add" =
+      who.role === "branch" ? "branch_add" : body.mode === "replace" || (body.mode === undefined && body.replace) ? "replace" : "merge";
 
     if (body.action === "start") {
       // Tidak menghapus apa pun di awal: mode ganti semua menghapus data lama SETELAH semua unit baru tersimpan.
@@ -64,7 +83,7 @@ export async function POST(request: Request) {
 
     if (body.action === "finish") {
       let removed = 0;
-      if (body.mode === "replace" || (body.mode === undefined && body.replace)) {
+      if (mode === "replace") {
         if (!sinceOk) return NextResponse.json({ error: "Waktu mulai upload tidak valid — ulangi upload." }, { status: 400 });
         const d1 = await supabase.from("uio_units").delete({ count: "exact" }).lt("uploaded_at", sinceOk);
         if (d1.error) throw d1.error;
@@ -74,18 +93,29 @@ export async function POST(request: Request) {
       }
       // Jumlah unit di database (mode tambah/perbarui: bukan jumlah baris file).
       const cnt = await supabase.from("uio_units").select("id", { count: "exact", head: true });
+      const fname = s(body.filename) || "Data UIO";
       const up = await supabase.from("app_meta").upsert({
         key: "uio_units",
         value: {
-          filename: s(body.filename) || "Data UIO",
+          filename: who.role === "branch" ? `${who.branch}: ${fname}` : fname,
           row_count: cnt.error ? Number(body.total) || 0 : cnt.count ?? 0,
           uploaded_rows: Number(body.total) || 0,
-          mode: body.mode === "merge" ? "merge" : "replace",
+          mode,
           sheet: s(body.sheet)
         },
         updated_at: now
       });
       if (up.error) throw up.error;
+      await logUpload({
+        who,
+        kind: "uio",
+        mode,
+        filename: fname,
+        rows_sent: Number(body.total) || 0,
+        rows_saved: typeof body.summary?.saved === "number" ? body.summary.saved : null,
+        rows_rejected: typeof body.summary?.rejected === "number" ? body.summary.rejected : null,
+        note: [body.summary?.note, removed ? `${removed} unit lama dihapus` : ""].filter(Boolean).join(" · ") || null
+      });
       return NextResponse.json({ ok: true, removed, rowCount: cnt.error ? null : cnt.count ?? null });
     }
 
@@ -95,13 +125,26 @@ export async function POST(request: Request) {
 
     // Dalam satu potongan, key yang sama tidak boleh muncul dua kali (upsert menolaknya): ambil yang terakhir.
     const byKey = new Map<string, Record<string, unknown>>();
+    const rejected = { otherBranch: 0, noSerial: 0, exists: 0, engine: 0 };
     rows.forEach((r) => {
       const product = s(r.product)?.toUpperCase() ?? null;
       if (!product) return;
       const serial = s(r.serial_number);
       const validKey = uioSerialKey(product, serial);
-      // Mode tambah/perbarui: unit tanpa Serial Number valid tidak bisa dicocokkan → tidak disimpan (mencegah data ganda).
-      if (body.mode === "merge" && !validKey) return;
+      // Tambah/perbarui & cabang: unit tanpa Serial Number valid tidak bisa dicocokkan → tidak disimpan (mencegah data ganda).
+      if (mode !== "replace" && !validKey) {
+        rejected.noSerial++;
+        return;
+      }
+      // Cabang hanya boleh unit cabangnya sendiri (Branch kosong = cabang pengupload).
+      let branch = s(r.branch);
+      if (who.role === "branch") {
+        if (branch && normBranch(branch) !== who.branch) {
+          rejected.otherBranch++;
+          return;
+        }
+        branch = who.branch;
+      }
       const key = validKey ?? dedupeKey(product, serial);
       byKey.set(key, {
         dedupe_key: key,
@@ -114,8 +157,9 @@ export async function POST(request: Request) {
         model: s(r.model),
         customer_group: s(r.customer_group),
         customer_name: s(r.customer_name),
-        branch: s(r.branch),
+        branch,
         serial_number: serial,
+        engine_number: engineKey(r.engine_number),
         pss_name: s(r.pss_name),
         customer_code: s(r.customer_code),
         customer_type: s(r.customer_type),
@@ -130,16 +174,53 @@ export async function POST(request: Request) {
         uploaded_at: sinceOk ?? now
       });
     });
-    const clean = Array.from(byKey.values());
-    if (clean.length > 0) {
-      let up = await supabase.from("uio_units").upsert(clean, { onConflict: "dedupe_key" });
-      // Kolom price_type belum ada (migration v24 belum dijalankan) → simpan tanpa kolom itu.
-      if (up.error && /price_type/i.test(up.error.message || "")) {
-        up = await supabase.from("uio_units").upsert(clean.map(({ price_type: _p, ...r }) => r), { onConflict: "dedupe_key" });
+    let clean = Array.from(byKey.values());
+    let engineCol = true;
+    // Engine Number sudah dipakai unit LAIN (Product + Serial Number berbeda) di database → dianggap unit yang sama, tidak disimpan.
+    if (mode !== "replace") {
+      const engines = Array.from(new Set(clean.map((r) => r.engine_number as string | null).filter((e): e is string => !!e)));
+      const owner = new Map<string, string>();
+      for (let i = 0; i < engines.length; i += 300) {
+        const q = await supabase.from("uio_units").select("dedupe_key, engine_number").in("engine_number", engines.slice(i, i + 300));
+        if (q.error) {
+          if (/engine_number/i.test(q.error.message || "")) engineCol = false;
+          break;
+        }
+        (q.data || []).forEach((x: { dedupe_key: string; engine_number: string | null }) => x.engine_number && owner.set(x.engine_number, x.dedupe_key));
       }
-      if (up.error) throw up.error;
+      clean = clean.filter((r) => {
+        const e = r.engine_number as string | null;
+        const o = e ? owner.get(e) : undefined;
+        if (o && o !== r.dedupe_key) {
+          rejected.engine++;
+          return false;
+        }
+        return true;
+      });
     }
-    return NextResponse.json({ ok: true, count: clean.length });
+    const strip = (xs: Record<string, unknown>[], cols: string[]) => xs.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !cols.includes(k))));
+    let saved = 0;
+    if (clean.length > 0) {
+      const drop: string[] = engineCol ? [] : ["engine_number"];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const payload = strip(clean, drop);
+        // Cabang: hanya MENAMBAH — Serial Number yang sudah ada dibiarkan (ignoreDuplicates), tidak ditimpa.
+        const up =
+          mode === "branch_add"
+            ? await supabase.from("uio_units").upsert(payload, { onConflict: "dedupe_key", ignoreDuplicates: true }).select("id")
+            : await supabase.from("uio_units").upsert(payload, { onConflict: "dedupe_key" });
+        if (!up.error) {
+          saved = mode === "branch_add" ? (up.data || []).length : payload.length;
+          break;
+        }
+        // Kolom baru belum ada (migration v24 / v28 belum dijalankan) → simpan tanpa kolom itu.
+        const miss = ["price_type", "engine_number"].find((c) => !drop.includes(c) && new RegExp(c, "i").test(up.error.message || ""));
+        if (!miss) throw up.error;
+        drop.push(miss);
+      }
+      if (mode === "branch_add") rejected.exists += clean.length - saved;
+    }
+    return NextResponse.json({ ok: true, count: saved, rejected });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message || "Gagal memproses data." }, { status: 500 });
   }

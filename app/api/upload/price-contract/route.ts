@@ -1,4 +1,4 @@
-import { replacePinError } from "@/lib/adminPin";
+import { authUpload } from "@/lib/uploadAuth";
 import { NextResponse } from "next/server";
 import * as XLSX from "@e965/xlsx";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
@@ -16,9 +16,9 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const mode = modeOf(form.get("mode"));
-    // Mode "Ganti semua" wajib PIN admin (dicek sebelum file dibaca / data diubah).
-    const pinErr = await replacePinError(mode, form.get("pin"));
-    if (pinErr) return NextResponse.json({ error: pinErr.error }, { status: pinErr.status });
+    // Data Harga hanya bisa diubah admin (PIN admin dicek di server).
+    const a = await authUpload({ role: "admin", pin: form.get("pin") }, false);
+    if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
     const file = form.get("file");
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Tidak ada file yang dikirim." }, { status: 400 });

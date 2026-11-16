@@ -7,6 +7,7 @@ import { parseMasterPartFile, parseActualSalesYearFile, UploadParseError } from 
 
 const CHUNK = 2000;
 import { uioMinYear } from "@/lib/calculations";
+import type { UploadAuth } from "@/lib/uploadAuthClient";
 
 type Result = { ok: boolean; message: any };
 
@@ -48,7 +49,8 @@ export async function uploadMasterPart(file: File, onProgress?: (text: string) =
         hasHmDay: parsed.hasHmDay,
         hasComponent: parsed.hasComponent,
         filename: file.name,
-        since
+        since,
+        pin
       });
     }
     const fin = await post(url, { action: "finish", filename: file.name, total: parsed.rows.length, mode, since, pin });
@@ -73,7 +75,8 @@ export async function uploadMasterPart(file: File, onProgress?: (text: string) =
 
 export async function uploadActualSalesYear(
   file: File,
-  onProgress?: (text: string) => void
+  onProgress?: (text: string) => void,
+  pin = ""
 ): Promise<Result> {
   try {
     onProgress?.("Membaca file…");
@@ -102,12 +105,12 @@ export async function uploadActualSalesYear(
     const dm = /(\d{4})[-_.](\d{2})[-_.](\d{2})/.exec(file.name);
     const ref = dm ? { y: Number(dm[1]), m: Number(dm[2]) - 1 } : { y: new Date().getFullYear(), m: new Date().getMonth() };
     const ytdMonth = latestYear < ref.y ? "Desember" : BULAN[Math.min(Math.max(ref.m, 0), 11)];
-    await post(url, { action: "start", years: parsed.years });
+    await post(url, { action: "start", years: parsed.years, pin });
     for (let i = 0; i < parsed.rows.length; i += CHUNK) {
       onProgress?.(`Mengirim ${Math.min(i + CHUNK, parsed.rows.length).toLocaleString("id-ID")} / ${parsed.rows.length.toLocaleString("id-ID")} baris…`);
-      await post(url, { action: "rows", rows: parsed.rows.slice(i, i + CHUNK), filename: file.name });
+      await post(url, { action: "rows", rows: parsed.rows.slice(i, i + CHUNK), filename: file.name, pin });
     }
-    await post(url, { action: "finish", filename: file.name, total: parsed.rows.length, ytdYear: latestYear, ytdMonth });
+    await post(url, { action: "finish", filename: file.name, total: parsed.rows.length, ytdYear: latestYear, ytdMonth, pin });
     return {
       ok: true,
       message: {
@@ -131,8 +134,13 @@ export async function uploadActualSalesYear(
  * Data UIO, langkah 1: baca & periksa file di browser (belum menyimpan apa pun).
  * Hasilnya berisi ringkasan pemeriksaan (kolom/isi kosong atau tidak valid) untuk ditampilkan
  * ke pengguna, dan fungsi `commit` untuk benar-benar menyimpan kalau pengguna melanjutkan.
+ *
+ * Mode:
+ *   merge      (admin)  tambah / perbarui per Product + Serial Number
+ *   replace    (admin)  ganti semua
+ *   branch_add (cabang) hanya MENAMBAH unit baru untuk cabangnya sendiri; unit yang sudah ada tidak diubah
  */
-export type UioUploadMode = "replace" | "merge";
+export type UioUploadMode = "replace" | "merge" | "branch_add";
 export type UioPrepared = {
   validation: import("@/lib/parse/uioUnits").UioValidation;
   /** Jumlah unit yang akan disimpan. */
@@ -141,51 +149,96 @@ export type UioPrepared = {
   /** Sheet lain di file yang juga berisi tabel unit (untuk dipilih). */
   sheets: { name: string; rows: number }[];
   mode: UioUploadMode;
-  /** Mode tambah/perbarui: perbandingan dengan isi database berdasarkan Serial Number. */
-  merge?: { updated: number; added: number; noSerial: number; existing: number };
-  /** pin = PIN admin (wajib untuk mode Ganti semua). */
-  commit: (onProgress?: (text: string) => void, pin?: string) => Promise<Result>;
+  /** Perbandingan dengan isi database (mode merge / branch_add). */
+  merge?: {
+    updated: number;
+    added: number;
+    noSerial: number;
+    existing: number;
+    /** Cabang: baris cabang lain / unit yang sudah ada (tidak diubah). */
+    otherBranch?: number;
+    exists?: number;
+    /** Engine Number sudah dipakai unit lain di database. */
+    engineDup?: number;
+    branch?: string;
+  };
+  commit: (onProgress?: (text: string) => void) => Promise<Result>;
 };
 
-/** Kunci Product::Serial yang sudah ada di database (untuk mode tambah/perbarui). */
-async function existingUioKeys(): Promise<Set<string>> {
+/** Unit yang sudah ada di database: kunci Product::Serial dan Engine Number (untuk mode tambah/perbarui & cabang).
+ * Diambil per rentang id (fetchAll) supaya tidak kena "statement timeout" di tabel besar. */
+async function existingUio(): Promise<{ keys: Set<string>; engines: Map<string, string> }> {
   const { supabaseBrowser } = await import("@/lib/supabase/client");
-  const keys = new Set<string>();
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabaseBrowser.from("uio_units").select("dedupe_key").order("id").range(from, from + 999);
-    if (error) throw new Error("Gagal membaca Data UIO yang sudah ada: " + error.message);
-    (data || []).forEach((r: { dedupe_key: string | null }) => {
-      if (r.dedupe_key && !r.dedupe_key.startsWith("no-serial::")) keys.add(r.dedupe_key);
-    });
-    if (!data || data.length < 1000) break;
+  const { fetchAll } = await import("@/lib/fetchDashboardDataShared");
+  type R = { id: number; dedupe_key: string | null; engine_number?: string | null };
+  let rows: R[];
+  try {
+    rows = await fetchAll<R>(supabaseBrowser, "uio_units", "id", "id, dedupe_key, engine_number");
+  } catch (err) {
+    // Kolom engine_number belum ada (migration v28 belum dijalankan).
+    if (!/engine_number/i.test((err as Error).message || "")) throw new Error("Gagal membaca Data UIO yang sudah ada: " + (err as Error).message);
+    rows = await fetchAll<R>(supabaseBrowser, "uio_units", "id", "id, dedupe_key");
   }
-  return keys;
+  const keys = new Set<string>();
+  const engines = new Map<string, string>();
+  rows.forEach((r) => {
+    if (r.dedupe_key && !r.dedupe_key.startsWith("no-serial::")) keys.add(r.dedupe_key);
+    if (r.engine_number && r.dedupe_key) engines.set(String(r.engine_number).trim().toUpperCase(), r.dedupe_key);
+  });
+  return { keys, engines };
 }
 
 export async function prepareUioUpload(
   file: File,
   mode: UioUploadMode = "merge",
-  sheet?: string,
-  known?: import("@/lib/parse/uioUnits").UioKnown
+  sheet: string | undefined,
+  known: import("@/lib/parse/uioUnits").UioKnown | undefined,
+  auth: UploadAuth
 ): Promise<{ ok: true; prep: UioPrepared } | { ok: false; message: string }> {
   try {
+    if (auth.role === "branch") mode = "branch_add";
+    else if (mode === "branch_add") mode = "merge";
     const XLSX = await import("@e965/xlsx");
     const { parseUioUnitsWorkbook, canonicalizeUnits } = await import("@/lib/parse/uioUnits");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
     const parsed = parseUioUnitsWorkbook(wb, { minYear: uioMinYear(), sheet, known });
     const { uioSerialKey } = await import("@/lib/uioKey");
+    const issues = parsed.validation.issues;
+    /** Tambah satu baris ringkasan pemeriksaan (dengan nomor baris Excel). */
+    const addIssue = (level: "penting" | "info", field: string, message: string, rowsNo: number[]) => {
+      if (rowsNo.length === 0) return;
+      issues.unshift({ field, level, message, count: rowsNo.length, rows: rowsNo.slice(0, 15) });
+    };
 
-    // Mode tambah/perbarui: hanya unit dengan Serial Number valid (bisa dicocokkan) yang disimpan.
     let merge: UioPrepared["merge"];
-    if (mode === "merge") {
-      const existing = await existingUioKeys();
+    if (mode !== "replace") {
+      const { keys: existing, engines } = await existingUio();
       const seen = new Set<string>();
-      let updated = 0, added = 0, noSerial = 0;
+      let updated = 0, added = 0;
+      const noSerialRows: number[] = [], otherRows: number[] = [], existRows: number[] = [], engineRows: number[] = [];
+      const own = auth.role === "branch" ? auth.branch.trim().toUpperCase() : "";
       const keep = parsed.rows.filter((r) => {
         const k = uioSerialKey(r.product, r.serial_number);
         if (!k) {
-          noSerial++;
+          noSerialRows.push(r.row_no ?? 0);
+          return false;
+        }
+        if (own) {
+          const b = String(r.branch ?? "").trim().toUpperCase();
+          if (b && b !== own) {
+            otherRows.push(r.row_no ?? 0);
+            return false;
+          }
+          r.branch = own;
+          if (existing.has(k)) {
+            existRows.push(r.row_no ?? 0);
+            return false;
+          }
+        }
+        const e = r.engine_number ? engines.get(r.engine_number) : undefined;
+        if (e && e !== k) {
+          engineRows.push(r.row_no ?? 0);
           return false;
         }
         if (!seen.has(k)) {
@@ -196,13 +249,33 @@ export async function prepareUioUpload(
         return true;
       });
       parsed.rows = keep;
-      merge = { updated, added, noSerial, existing: existing.size };
+      addIssue("penting", "Engine Number", "Engine Number sudah dipakai unit lain di database (Serial Number berbeda) — dianggap unit yang sama, baris tidak disimpan. Hubungi admin bila perlu diubah", engineRows);
+      if (own) {
+        addIssue("penting", "Serial Number", "Serial Number sudah ada di database — unit yang sudah ada tidak bisa diubah dari akun cabang, baris tidak disimpan. Hubungi admin untuk mengubahnya", existRows);
+        addIssue("penting", "Branch", `Branch bukan ${own} — akun cabang hanya bisa menambah unit cabangnya sendiri, baris tidak disimpan`, otherRows);
+      }
+      addIssue("penting", "Serial Number", "Serial Number kosong — tidak bisa dicek dobel, baris tidak disimpan (mode ini wajib Serial Number)", noSerialRows);
+      merge = {
+        updated,
+        added,
+        noSerial: noSerialRows.length,
+        existing: existing.size,
+        otherBranch: otherRows.length,
+        exists: existRows.length,
+        engineDup: engineRows.length,
+        branch: own || undefined
+      };
       if (keep.length === 0) {
-        return { ok: false, message: `Tidak ada unit dengan Serial Number yang bisa dicocokkan (${noSerial} baris tanpa Serial Number). Mode tambah/perbarui butuh Serial Number.` };
+        return {
+          ok: false,
+          message: own
+            ? `Tidak ada unit baru yang bisa disimpan untuk cabang ${own}: ${noSerialRows.length} baris tanpa Serial Number, ${otherRows.length} baris cabang lain, ${existRows.length} unit sudah ada${engineRows.length ? `, ${engineRows.length} Engine Number sudah ada` : ""}.`
+            : `Tidak ada unit dengan Serial Number yang bisa dicocokkan (${noSerialRows.length} baris tanpa Serial Number${engineRows.length ? `, ${engineRows.length} Engine Number sudah ada` : ""}). Mode tambah/perbarui butuh Serial Number.`
+        };
       }
     }
 
-    const commit = async (onProgress?: (text: string) => void, pin = ""): Promise<Result> => {
+    const commit = async (onProgress?: (text: string) => void): Promise<Result> => {
       try {
         onProgress?.("Menyamakan nama customer dengan Master Customer…");
         const { supabaseBrowser } = await import("@/lib/supabase/client");
@@ -214,18 +287,45 @@ export async function prepareUioUpload(
           if (!data || data.length < 1000) break;
         }
         const mapped = canonicalizeUnits(parsed.rows, canon);
+        const send = mapped.rows.map(({ row_no: _r, ...x }) => x);
 
         const url = "/api/upload/uio-units-chunk";
-        const { since } = await post(url, { action: "start", mode, pin });
-        for (let i = 0; i < mapped.rows.length; i += CHUNK) {
-          onProgress?.(`Mengirim ${Math.min(i + CHUNK, mapped.rows.length).toLocaleString("id-ID")} / ${mapped.rows.length.toLocaleString("id-ID")} unit…`);
-          await post(url, { action: "rows", rows: mapped.rows.slice(i, i + CHUNK), filename: file.name, mode, since });
+        const { since } = await post(url, { action: "start", mode, auth });
+        let saved = 0;
+        const rej = { otherBranch: 0, noSerial: 0, exists: 0, engine: 0 };
+        for (let i = 0; i < send.length; i += CHUNK) {
+          onProgress?.(`Mengirim ${Math.min(i + CHUNK, send.length).toLocaleString("id-ID")} / ${send.length.toLocaleString("id-ID")} unit…`);
+          const j = await post(url, { action: "rows", rows: send.slice(i, i + CHUNK), filename: file.name, mode, since, auth });
+          saved += Number(j.count) || 0;
+          (Object.keys(rej) as (keyof typeof rej)[]).forEach((k) => (rej[k] += Number(j.rejected?.[k]) || 0));
         }
-        const fin = await post(url, { action: "finish", filename: file.name, total: mapped.rows.length, sheet: parsed.sheetName, mode, since, pin });
+        const before = parsed.validation.totalRows;
+        const rejected = before - saved;
+        const fin = await post(url, {
+          action: "finish",
+          filename: file.name,
+          total: send.length,
+          sheet: parsed.sheetName,
+          mode,
+          since,
+          auth,
+          summary: {
+            saved,
+            rejected: Math.max(0, rejected),
+            note: merge
+              ? [
+                  merge.noSerial + rej.noSerial ? `${merge.noSerial + rej.noSerial} tanpa Serial Number` : "",
+                  (merge.otherBranch ?? 0) + rej.otherBranch ? `${(merge.otherBranch ?? 0) + rej.otherBranch} cabang lain` : "",
+                  (merge.exists ?? 0) + rej.exists ? `${(merge.exists ?? 0) + rej.exists} sudah ada` : "",
+                  (merge.engineDup ?? 0) + rej.engine ? `${(merge.engineDup ?? 0) + rej.engine} Engine Number dobel` : ""
+                ].filter(Boolean).join(", ")
+              : ""
+          }
+        });
         return {
           ok: true,
           message: {
-            rowCount: mapped.rows.length,
+            rowCount: saved,
             skipped: parsed.skipped,
             returns: parsed.returns,
             beforeMinYear: parsed.beforeMinYear,
@@ -236,6 +336,7 @@ export async function prepareUioUpload(
             unmatched: mapped.unmatched,
             mode,
             merge,
+            serverRejected: rej,
             totalInDb: fin?.rowCount ?? null,
             removed: fin?.removed ?? 0
           }
@@ -251,9 +352,9 @@ export async function prepareUioUpload(
 }
 
 /** Data UIO tanpa jeda pemeriksaan (baca + simpan sekaligus). Mengganti seluruh Data UIO. */
-export async function uploadUioUnits(file: File, onProgress?: (text: string) => void): Promise<Result> {
+export async function uploadUioUnits(file: File, auth: UploadAuth, onProgress?: (text: string) => void): Promise<Result> {
   onProgress?.("Membaca file (bisa beberapa puluh detik)…");
-  const r = await prepareUioUpload(file);
+  const r = await prepareUioUpload(file, "replace", undefined, undefined, auth);
   if (!r.ok) return { ok: false, message: r.message };
   return r.prep.commit(onProgress);
 }
@@ -295,7 +396,7 @@ export async function uploadPricesChunked(
 
     for (let i = 0; i < rows.length; i += CHUNK) {
       onProgress?.(`Menyimpan harga ${Math.min(i + CHUNK, rows.length).toLocaleString("id-ID")} / ${rows.length.toLocaleString("id-ID")}…`);
-      await post(url, { action: "rows", kind, mode, since, filename: file.name, rows: rows.slice(i, i + CHUNK) });
+      await post(url, { action: "rows", kind, mode, since, pin, filename: file.name, rows: rows.slice(i, i + CHUNK) });
     }
     onProgress?.(mode === "replace" ? "Menghapus harga lama…" : "Menyelesaikan…");
     const fin = await post(url, { action: "finish", kind, mode, pin, since, filename: file.name, rowCount: rows.length, discount });

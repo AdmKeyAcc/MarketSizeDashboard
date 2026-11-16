@@ -1,4 +1,4 @@
-import { replacePinError } from "@/lib/adminPin";
+import { authUpload } from "@/lib/uploadAuth";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/server";
 import { chunkedUpsert } from "@/lib/supabase/bulk";
@@ -54,11 +54,9 @@ export async function POST(request: Request) {
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
 
-    // Mode "Ganti semua" wajib PIN admin: dicek di awal (sebelum ada data dikirim) dan sebelum data lama dihapus.
-    if (body.action === "start" || body.action === "finish") {
-      const pinErr = await replacePinError(body.mode === "replace" || (body as { replace?: unknown }).replace ? "replace" : body.mode, (body as { pin?: unknown }).pin);
-      if (pinErr) return NextResponse.json({ error: pinErr.error }, { status: pinErr.status });
-    }
+    // Master Part hanya bisa diubah admin: PIN dicek di SETIAP request (start, rows, finish).
+    const a = await authUpload((body as { auth?: Record<string, unknown> }).auth ?? { role: "admin", pin: (body as { pin?: unknown }).pin }, false);
+    if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
 
     if (body.action === "start") {
       return NextResponse.json({ ok: true, since: now });

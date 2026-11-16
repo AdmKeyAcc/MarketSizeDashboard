@@ -114,6 +114,8 @@ export type UioUnit = {
   month_year?: number | null;
   /** Price Type unit: "Kontrak" / "SCPL" / "Non-Kontrak" (migration v24). Kosong = aturan lama. */
   price_type?: string | null;
+  /** Engine Number (opsional, migration v28). */
+  engine_number?: string | null;
 };
 
 /** Harga per Part Number, opsional beda per Customer Group (kontrak harga

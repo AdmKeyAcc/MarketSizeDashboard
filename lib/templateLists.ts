@@ -36,8 +36,21 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
     if (t(p.model)) s.add(t(p.model));
     if (t(p.part_number)) pns.add(t(p.part_number));
   });
+  const byB = new Map<string, { names: Set<string>; groups: Set<string>; pss: Set<string>; codes: Set<string> }>();
+  const bAdd = (b: string | null | undefined, k: "names" | "groups" | "pss" | "codes", v: string | null | undefined) => {
+    const bb = t(b).toUpperCase();
+    const vv = k === "codes" ? t(v).toUpperCase() : t(v);
+    if (!bb || !vv) return;
+    let e = byB.get(bb);
+    if (!e) byB.set(bb, (e = { names: new Set(), groups: new Set(), pss: new Set(), codes: new Set() }));
+    e[k].add(vv);
+  };
   d.uioUnits.forEach((u) => {
     addModel(u.product, u.model);
+    bAdd(u.branch, "names", u.customer_name);
+    bAdd(u.branch, "groups", u.customer_group);
+    bAdd(u.branch, "pss", u.pss_name);
+    bAdd(u.branch, "codes", u.customer_code);
     if (t(u.branch)) branches.add(t(u.branch).toUpperCase());
     if (t(u.pss_name)) pss.add(t(u.pss_name));
     if (t(u.customer_group)) groups.add(t(u.customer_group));
@@ -50,6 +63,10 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
   d.customers.forEach((c) => {
     if (t(c.customer_code)) codes.add(t(c.customer_code).toUpperCase());
     if (t(c.cabang)) branches.add(t(c.cabang).toUpperCase());
+    bAdd(c.cabang, "names", c.customer_name);
+    bAdd(c.cabang, "groups", c.customer_group);
+    bAdd(c.cabang, "pss", c.pss);
+    bAdd(c.cabang, "codes", c.customer_code);
     if (t(c.pss)) pss.add(t(c.pss));
     if (t(c.customer_group)) groups.add(t(c.customer_group));
     if (t(c.customer_name)) names.add(t(c.customer_name));
@@ -78,6 +95,7 @@ export function buildTemplateLists(d: DashboardData): TemplateLists {
     partNumbers: arr(pns),
     codes: arr(codes),
     partModelsByProduct,
-    contractCodes: Array.from(codesWithContract(d.priceList).keys()).sort()
+    contractCodes: Array.from(codesWithContract(d.priceList).keys()).sort(),
+    byBranch: Object.fromEntries(Array.from(byB.entries()).map(([b, e]) => [b, { names: arr(e.names), groups: arr(e.groups), pss: arr(e.pss), codes: arr(e.codes) }]))
   };
 }
