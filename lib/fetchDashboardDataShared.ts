@@ -15,12 +15,45 @@ import { buildReferences, type References } from "@/lib/references";
 
 const PAGE_SIZE = 1000;
 
+/** Ulangi request yang gagal sementara (statement timeout, koneksi putus) — maks. 4 kali dengan jeda bertambah. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function withRetry<R>(label: string, run: () => PromiseLike<{ data: any; error: { message: string } | null }>): Promise<R | null> {
+  let last = "";
+  for (let i = 0; i < 4; i++) {
+    const { data, error } = await run();
+    if (!error) return (data ?? null) as R | null;
+    last = error.message;
+    if (!/timeout|canceling statement|fetch|network|503|502|504/i.test(last)) break;
+    await new Promise((r) => setTimeout(r, 600 * (i + 1)));
+  }
+  throw new Error(`${label}: ${last}`);
+}
+
+async function runPool<T>(jobs: (() => Promise<T>)[], par: number): Promise<T[]> {
+  const out: T[] = new Array(jobs.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(par, jobs.length) }, async () => {
+      while (next < jobs.length) {
+        const i = next++;
+        out[i] = await jobs[i]();
+      }
+    })
+  );
+  return out;
+}
+
 /**
  * Supabase caps a single `select` at 1000 rows by default. `uio_units` in
  * particular can hold tens of thousands of rows (one per physical unit),
- * so every table here is paged through with `.range()` until a page comes
- * back short — fetching only the first 1000 rows of a 70k-row table would
- * silently make every chart built from it wrong.
+ * so every table here is paged through until a page comes back short —
+ * fetching only the first 1000 rows of a 70k-row table would silently make
+ * every chart built from it wrong.
+ *
+ * Tabel ber-`id` diambil per RENTANG id (`id >= a and id < b`), bukan OFFSET: OFFSET besar
+ * (mis. baris ke-70.000) membuat Postgres membaca ulang semua baris sebelumnya dan bisa
+ * kena "statement timeout" setelah upload besar. Rentang id selalu cepat (pakai primary key),
+ * dan beberapa rentang diambil sekaligus (paralel). Request yang timeout diulang otomatis.
  */
 export async function fetchAll<T>(
   supabase: SupabaseClient,
@@ -28,31 +61,42 @@ export async function fetchAll<T>(
   orderBy = "id",
   select = "*"
 ): Promise<T[]> {
-  // .order() is required for pagination to be stable across pages — without
-  // it Postgres can return rows in a different order per request, which
-  // would silently skip or duplicate rows across the .range() calls below.
-  // Halaman diambil beberapa sekaligus (paralel) supaya tabel besar (puluhan ribu baris) cepat termuat;
-  // hasil disusun ulang menurut nomor halaman, jadi urutannya tetap sama.
   const PAR = 6;
-  const pages: T[][] = [];
-  for (let start = 0; ; start += PAR) {
-    const batch = await Promise.all(
-      Array.from({ length: PAR }, async (_, j) => {
-        const from = (start + j) * PAGE_SIZE;
-        const { data, error } = await supabase
-          .from(table)
-          .select(select)
-          .order(orderBy, { ascending: true })
-          .range(from, from + PAGE_SIZE - 1);
-        if (error) throw new Error(`${table}: ${error.message}`);
-        return (data ?? []) as T[];
-      })
-    );
-    pages.push(...batch);
-    if (batch.some((rows) => rows.length < PAGE_SIZE)) break;
+  if (orderBy === "id") {
+    const edge = async (asc: boolean) => {
+      const d = await withRetry<{ id: number }[]>(table, () =>
+        supabase.from(table).select("id").order("id", { ascending: asc }).limit(1)
+      );
+      return d && d.length ? Number(d[0].id) : null;
+    };
+    const [lo, hi] = await Promise.all([edge(true), edge(false)]);
+    if (lo === null || hi === null) return [];
+    const SPAN = 5000; // lebar rentang id per tugas
+    const jobs: (() => Promise<T[]>)[] = [];
+    for (let a = lo; a <= hi; a += SPAN) {
+      const b = Math.min(a + SPAN, hi + 1);
+      jobs.push(async () => {
+        const got: T[] = [];
+        let from = a;
+        for (;;) {
+          const rows = ((await withRetry<T[]>(table, () =>
+            supabase.from(table).select(select).gte("id", from).lt("id", b).order("id", { ascending: true }).limit(PAGE_SIZE)
+          )) ?? []) as T[];
+          got.push(...rows);
+          if (rows.length < PAGE_SIZE) break;
+          from = Number((rows[rows.length - 1] as unknown as { id: number }).id) + 1;
+        }
+        return got;
+      });
+    }
+    return (await runPool(jobs, PAR)).flat();
   }
+  // Tabel tanpa id (mis. app_meta, kecil): OFFSET biasa, urut stabil lewat .order().
   const all: T[] = [];
-  for (const rows of pages) {
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const rows = ((await withRetry<T[]>(table, () =>
+      supabase.from(table).select(select).order(orderBy, { ascending: true }).range(from, from + PAGE_SIZE - 1)
+    )) ?? []) as T[];
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
   }
