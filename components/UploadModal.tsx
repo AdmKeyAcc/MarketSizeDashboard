@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { EMPTY_LISTS, type TemplateLists } from "@/lib/downloadTemplates";
 
 /** Daftar pilihan dropdown template (dari data website). */
@@ -32,6 +32,7 @@ export type UploadCounts = {
 };
 
 type Mode = "merge" | "replace";
+type Tab = "uio" | "price" | "parts" | "actual" | "admin";
 
 const fmt = (n: number) => n.toLocaleString("id-ID");
 const fmtDate = (iso: string | null | undefined) => {
@@ -190,129 +191,129 @@ function UioCheck({
   );
 }
 
-/** Pilihan cara upload — sama untuk semua jenis data. */
-function ModeChoice({ name, mode, onChange, matchBy, busy, fixed }: { name: string; mode: Mode; onChange: (m: Mode) => void; matchBy: string; busy: boolean; fixed?: React.ReactNode }) {
-  if (fixed) {
-    return (
-      <div className="upload-mode">
-        <div className="upload-mode-opts">
-          <span className="upload-mode-label">Cara upload:</span> {fixed}
-        </div>
-      </div>
-    );
-  }
+/** Pilihan cara upload — keterangan langsung di label supaya tidak salah paham. */
+function ModeChoice({ name, mode, onChange, matchBy, busy, unit }: { name: string; mode: Mode; onChange: (m: Mode) => void; matchBy: string; busy: boolean; unit: string }) {
   return (
-    <div className="upload-mode">
-      <div className="upload-mode-opts" role="radiogroup" aria-label="Cara upload">
-        <span className="upload-mode-label">Cara upload:</span>
-        <label
-          className={mode === "merge" ? "on" : ""}
-          title={`Dicocokkan per ${matchBy}: yang sudah ada diperbarui, yang baru ditambahkan, data lain tidak diubah.`}
-        >
-          <input type="radio" name={name} checked={mode === "merge"} disabled={busy} onChange={() => onChange("merge")} />
-          Tambah / perbarui
-        </label>
-        <label
-          className={mode === "replace" ? "on replace" : ""}
-          title="Isi file menjadi data lengkap: data lama yang tidak ada di file dihapus (setelah isi file tersimpan)."
-        >
-          <input type="radio" name={name} checked={mode === "replace"} disabled={busy} onChange={() => onChange("replace")} />
-          Ganti semua
-        </label>
-      </div>
+    <div className="mode-cards" role="radiogroup" aria-label="Cara upload">
+      <label className={"mode-card" + (mode === "merge" ? " on" : "")}>
+        <input type="radio" name={name} checked={mode === "merge"} disabled={busy} onChange={() => onChange("merge")} />
+        <span>
+          <b>Tambah / perbarui</b> <span className="mode-tag">disarankan</span>
+          <span className="mode-desc">
+            Dicocokkan per {matchBy}: yang sudah ada diperbarui, yang baru ditambahkan. {unit} lain di website <b>tidak berubah</b>.
+          </span>
+        </span>
+      </label>
+      <label className={"mode-card danger" + (mode === "replace" ? " on" : "")}>
+        <input type="radio" name={name} checked={mode === "replace"} disabled={busy} onChange={() => onChange("replace")} />
+        <span>
+          <b>Ganti semua</b>
+          <span className="mode-desc">
+            Isi file dianggap data lengkap — {unit} di website yang <b>tidak ada di file akan dihapus</b>. Pakai hanya bila file berisi seluruh data.
+          </span>
+        </span>
+      </label>
     </div>
   );
 }
 
-function Slot({
+/** Satu jenis data: info data saat ini, lalu langkah ① siapkan file ② cara upload ③ pilih file. */
+function DataCard({
   title,
-  hint,
+  desc,
   count,
   countUnit,
   lastFile,
   updatedAt,
   download,
+  onTemplate,
+  templateLabel = "⤓ Unduh template",
+  mode,
   status,
   busy,
   onPick,
-  onTemplate,
   extra,
-  mode,
-  onMode,
-  matchBy,
   accept = ".xlsx,.xls",
-  locked,
-  fixedMode
+  children,
+  showCount = true
 }: {
   title: string;
-  hint?: React.ReactNode;
+  desc?: React.ReactNode;
   count: number;
   countUnit: string;
   lastFile?: string | null;
-  /** Waktu upload terakhir (ISO). */
   updatedAt?: string | null;
-  /** Kalau diisi, muncul tombol "Download data saat ini". */
   download?: DownloadKind;
+  onTemplate?: () => void;
+  templateLabel?: string;
+  /** Langkah ② (pilihan cara upload, atau teks tetap untuk akun cabang). */
+  mode: React.ReactNode;
   status: SlotStatus;
   busy: boolean;
-  /** Dipanggil setelah file dipilih — file DIPERIKSA dulu, belum disimpan. */
-  onPick: (file: File, mode: Mode) => void;
-  onTemplate?: () => void;
-  mode: Mode;
-  onMode: (m: Mode) => void;
-  /** Kunci pencocokan mode tambah / perbarui, mis. "Serial Number". */
-  matchBy: string;
-  /** Panel pemeriksaan file (tampil di atas tombol Pilih File). */
+  onPick: (file: File) => void;
+  /** Hasil pemeriksaan file (tampil setelah file dipilih). */
   extra?: React.ReactNode;
   accept?: string;
-  /** Belum masuk (admin / cabang) → file tidak bisa dipilih. */
-  locked?: string | null;
-  /** Cara upload tetap (akun cabang). */
-  fixedMode?: React.ReactNode;
+  /** Isi tambahan di atas langkah (mis. pilihan jenis harga). */
+  children?: React.ReactNode;
+  /** false = tanpa label jumlah data (akun cabang: jumlah total semua cabang bisa membingungkan). */
+  showCount?: boolean;
 }) {
   const when = fmtDate(updatedAt);
   return (
-    <div className="upload-slot">
-      <h4>{title}</h4>
-      {hint && <div className="hint">{hint}</div>}
-      <ModeChoice name={`mode-${title}`} mode={mode} onChange={onMode} matchBy={matchBy} busy={busy || !!locked} fixed={fixedMode} />
-      {extra}
-      <div className="upload-row upload-file-row">
-        <input
-          type="file"
-          className="file-input"
-          accept={accept}
-          disabled={busy || !!locked}
-          title={locked || undefined}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onPick(f, mode);
-            e.target.value = "";
-          }}
-        />
-        <span className="last-file" title={lastFile ? `${lastFile}${when ? ` · ${when}` : ""} · ${fmt(count)} ${countUnit} tersimpan` : undefined}>
-          {lastFile ? (
-            <>
-              File terakhir: <b>{lastFile}</b>
-              {when ? ` · ${when}` : ""} · {fmt(count)} {countUnit}
-            </>
-          ) : count > 0 ? (
-            `${fmt(count)} ${countUnit} tersimpan`
-          ) : (
-            "Belum ada data"
-          )}
-        </span>
+    <div className="data-card">
+      <div className="data-card-head">
+        <h4>{title}</h4>
+        {showCount && <span className={"data-badge" + (count > 0 ? " ok" : " empty")}>{count > 0 ? `${fmt(count)} ${countUnit}` : "Belum ada data"}</span>}
       </div>
-      <div className="slot-actions">
-        {onTemplate && (
-          <button type="button" className="slot-btn" onClick={onTemplate}>
-            ⤓ Unduh template
-          </button>
-        )}
-        {download && count > 0 && <DownloadButton kind={download} busy={busy} />}
+      {desc && <div className="hint">{desc}</div>}
+      {lastFile && (
+        <div className="hint">
+          File terakhir: <b>{lastFile}</b>
+          {when ? ` · ${when}` : ""}
+        </div>
+      )}
+      {children}
+      <div className="step">
+        <span className="step-no">1</span>
+        <div className="step-body">
+          <div className="step-title">Siapkan file</div>
+          <div className="slot-actions">
+            {onTemplate && (
+              <button type="button" className="slot-btn" onClick={onTemplate}>
+                {templateLabel}
+              </button>
+            )}
+            {download && count > 0 && <DownloadButton kind={download} busy={busy} />}
+          </div>
+        </div>
       </div>
-      {locked && <div className="hint">🔒 {locked}</div>}
-      {status && <div className={"upload-status " + (status.ok ? "ok" : "err")}>{status.text}</div>}
+      <div className="step">
+        <span className="step-no">2</span>
+        <div className="step-body">
+          <div className="step-title">Cara upload</div>
+          {mode}
+        </div>
+      </div>
+      <div className="step">
+        <span className="step-no">3</span>
+        <div className="step-body">
+          <div className="step-title">Pilih file — diperiksa dulu, belum disimpan</div>
+          <input
+            type="file"
+            className="file-input"
+            accept={accept}
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onPick(f);
+              e.target.value = "";
+            }}
+          />
+          {extra}
+          {status && <div className={"upload-status " + (status.ok ? "ok" : "err")}>{status.text}</div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -323,24 +324,7 @@ function SignIn({ branches, auth, onAuth, busy }: { branches: string[]; auth: Up
   const [branch, setBranch] = useState("");
   const [secret, setSecret] = useState("");
   const [state, setState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
-  if (auth) {
-    return (
-      <div className="signin on">
-        {auth.role === "admin" ? (
-          <>
-            ✔ Masuk sebagai <b>Admin</b> — bisa menambah, mengubah, mengganti semua data.
-          </>
-        ) : (
-          <>
-            ✔ Masuk sebagai <b>cabang {auth.branch}</b> — bisa menambah unit baru Data UIO cabang {auth.branch}. Mengubah / menghapus data hanya oleh admin.
-          </>
-        )}{" "}
-        <button type="button" className="link-btn" disabled={busy} onClick={() => onAuth(null)}>
-          Keluar
-        </button>
-      </div>
-    );
-  }
+  if (auth) return null;
   const go = async () => {
     const a: UploadAuth = role === "admin" ? { role: "admin", pin: secret } : { role: "branch", branch, code: secret.trim().toUpperCase() };
     setState({ loading: true, error: null });
@@ -401,7 +385,6 @@ function SignIn({ branches, auth, onAuth, busy }: { branches: string[]; auth: Up
 
 /** Admin: buat / cabut kode akses cabang, dan lihat riwayat upload. */
 function AdminPanel({ pin, branches }: { pin: string; branches: string[] }) {
-  const [open, setOpen] = useState(false);
   const [list, setList] = useState<{ branch: string; updated_at: string }[] | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [fresh, setFresh] = useState<{ branch: string; code: string } | null>(null);
@@ -434,23 +417,17 @@ function AdminPanel({ pin, branches }: { pin: string; branches: string[] }) {
       setMsg({ text: (err as Error).message, ok: false });
     }
   };
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const has = new Set((list || []).map((x) => x.branch));
   const KIND: Record<string, string> = { uio: "Data UIO", price_contract: "Harga Kontrak", price_non_contract: "Harga Non Kontrak", parts: "Master Part" };
   const MODE: Record<string, string> = { merge: "tambah/perbarui", replace: "ganti semua", branch_add: "tambah unit (cabang)" };
   return (
     <>
-      <button
-        type="button"
-        className="upload-group-toggle"
-        onClick={() => {
-          setOpen((v) => !v);
-          if (!open && list === null) load();
-        }}
-      >
-        <span>{open ? "▾" : "▸"}</span> Admin — kode akses cabang &amp; riwayat upload
-      </button>
-      {open && (
-        <div className="upload-slot">
+      {(
+        <div className="data-card">
           <h4>Kode akses cabang</h4>
           <div className="hint">
             Buat kode untuk tiap cabang lalu berikan ke orang cabang. Kode hanya tampil sekali (yang disimpan hanya sandinya). Membuat kode baru otomatis
@@ -485,7 +462,11 @@ function AdminPanel({ pin, branches }: { pin: string; branches: string[] }) {
             <div className="hint">Cabang yang punya akses: {list.map((x) => x.branch).join(", ")}</div>
           )}
           {msg && <div className={"upload-status " + (msg.ok ? "ok" : "err")}>{msg.text}</div>}
-          <h4 style={{ marginTop: 12 }}>Riwayat upload terakhir</h4>
+          </div>
+      )}
+      {(
+        <div className="data-card">
+          <h4>Riwayat upload terakhir</h4>
           {log === null ? (
             <div className="hint">Memuat…</div>
           ) : log.length === 0 ? (
@@ -573,7 +554,6 @@ export default function UploadModal({
   const [stContract, setStContract] = useState<SlotStatus>(null);
   const [stNonContract, setStNonContract] = useState<SlotStatus>(null);
   const [stSync, setStSync] = useState<SlotStatus>(null);
-  const [masterOpen, setMasterOpen] = useState(false);
   // File Harga / Master Part yang sudah diperiksa, menunggu keputusan "Lanjutkan upload" / "Perbaiki file".
   type Pend = { file: File; mode: Mode; check: FileCheck } | null;
   const [pend, setPend] = useState<Record<CheckKind, Pend>>({ contract: null, non_contract: null, parts: null });
@@ -588,13 +568,13 @@ export default function UploadModal({
   const [busy, setBusy] = useState(false);
   // Siapa yang upload (disimpan di memori selama halaman terbuka; tidak disimpan di browser).
   const [auth, setAuth] = useState<UploadAuth | null>(null);
+  const [tab, setTab] = useState<Tab>("uio");
+  const [priceKind, setPriceKind] = useState<"contract" | "non_contract">("contract");
 
   if (!open) return null;
   const isAdm = auth?.role === "admin";
   const isBranch = auth?.role === "branch";
   const pin = auth?.role === "admin" ? auth.pin : "";
-  const lockedText = !auth ? "Masuk dulu (cabang atau admin) untuk upload." : null;
-  const adminOnly = !auth ? lockedText : isBranch ? "Khusus admin — akun cabang hanya bisa menambah Data UIO." : null;
   const pacBranches = lists.branches.filter((b) => !(lists.excludedBranches || []).includes(b));
 
   async function run(setStatus: (s: SlotStatus) => void, task: () => Promise<Result>, success: (j: any) => string) {
@@ -722,189 +702,253 @@ export default function UploadModal({
   const syncedAt = meta.actual_year_synced_at ? new Date(meta.actual_year_synced_at) : null;
   const dataUntil = meta.actual_year_max_date ? new Date(meta.actual_year_max_date) : null;
 
+  const uioCard = (
+    <DataCard
+      title={isBranch ? `Tambah unit Data UIO — cabang ${auth.branch}` : "Data UIO"}
+      desc={
+        isBranch ? (
+          <>
+            Unit baru cabang {auth.branch} saja. Unit yang sudah ada di website tidak bisa diubah dari akun cabang — hubungi admin untuk mengubah / menghapus.
+          </>
+        ) : (
+          "Populasi unit per customer (Product, Model, Serial Number, Year/Month BAST, jam operasi)."
+        )
+      }
+      count={counts.uioUnits}
+      countUnit="unit"
+      showCount={!isBranch}
+      lastFile={isBranch ? null : meta.uio_units_filename ? `${meta.uio_units_filename}${modeTag(meta.uio_units_mode)}` : null}
+      updatedAt={meta.uio_units_updated_at}
+      download={isBranch ? undefined : "uio"}
+      onTemplate={() => downloadUioTemplate(lists, isBranch ? auth.branch : null)}
+      templateLabel={isBranch ? `⤓ Unduh template cabang ${auth.branch}` : "⤓ Unduh template"}
+      mode={
+        isBranch ? (
+          <div className="mode-fixed">
+            <b>Tambah unit baru</b> — hanya unit cabang {auth.branch} dengan Serial Number yang belum ada di website. Kolom Branch boleh kosong.
+          </div>
+        ) : (
+          <ModeChoice name="mode-uio" mode={modes.uio} onChange={setMode("uio")} matchBy="Product + Serial Number / Engine Number" busy={busy} unit="Unit" />
+        )
+      }
+      status={stUio}
+      busy={busy}
+      onPick={(f) => pickUio(f, modes.uio)}
+      extra={
+        uioPending && (
+          <UioCheck
+            prep={uioPending}
+            busy={busy}
+            onContinue={() => {
+              const prep = uioPending;
+              setUioPending(null);
+              run(setStUio, () => prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
+            }}
+            onSheet={(sh) => {
+              const last = uioFileRef.current;
+              if (last) pickUio(last.file, last.mode, sh);
+            }}
+            onCancel={() => {
+              setUioPending(null);
+              setStUio({ text: "Upload dibatalkan — tidak ada data yang diubah.", ok: false });
+            }}
+          />
+        )
+      }
+    />
+  );
+
+  const pk = priceKind;
+  const priceCard = (
+    <DataCard
+      key={pk}
+      title={pk === "contract" ? "Data Harga Kontrak / SCPL" : "Data Harga Non Kontrak"}
+      desc={
+        pk === "contract"
+          ? "Harga nett per Customer Code + Part Number (dipakai untuk unit ber-Price Type Kontrak / SCPL)."
+          : "Harga tertera (pricelist) per Part Number — sistem otomatis memotong 50% (sesuai pengaturan) saat upload."
+      }
+      count={pk === "contract" ? counts.contractPrices : counts.nonContractPrices}
+      countUnit="harga"
+      lastFile={priceFile(pk)}
+      updatedAt={priceAt(pk)}
+      download={pk}
+      onTemplate={() => (pk === "contract" ? downloadContractPriceTemplate(lists) : downloadNonContractPriceTemplate(lists))}
+      mode={
+        <ModeChoice
+          name={`mode-${pk}`}
+          mode={modes[pk]}
+          onChange={setMode(pk)}
+          matchBy={pk === "contract" ? "Customer Code + Part Number + Price Type" : "Part Number"}
+          busy={busy}
+          unit="Harga"
+        />
+      }
+      status={pk === "contract" ? stContract : stNonContract}
+      busy={busy}
+      onPick={(f) => pickChecked(pk, pk === "contract" ? setStContract : setStNonContract, f, modes[pk])}
+      extra={
+        pk === "contract"
+          ? checkPanel("contract", setStContract, counts.contractPrices, "harga kontrak / SCPL", "Part Number + Customer Code + Price Type", (f, m, p) =>
+              run(setStContract, () => uploadPricesChunked("contract", f, m, p, (t) => setStContract({ text: t, ok: true })), (j) =>
+                `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${j.noCode ? ` (${fmt(j.noCode)} baris tanpa Cust. Code dilewati — Customer Code wajib)` : ""}${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
+              )
+            )
+          : checkPanel("non_contract", setStNonContract, counts.nonContractPrices, "harga non kontrak", "Part Number", (f, m, p) =>
+              run(setStNonContract, () => uploadPricesChunked("non_contract", f, m, p, (t) => setStNonContract({ text: t, ok: true })), (j) =>
+                `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
+              )
+            )
+      }
+    >
+      <div className="seg" role="tablist" aria-label="Jenis harga">
+        {(["contract", "non_contract"] as const).map((k) => (
+          <button key={k} type="button" role="tab" aria-selected={pk === k} className={pk === k ? "on" : ""} disabled={busy} onClick={() => setPriceKind(k)}>
+            {k === "contract" ? `Kontrak / SCPL (${fmt(counts.contractPrices)})` : `Non Kontrak (${fmt(counts.nonContractPrices)})`}
+          </button>
+        ))}
+      </div>
+    </DataCard>
+  );
+
+  const partsCard = (
+    <DataCard
+      title="Master Part"
+      desc="Daftar part per model: Qty per Unit dan Frekuensi Ganti (HM). Jarang berubah — upload hanya bila ada part / model baru atau koreksi."
+      count={counts.parts}
+      countUnit="part"
+      lastFile={meta.kalkulator_filename ? `${meta.kalkulator_filename}${modeTag(meta.kalkulator_mode)}` : null}
+      updatedAt={meta.kalkulator_updated_at}
+      download="parts"
+      onTemplate={() => downloadMasterPartTemplate(lists)}
+      mode={<ModeChoice name="mode-parts" mode={modes.parts} onChange={setMode("parts")} matchBy="Product + Model + Part Number" busy={busy} unit="Part" />}
+      status={stPart}
+      busy={busy}
+      accept=".xlsx,.xls,.csv"
+      onPick={(f) => pickChecked("parts", setStPart, f, modes.parts)}
+      extra={checkPanel("parts", setStPart, counts.parts, "part", "Product + Model + Part Number", (f, m, p) =>
+        run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true }), m, p), (j) =>
+          `Berhasil: ${fmt(j.rowCount)} part dari file —${mergeText(j, "part")}${dupText(j)}${skippedText(j)}`
+        )
+      )}
+    />
+  );
+
+  const actualCard = (
+    <div className="data-card">
+      <div className="data-card-head">
+        <h4>Actual Sales — otomatis dari web Sales</h4>
+        <span className={"data-badge" + (counts.actualSales > 0 ? " ok" : " empty")}>{syncedAt ? "Tersinkron" : "Belum sinkron"}</span>
+      </div>
+      <div className="hint">Tidak perlu upload. Data diambil otomatis tiap jam dari web Sales — cukup input di web Sales.</div>
+      <div className="hint">
+        {syncedAt
+          ? `Sinkron terakhir: ${syncedAt.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
+            `${dataUntil ? ` · data web Sales sampai ${dataUntil.toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}`
+          : "Belum pernah sinkron"}
+      </div>
+      <div className="slot-actions">
+        <button
+          type="button"
+          className="slot-btn"
+          disabled={busy}
+          title="Tidak wajib — sinkron otomatis jalan tiap jam. Pakai kalau baru input di web Sales dan ingin langsung terlihat."
+          onClick={() => run(setStSync, () => syncActualSales("recent", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+        >
+          ⟳ Sinkron sekarang
+        </button>
+        {counts.actualSales > 0 && (
+          <DownloadButton kind="actual" busy={busy} label="⬇ Download Actual" title="Unduh Actual per tahun × customer × product (dengan rincian bulan) untuk dicocokkan dengan web Sales." />
+        )}
+      </div>
+      <div className="danger-zone">
+        <div className="danger-zone-title">Jarang dipakai</div>
+        <div className="hint">Mengisi ulang Actual semua tahun sejak 2018 (beberapa menit). Hanya perlu setelah perubahan aturan atau koreksi data lama di web Sales.</div>
+        <button
+          type="button"
+          className="slot-btn"
+          disabled={busy}
+          onClick={() => run(setStSync, () => syncActualSales("all", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
+        >
+          ⟳ Sinkron ulang semua tahun
+        </button>
+      </div>
+      {stSync && <div className={"upload-status " + (stSync.ok ? "ok" : "err")}>{stSync.text}</div>}
+    </div>
+  );
+
+  const TABS: { k: Tab; label: string; ok: boolean | null }[] = [
+    { k: "uio", label: "Data UIO", ok: counts.uioUnits > 0 },
+    { k: "price", label: "Data Harga", ok: counts.contractPrices + counts.nonContractPrices > 0 },
+    { k: "parts", label: "Master Part", ok: counts.parts > 0 },
+    { k: "actual", label: "Actual Sales", ok: counts.actualSales > 0 },
+    { k: "admin", label: "Kode akses & riwayat", ok: null }
+  ];
+
   return (
     <ListsCtx.Provider value={lists}>
-    <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
-        </button>
-        <h3>Upload data</h3>
-
-        <SignIn branches={pacBranches} auth={auth} busy={busy} onAuth={(a) => {
-          setAuth(a);
-          setUioPending(null);
-          setPend({ contract: null, non_contract: null, parts: null });
-        }} />
-
-        {missing.length > 0 && (
-          <div className="upload-warn">
-            ⚠ <b>{missing.join(", ")}</b> belum ada, jadi market size belum bisa dihitung.
-            {counts.parts === 0 && (
-              <>
-                {" "}Master Part ada di bagian <b>Data master</b> di bawah.
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="upload-group-title">Data utama</div>
-
-        <Slot
-          title="1. Data UIO"
-          count={counts.uioUnits}
-          countUnit="unit"
-          lastFile={meta.uio_units_filename ? `${meta.uio_units_filename}${modeTag(meta.uio_units_mode)}` : null}
-          updatedAt={meta.uio_units_updated_at}
-          download="uio"
-          status={stUio}
-          busy={busy}
-          onPick={pickUio}
-          mode={modes.uio}
-          onMode={setMode("uio")}
-          matchBy="Product + Serial Number (atau Engine Number)"
-          locked={lockedText}
-          fixedMode={isBranch ? <b>Tambah unit baru — cabang {auth.branch}</b> : undefined}
-          extra={
-            <>
-            {uioPending && (
-              <UioCheck
-                prep={uioPending}
-                busy={busy}
-                onContinue={() => {
-                  const prep = uioPending;
+    <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal upload-modal">
+        <div className="upload-head">
+          <h3>Upload data</h3>
+          {auth && (
+            <span className="who">
+              {isAdm ? "Admin" : `Cabang ${auth.role === "branch" ? auth.branch : ""}`}
+              <button
+                type="button"
+                className="link-btn"
+                disabled={busy}
+                onClick={() => {
+                  setAuth(null);
                   setUioPending(null);
-                  run(setStUio, () => prep.commit((t) => setStUio({ text: t, ok: true })), uioDoneText);
+                  setPend({ contract: null, non_contract: null, parts: null });
                 }}
-                onSheet={(sh) => {
-                  const last = uioFileRef.current;
-                  if (last) pickUio(last.file, last.mode, sh);
-                }}
-                onCancel={() => {
-                  setUioPending(null);
-                  setStUio({ text: "Upload dibatalkan — tidak ada data yang diubah.", ok: false });
-                }}
-              />
-            )}
-            </>
-          }
-          onTemplate={() => downloadUioTemplate(lists, isBranch ? auth.branch : null)}
-        />
-
-        <Slot
-          title="2. Data Harga Kontrak / SCPL"
-          count={counts.contractPrices}
-          countUnit="harga kontrak / SCPL"
-          lastFile={priceFile("contract")}
-          updatedAt={priceAt("contract")}
-          mode={modes.contract}
-          onMode={setMode("contract")}
-          matchBy="Part Number + Customer Code + Price Type"
-          download="contract"
-          status={stContract}
-          busy={busy}
-          locked={adminOnly}
-          extra={checkPanel("contract", setStContract, counts.contractPrices, "harga kontrak / SCPL", "Part Number + Customer Code + Price Type", (f, m, pin) =>
-            run(setStContract, () => uploadPricesChunked("contract", f, m, pin, (t) => setStContract({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} harga kontrak / SCPL dari file${j.noCode ? ` (${fmt(j.noCode)} baris tanpa Cust. Code dilewati — Customer Code wajib)` : ""}${typeof j.scpl === "number" ? ` (${fmt(j.rowCount - j.scpl)} Kontrak, ${fmt(j.scpl)} SCPL)` : ""} —${mergeText(j, "harga")}${dupText(j)}${skippedText(j)}`
-            )
+              >
+                Keluar
+              </button>
+            </span>
           )}
-          onPick={(f, m) => pickChecked("contract", setStContract, f, m)}
-          onTemplate={() => downloadContractPriceTemplate(lists)}
-        />
+          <button className="modal-close" onClick={onClose} disabled={busy} aria-label="Tutup">
+            ✕
+          </button>
+        </div>
 
-        <Slot
-          title="3. Data Harga Non Kontrak"
-          count={counts.nonContractPrices}
-          countUnit="harga non kontrak"
-          lastFile={priceFile("non_contract")}
-          updatedAt={priceAt("non_contract")}
-          mode={modes.non_contract}
-          onMode={setMode("non_contract")}
-          matchBy="Part Number"
-          download="non_contract"
-          status={stNonContract}
-          busy={busy}
-          locked={adminOnly}
-          extra={checkPanel("non_contract", setStNonContract, counts.nonContractPrices, "harga non kontrak", "Part Number", (f, m, pin) =>
-            run(setStNonContract, () => uploadPricesChunked("non_contract", f, m, pin, (t) => setStNonContract({ text: t, ok: true })), (j) =>
-              `Berhasil: ${fmt(j.rowCount)} harga non kontrak dari file (harga − ${Math.round((typeof j.discount === "number" ? j.discount : 0.5) * 100)}%) —${mergeText(j, "harga non kontrak")}${dupText(j)}${skippedText(j)}`
-            )
-          )}
-          onPick={(f, m) => pickChecked("non_contract", setStNonContract, f, m)}
-          onTemplate={() => downloadNonContractPriceTemplate(lists)}
-        />
-
-        <button type="button" className="upload-group-toggle" onClick={() => setMasterOpen((v) => !v)}>
-          <span>{masterOpen ? "▾" : "▸"}</span> Data master — upload hanya jika ada perubahan
-          {!masterOpen && counts.parts === 0 && <span className="upload-group-badge">perlu diisi</span>}
-        </button>
-
-        {masterOpen && (
-          <Slot
-            title="Master Part — daftar part per model"
-            count={counts.parts}
-            countUnit="part"
-            lastFile={meta.kalkulator_filename ? `${meta.kalkulator_filename}${modeTag(meta.kalkulator_mode)}` : null}
-            updatedAt={meta.kalkulator_updated_at}
-            mode={modes.parts}
-            onMode={setMode("parts")}
-            matchBy="Product + Model + Part Number"
-            download="parts"
-            status={stPart}
+        {!auth && (
+          <SignIn
+            branches={pacBranches}
+            auth={auth}
             busy={busy}
-            locked={adminOnly}
-            extra={checkPanel("parts", setStPart, counts.parts, "part", "Product + Model + Part Number", (f, m, pin) =>
-              run(setStPart, () => uploadMasterPart(f, (t) => setStPart({ text: t, ok: true }), m, pin), (j) =>
-                `Berhasil: ${fmt(j.rowCount)} part dari file —${mergeText(j, "part")}${dupText(j)}${skippedText(j)}`
-              )
-            )}
-            onPick={(f, m) => pickChecked("parts", setStPart, f, m)}
-            onTemplate={() => downloadMasterPartTemplate(lists)}
-            accept=".xlsx,.xls,.csv"
+            onAuth={(a) => {
+              setAuth(a);
+              setTab("uio");
+            }}
           />
         )}
 
-        {isAdm && <AdminPanel pin={pin} branches={pacBranches} />}
+        {isBranch && uioCard}
 
-        <div className="upload-group-title">Otomatis — tidak perlu upload</div>
-
-        <div className="upload-slot">
-          <h4>Actual Sales — tersinkron dari web Sales</h4>
-          <div className="hint">
-            Diambil otomatis tiap jam dari data penjualan di web Sales — admin cukup menginput di web Sales, tidak perlu menekan tombol apa pun.
-          </div>
-          <div className="last-file" style={{ marginBottom: 8 }}>
-            {syncedAt
-              ? `Sinkron terakhir: ${syncedAt.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` +
-                `${dataUntil ? ` · data web Sales sampai ${dataUntil.toLocaleDateString("id-ID", { dateStyle: "medium" })}` : ""}`
-              : "Belum pernah sinkron"}
-          </div>
-          <div className="slot-actions">
-            <button
-              type="button"
-              className="slot-btn"
-              disabled={busy}
-              title="Tidak wajib — sinkron otomatis jalan tiap jam. Pakai kalau baru input di web Sales dan ingin langsung terlihat."
-              onClick={() => run(setStSync, () => syncActualSales("recent", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
-            >
-              ⟳ Sinkron sekarang
-            </button>
-            {counts.actualSales > 0 && (
-              <DownloadButton kind="actual" busy={busy} title="Unduh Actual per tahun × customer × product (dengan rincian bulan) untuk dicocokkan dengan web Sales." />
+        {isAdm && (
+          <>
+            {missing.length > 0 && (
+              <div className="upload-warn">
+                ⚠ <b>{missing.join(", ")}</b> belum ada, jadi Market Size belum bisa dihitung.
+              </div>
             )}
-            <button
-              type="button"
-              className="slot-btn"
-              disabled={busy || !isAdm}
-              title="Khusus admin. Mengisi ulang Actual semua tahun sejak 2018 (beberapa menit). Perlu setelah update aturan/rumus atau kalau data lama di web Sales dikoreksi."
-              onClick={() => run(setStSync, () => syncActualSales("all", (t) => setStSync({ text: t, ok: true })), (m) => `Berhasil. ${m}`)}
-            >
-              ⟳ Sinkron ulang semua tahun
-            </button>
-          </div>
-          {stSync && <div className={"upload-status " + (stSync.ok ? "ok" : "err")}>{stSync.text}</div>}
-        </div>
+            <div className="upload-tabs" role="tablist" aria-label="Jenis data">
+              {TABS.map((t) => (
+                <button key={t.k} type="button" role="tab" aria-selected={tab === t.k} className={tab === t.k ? "on" : ""} disabled={busy} onClick={() => setTab(t.k)}>
+                  {t.ok !== null && <span className={"dot" + (t.ok ? " ok" : " empty")} aria-hidden />}
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {tab === "uio" && uioCard}
+            {tab === "price" && priceCard}
+            {tab === "parts" && partsCard}
+            {tab === "actual" && actualCard}
+            {tab === "admin" && <AdminPanel pin={pin} branches={pacBranches} />}
+          </>
+        )}
       </div>
     </div>
     </ListsCtx.Provider>
