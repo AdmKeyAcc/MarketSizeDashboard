@@ -42,8 +42,8 @@ const n = (v: unknown): number | null => {
 };
 
 /** Serial Number valid = kunci satu unit fisik; tanpa serial valid dapat kunci acak (selalu baris baru). */
-function dedupeKey(product: string | null, serial: string | null): string {
-  return uioSerialKey(product, serial) ?? `no-serial::${randomUUID()}`;
+function dedupeKey(product: string | null, serial: string | null, model: string | null): string {
+  return uioSerialKey(product, serial, model) ?? `no-serial::${randomUUID()}`;
 }
 
 /** Engine Number dinormalkan (huruf besar, tanpa spasi); kosong / placeholder / < 3 karakter → null. */
@@ -58,7 +58,7 @@ function engineKey(v: unknown): string | null {
  * Hak akses (dicek di server untuk setiap potongan):
  *   - admin (PIN): merge = tambah / perbarui, replace = ganti semua.
  *   - cabang (kode akses): selalu branch_add — hanya unit BARU untuk cabangnya sendiri, wajib Serial Number;
- *     unit yang Serial Number / Engine Number-nya sudah ada di database tidak diubah.
+ *     unit yang sudah ada di database (Product + Model + Serial Number sama) tidak diubah.
  */
 export async function POST(request: Request) {
   try {
@@ -125,12 +125,13 @@ export async function POST(request: Request) {
 
     // Dalam satu potongan, key yang sama tidak boleh muncul dua kali (upsert menolaknya): ambil yang terakhir.
     const byKey = new Map<string, Record<string, unknown>>();
-    const rejected = { otherBranch: 0, noSerial: 0, exists: 0, engine: 0 };
+    const rejected = { otherBranch: 0, noSerial: 0, exists: 0 };
     rows.forEach((r) => {
       const product = s(r.product)?.toUpperCase() ?? null;
       if (!product) return;
       const serial = s(r.serial_number);
-      const validKey = uioSerialKey(product, serial);
+      const model = s(r.model);
+      const validKey = uioSerialKey(product, serial, model);
       // Tambah/perbarui & cabang: unit tanpa Serial Number valid tidak bisa dicocokkan → tidak disimpan (mencegah data ganda).
       if (mode !== "replace" && !validKey) {
         rejected.noSerial++;
@@ -145,7 +146,7 @@ export async function POST(request: Request) {
         }
         branch = who.branch;
       }
-      const key = validKey ?? dedupeKey(product, serial);
+      const key = validKey ?? dedupeKey(product, serial, model);
       byKey.set(key, {
         dedupe_key: key,
         year: n(r.year),
@@ -174,34 +175,11 @@ export async function POST(request: Request) {
         uploaded_at: sinceOk ?? now
       });
     });
-    let clean = Array.from(byKey.values());
-    let engineCol = true;
-    // Engine Number sudah dipakai unit LAIN (Product + Serial Number berbeda) di database → dianggap unit yang sama, tidak disimpan.
-    if (mode !== "replace") {
-      const engines = Array.from(new Set(clean.map((r) => r.engine_number as string | null).filter((e): e is string => !!e)));
-      const owner = new Map<string, string>();
-      for (let i = 0; i < engines.length; i += 300) {
-        const q = await supabase.from("uio_units").select("dedupe_key, engine_number").in("engine_number", engines.slice(i, i + 300));
-        if (q.error) {
-          if (/engine_number/i.test(q.error.message || "")) engineCol = false;
-          break;
-        }
-        (q.data || []).forEach((x: { dedupe_key: string; engine_number: string | null }) => x.engine_number && owner.set(x.engine_number, x.dedupe_key));
-      }
-      clean = clean.filter((r) => {
-        const e = r.engine_number as string | null;
-        const o = e ? owner.get(e) : undefined;
-        if (o && o !== r.dedupe_key) {
-          rejected.engine++;
-          return false;
-        }
-        return true;
-      });
-    }
+    const clean = Array.from(byKey.values());
     const strip = (xs: Record<string, unknown>[], cols: string[]) => xs.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !cols.includes(k))));
     let saved = 0;
     if (clean.length > 0) {
-      const drop: string[] = engineCol ? [] : ["engine_number"];
+      const drop: string[] = [];
       for (let attempt = 0; attempt < 3; attempt++) {
         const payload = strip(clean, drop);
         // Cabang: hanya MENAMBAH — Serial Number yang sudah ada dibiarkan (ignoreDuplicates), tidak ditimpa.

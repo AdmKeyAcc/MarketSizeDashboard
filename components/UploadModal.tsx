@@ -167,9 +167,9 @@ function UioCheck({
         prep.mode === "branch_add" && mg ? (
           <>
             ＋ <b>Tambah unit baru — cabang {mg.branch}</b>: <b>{fmt(mg.added)}</b> unit baru akan disimpan. Unit yang sudah ada di website tidak diubah
-            {(mg.exists ?? 0) + (mg.otherBranch ?? 0) + mg.noSerial + (mg.engineDup ?? 0) > 0 && (
+            {(mg.exists ?? 0) + (mg.otherBranch ?? 0) + mg.noSerial > 0 && (
               <>
-                {" "}— <b>{fmt((mg.exists ?? 0) + (mg.otherBranch ?? 0) + mg.noSerial + (mg.engineDup ?? 0))} baris tidak disimpan</b> (rinciannya di bawah)
+                {" "}— <b>{fmt((mg.exists ?? 0) + (mg.otherBranch ?? 0) + mg.noSerial)} baris tidak disimpan</b> (rinciannya di bawah)
               </>
             )}
             .
@@ -179,7 +179,6 @@ function UioCheck({
             ⟳ <b>Tambah / perbarui</b> (dicocokkan dengan Serial Number): <b>{fmt(mg.updated)}</b> unit diperbarui, <b>{fmt(mg.added)}</b> unit baru.
             Unit lain di database ({fmt(Math.max(mg.existing - mg.updated, 0))}) tidak diubah.
             {mg.noSerial > 0 && <> ⚠ <b>{fmt(mg.noSerial)} baris tanpa Serial Number</b> tidak disimpan (gunakan Ganti semua bila perlu).</>}
-            {(mg.engineDup ?? 0) > 0 && <> ⚠ <b>{fmt(mg.engineDup ?? 0)} baris</b> Engine Number-nya sudah dipakai unit lain, tidak disimpan.</>}
           </>
         ) : (
           <>
@@ -594,7 +593,7 @@ export default function UploadModal({
     j.mode === "branch_add"
       ? `Berhasil: ${fmt(j.rowCount)} unit baru cabang ${j.merge?.branch ?? ""} disimpan.${
           (j.serverRejected?.exists ?? 0) > 0 ? ` ${fmt(j.serverRejected.exists)} unit ternyata sudah ada (tidak diubah).` : ""
-        }${(j.serverRejected?.engine ?? 0) > 0 ? ` ${fmt(j.serverRejected.engine)} unit Engine Number-nya sudah ada (tidak disimpan).` : ""}${
+        }${
           typeof j.totalInDb === "number" ? ` Total Data UIO sekarang ${fmt(j.totalInDb)} unit.` : ""
         } Untuk mengubah / menghapus unit, hubungi admin.`
       : `Berhasil: ${fmt(j.rowCount)} unit disimpan (sheet "${j.sheet}"). Nama customer: ${fmt(j.exact)} sudah cocok, ${fmt(j.remapped)} disamakan dengan Master Customer, ${fmt(j.unmatched)} tidak ditemukan di master.${
@@ -725,10 +724,10 @@ export default function UploadModal({
       mode={
         isBranch ? (
           <div className="mode-fixed">
-            <b>Tambah unit baru</b> — hanya unit cabang {auth.branch} dengan Serial Number yang belum ada di website. Kolom Branch boleh kosong.
+            <b>Tambah unit baru</b> — hanya unit cabang {auth.branch} yang belum ada di website (Product + Model + Serial Number). Kolom Branch boleh kosong.
           </div>
         ) : (
-          <ModeChoice name="mode-uio" mode={modes.uio} onChange={setMode("uio")} matchBy="Product + Serial Number / Engine Number" busy={busy} unit="Unit" />
+          <ModeChoice name="mode-uio" mode={modes.uio} onChange={setMode("uio")} matchBy="Product + Model + Serial Number" busy={busy} unit="Unit" />
         )
       }
       status={stUio}

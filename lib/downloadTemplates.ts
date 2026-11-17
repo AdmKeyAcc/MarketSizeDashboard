@@ -272,13 +272,13 @@ export function uioRules(L: TemplateLists): Record<number, ColRule> {
     5: { kind: "list", values: L.custTypes, strict: true },
     7: { kind: "list", values: L.products, strict: true, hint: "Pilih Product dari dropdown." },
     8: { kind: "dependent", parentCol: 7, map: L.modelsByProduct, strict: false },
-    9: { kind: "unique" },
+    9: { kind: "unique", hint: "Product + Model + Serial Number sama = unit yang sama (disimpan satu kali). Serial sama dengan Model berbeda dianggap unit berbeda." },
     10: { kind: "whole", min: 1980, max: thisYear() + 1 },
     11: { kind: "whole", min: 1, max: 12 },
     12: { kind: "decimal", min: 0, max: 24 },
     13: { kind: "whole", min: 1, max: 31 },
-    14: { kind: "whole", min: 1, max: 12 },
-    15: { kind: "unique", hint: "Engine Number (opsional). Unit dengan Engine Number sama dianggap unit yang sama." }
+    14: { kind: "whole", min: 1, max: 12 }
+    // 15: Engine Number — opsional, hanya info (tidak dipakai menentukan unit dobel).
   };
 }
 export function contractRules(L: TemplateLists): Record<number, ColRule> {

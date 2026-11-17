@@ -158,34 +158,31 @@ export type UioPrepared = {
     /** Cabang: baris cabang lain / unit yang sudah ada (tidak diubah). */
     otherBranch?: number;
     exists?: number;
-    /** Engine Number sudah dipakai unit lain di database. */
-    engineDup?: number;
     branch?: string;
   };
   commit: (onProgress?: (text: string) => void) => Promise<Result>;
 };
 
-/** Unit yang sudah ada di database: kunci Product::Serial dan Engine Number (untuk mode tambah/perbarui & cabang).
+/** Unit yang sudah ada di database: kunci Product + Model + Serial Number (lib/uioKey), dihitung ulang dari kolomnya
+ * (bukan dari dedupe_key lama) supaya tetap benar walau data lama di-upload dengan aturan kunci sebelumnya.
  * Diambil per rentang id (fetchAll) supaya tidak kena "statement timeout" di tabel besar. */
-async function existingUio(): Promise<{ keys: Set<string>; engines: Map<string, string> }> {
+async function existingUio(): Promise<{ keys: Set<string> }> {
   const { supabaseBrowser } = await import("@/lib/supabase/client");
   const { fetchAll } = await import("@/lib/fetchDashboardDataShared");
-  type R = { id: number; dedupe_key: string | null; engine_number?: string | null };
+  const { uioSerialKey } = await import("@/lib/uioKey");
+  type R = { id: number; product: string | null; model: string | null; serial_number: string | null };
   let rows: R[];
   try {
-    rows = await fetchAll<R>(supabaseBrowser, "uio_units", "id", "id, dedupe_key, engine_number");
+    rows = await fetchAll<R>(supabaseBrowser, "uio_units", "id", "id, product, model, serial_number");
   } catch (err) {
-    // Kolom engine_number belum ada (migration v28 belum dijalankan).
-    if (!/engine_number/i.test((err as Error).message || "")) throw new Error("Gagal membaca Data UIO yang sudah ada: " + (err as Error).message);
-    rows = await fetchAll<R>(supabaseBrowser, "uio_units", "id", "id, dedupe_key");
+    throw new Error("Gagal membaca Data UIO yang sudah ada: " + (err as Error).message);
   }
   const keys = new Set<string>();
-  const engines = new Map<string, string>();
   rows.forEach((r) => {
-    if (r.dedupe_key && !r.dedupe_key.startsWith("no-serial::")) keys.add(r.dedupe_key);
-    if (r.engine_number && r.dedupe_key) engines.set(String(r.engine_number).trim().toUpperCase(), r.dedupe_key);
+    const k = uioSerialKey(r.product, r.serial_number, r.model);
+    if (k) keys.add(k);
   });
-  return { keys, engines };
+  return { keys };
 }
 
 export async function prepareUioUpload(
@@ -213,13 +210,13 @@ export async function prepareUioUpload(
 
     let merge: UioPrepared["merge"];
     if (mode !== "replace") {
-      const { keys: existing, engines } = await existingUio();
+      const { keys: existing } = await existingUio();
       const seen = new Set<string>();
       let updated = 0, added = 0;
-      const noSerialRows: number[] = [], otherRows: number[] = [], existRows: number[] = [], engineRows: number[] = [];
+      const noSerialRows: number[] = [], otherRows: number[] = [], existRows: number[] = [];
       const own = auth.role === "branch" ? auth.branch.trim().toUpperCase() : "";
       const keep = parsed.rows.filter((r) => {
-        const k = uioSerialKey(r.product, r.serial_number);
+        const k = uioSerialKey(r.product, r.serial_number, r.model);
         if (!k) {
           noSerialRows.push(r.row_no ?? 0);
           return false;
@@ -236,11 +233,6 @@ export async function prepareUioUpload(
             return false;
           }
         }
-        const e = r.engine_number ? engines.get(r.engine_number) : undefined;
-        if (e && e !== k) {
-          engineRows.push(r.row_no ?? 0);
-          return false;
-        }
         if (!seen.has(k)) {
           seen.add(k);
           if (existing.has(k)) updated++;
@@ -249,9 +241,8 @@ export async function prepareUioUpload(
         return true;
       });
       parsed.rows = keep;
-      addIssue("penting", "Engine Number", "Engine Number sudah dipakai unit lain di database (Serial Number berbeda) — dianggap unit yang sama, baris tidak disimpan. Hubungi admin bila perlu diubah", engineRows);
       if (own) {
-        addIssue("penting", "Serial Number", "Serial Number sudah ada di database — unit yang sudah ada tidak bisa diubah dari akun cabang, baris tidak disimpan. Hubungi admin untuk mengubahnya", existRows);
+        addIssue("penting", "Serial Number", "Unit (Product + Model + Serial Number) sudah ada di database — unit yang sudah ada tidak bisa diubah dari akun cabang, baris tidak disimpan. Hubungi admin untuk mengubahnya", existRows);
         addIssue("penting", "Branch", `Branch bukan ${own} — akun cabang hanya bisa menambah unit cabangnya sendiri, baris tidak disimpan`, otherRows);
       }
       addIssue("penting", "Serial Number", "Serial Number kosong — tidak bisa dicek dobel, baris tidak disimpan (mode ini wajib Serial Number)", noSerialRows);
@@ -262,15 +253,14 @@ export async function prepareUioUpload(
         existing: existing.size,
         otherBranch: otherRows.length,
         exists: existRows.length,
-        engineDup: engineRows.length,
         branch: own || undefined
       };
       if (keep.length === 0) {
         return {
           ok: false,
           message: own
-            ? `Tidak ada unit baru yang bisa disimpan untuk cabang ${own}: ${noSerialRows.length} baris tanpa Serial Number, ${otherRows.length} baris cabang lain, ${existRows.length} unit sudah ada${engineRows.length ? `, ${engineRows.length} Engine Number sudah ada` : ""}.`
-            : `Tidak ada unit dengan Serial Number yang bisa dicocokkan (${noSerialRows.length} baris tanpa Serial Number${engineRows.length ? `, ${engineRows.length} Engine Number sudah ada` : ""}). Mode tambah/perbarui butuh Serial Number.`
+            ? `Tidak ada unit baru yang bisa disimpan untuk cabang ${own}: ${noSerialRows.length} baris tanpa Serial Number, ${otherRows.length} baris cabang lain, ${existRows.length} unit sudah ada.`
+            : `Tidak ada unit dengan Serial Number yang bisa dicocokkan (${noSerialRows.length} baris tanpa Serial Number). Mode tambah/perbarui butuh Serial Number.`
         };
       }
     }
@@ -292,7 +282,7 @@ export async function prepareUioUpload(
         const url = "/api/upload/uio-units-chunk";
         const { since } = await post(url, { action: "start", mode, auth });
         let saved = 0;
-        const rej = { otherBranch: 0, noSerial: 0, exists: 0, engine: 0 };
+        const rej = { otherBranch: 0, noSerial: 0, exists: 0 };
         for (let i = 0; i < send.length; i += CHUNK) {
           onProgress?.(`Mengirim ${Math.min(i + CHUNK, send.length).toLocaleString("id-ID")} / ${send.length.toLocaleString("id-ID")} unit…`);
           const j = await post(url, { action: "rows", rows: send.slice(i, i + CHUNK), filename: file.name, mode, since, auth });
@@ -316,8 +306,7 @@ export async function prepareUioUpload(
               ? [
                   merge.noSerial + rej.noSerial ? `${merge.noSerial + rej.noSerial} tanpa Serial Number` : "",
                   (merge.otherBranch ?? 0) + rej.otherBranch ? `${(merge.otherBranch ?? 0) + rej.otherBranch} cabang lain` : "",
-                  (merge.exists ?? 0) + rej.exists ? `${(merge.exists ?? 0) + rej.exists} sudah ada` : "",
-                  (merge.engineDup ?? 0) + rej.engine ? `${(merge.engineDup ?? 0) + rej.engine} Engine Number dobel` : ""
+                  (merge.exists ?? 0) + rej.exists ? `${(merge.exists ?? 0) + rej.exists} sudah ada` : ""
                 ].filter(Boolean).join(", ")
               : ""
           }

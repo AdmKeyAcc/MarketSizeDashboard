@@ -251,9 +251,9 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
 
   const parsed: UioUnitParsed[] = [];
   const seenRow = new Map<string, number>();
-  const seenSerial = new Map<string, number>();
+  const seenSerial = new Map<string, { row: number; idx: number }>();
   const seenZero = new Map<string, { raw: string; row: number }>();
-  const seenEngine = new Map<string, { row: number; key: string; idx: number }>();
+  const seenSerialModel = new Map<string, { row: number; model: string }>();
   const dropIdx = new Set<number>();
   let duplicates = 0;
   let conflictSerial = 0;
@@ -469,28 +469,52 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       price_type: pt ? PRICE_TYPE_LABEL[pt] : null,
       engine_number: engineKey(engineRaw)
     };
-    // ---- baris dobel ----
-    // 1) Baris yang isinya sama persis dengan baris lain → disimpan satu kali saja.
+    // ---- baris dobel (lib/uioKey: Product + Model + Serial Number) ----
+    const sk = rec.serial_number ? uioSerialKey(canonicalProduct(rec.product), rec.serial_number, rec.model) : null;
+    // 1) Baris yang isinya sama persis dengan baris lain.
     const sig = JSON.stringify(rec);
     const firstRow = seenRow.get(sig);
     if (firstRow !== undefined) {
-      duplicates++;
-      flag("dup-row", "Baris dobel", "info", `Isi baris sama persis dengan baris lain (mis. baris ${firstRow}) — disimpan satu kali`, rowNo);
-      return;
-    }
-    seenRow.set(sig, rowNo);
-    // 2) Product + Serial Number sama tapi isi lain berbeda → satu unit fisik; yang disimpan baris paling bawah.
-    const sk = rec.serial_number ? uioSerialKey(canonicalProduct(rec.product), rec.serial_number) : null;
+      if (sk) {
+        // Dengan Serial Number → unit yang sama ditulis dua kali: disimpan satu kali.
+        duplicates++;
+        flag("dup-row", "Baris dobel", "info", `Isi baris sama persis dengan baris lain (mis. baris ${firstRow}) — disimpan satu kali`, rowNo);
+        return;
+      }
+      // Tanpa Serial Number → bisa beberapa unit dalam satu invoice: SEMUA disimpan.
+      flag(
+        "twin-noserial",
+        "Baris kembar",
+        "penting",
+        `Isi baris sama persis dengan baris lain (mis. baris ${firstRow}) dan tanpa Serial Number — disimpan semua (dianggap beberapa unit). Kalau ternyata salah tempel, hapus baris yang berlebih`,
+        rowNo
+      );
+    } else seenRow.set(sig, rowNo);
+    // 2) Product + Model + Serial Number sama tapi isi lain berbeda → satu unit fisik (mis. ditagih beberapa kali / termin / invoice ulang).
+    //    Year/Month BAST = yang paling awal (umur unit dihitung dari kemunculan pertama); kolom lain dari baris paling bawah.
     if (sk) {
       const prev = seenSerial.get(sk);
       if (prev !== undefined) {
-        flag("dup-serial", "Serial Number", "penting", `Product + Serial Number sama dengan baris lain (mis. baris ${prev}) tapi isinya berbeda — yang disimpan baris paling bawah`, rowNo);
+        flag("dup-serial", "Serial Number", "info", `Product + Model + Serial Number sama dengan baris ${prev.row} — dianggap satu unit: Year/Month BAST diambil yang paling awal, kolom lain dari baris paling bawah`, rowNo);
         conflictSerial++;
+        const p = parsed[prev.idx];
+        const ym = (y: number | null | undefined, m: number | null | undefined) => (y ?? 9999) * 100 + (m ?? 1);
+        if (ym(p.year, p.month_inv) < ym(rec.year, rec.month_inv)) {
+          rec.year = p.year;
+          rec.month_inv = p.month_inv;
+        }
+        dropIdx.add(prev.idx);
       }
-      seenSerial.set(sk, rowNo);
+      seenSerial.set(sk, { row: rowNo, idx: parsed.length });
+      // Serial sama tapi Model berbeda → unit berbeda (hanya info).
+      const sm = `${canonicalProduct(rec.product)}::${String(rec.serial_number).trim().toUpperCase()}`;
+      const om = seenSerialModel.get(sm);
+      if (om && om.model !== String(rec.model ?? "").trim().toUpperCase())
+        flag("serial-model", "Serial Number", "info", `Serial Number sama dengan baris ${om.row} tapi Model berbeda — dianggap unit berbeda, keduanya disimpan`, rowNo);
+      else if (!om) seenSerialModel.set(sm, { row: rowNo, model: String(rec.model ?? "").trim().toUpperCase() });
       // Serial yang sama kalau nol di depannya diabaikan (mis. "000006916615" dan "6916615") → kemungkinan unit dobel.
       const ser = String(rec.serial_number).trim().toUpperCase();
-      const zk = `${canonicalProduct(rec.product)}::${ser.replace(/^0+(?=.)/, "")}`;
+      const zk = `${canonicalProduct(rec.product)}::${String(rec.model ?? "").trim().toUpperCase()}::${ser.replace(/^0+(?=.)/, "")}`;
       const z = seenZero.get(zk);
       if (z && z.raw !== ser)
         flag("dup-serial-zero", "Serial Number", "penting", `Serial Number "${ser}" sama dengan "${z.raw}" (baris ${z.row}) kalau nol di depan diabaikan — kemungkinan unit yang sama ditulis dua kali`, rowNo);
@@ -498,18 +522,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
       if (/^0{3,}\d/.test(ser))
         flag("serial-zero", "Serial Number", "info", "Serial Number diawali banyak angka 0 — pastikan penulisannya sama dengan data lain (mis. tanpa nol di depan)", rowNo);
     }
-    // 3) Engine Number sama dengan baris lain tapi Product + Serial Number berbeda → unit yang sama; yang disimpan baris paling bawah.
-    const ek = rec.engine_number ?? null;
-    const myKey = sk ?? `row:${rowNo}`;
-    if (ek) {
-      const prevE = seenEngine.get(ek);
-      if (prevE && prevE.key !== myKey) {
-        flag("dup-engine", "Engine Number", "penting", `Engine Number sama dengan baris ${prevE.row} tapi Serial Number berbeda — dianggap unit yang sama, yang disimpan baris paling bawah`, rowNo);
-        dropIdx.add(prevE.idx);
-      }
-    }
+    // Engine Number hanya info (tidak dipakai menentukan dobel).
     rec.row_no = rowNo;
-    if (ek) seenEngine.set(ek, { row: rowNo, key: myKey, idx: parsed.length });
     parsed.push(rec);
   });
 
