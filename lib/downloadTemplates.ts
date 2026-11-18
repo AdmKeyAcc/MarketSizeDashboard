@@ -87,7 +87,7 @@ const DUP_STYLE = { fill: { type: "pattern", pattern: "solid", bgColor: { argb: 
 
 /**
  * Tulis satu atau beberapa sheet (header berwarna, baris judul dibekukan) lalu unduh.
- * Template bebas paste: TANPA dropdown dan tanpa validasi data (tidak ada pop-up / pembatasan isi sel),
+ * Template bebas paste: tanpa pembatasan isi sel (tidak ada pop-up). Dropdown hanya di kolom Price Type, dan itu pun bebas diketik/di-paste;
  * jadi ribuan baris bisa langsung di-paste. Penjaga typo:
  *   - Conditional formatting: sel yang isinya tidak ada di Daftar Pilihan / angka di luar rentang / dobel
  *     otomatis berwarna (hanya penanda). Rumus memakai INDIRECT supaya juga jalan di Google Sheets.
@@ -148,7 +148,23 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: 
       });
       addCf(i, `AND(TRIM(${c})<>"",COUNTIF(INDIRECT("${plain.replace(/"/g, '""')}"),TRIM(${c}))=0)`);
     };
-    Object.entries(sh.lists || {}).forEach(([k, opts]) => listRule(Number(k), opts, true));
+    // Pilihan tetap (Price Type): dropdown TANPA pembatasan — bisa pilih dari dropdown, ketik bebas, atau paste.
+    // showErrorMessage: false → Excel tidak pernah memunculkan pop-up / menolak isian di luar daftar.
+    Object.entries(sh.lists || {}).forEach(([k, opts]) => {
+      const i = Number(k);
+      listRule(i, opts, true);
+      if (opts.length === 0) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ws as any).dataValidations.add(rangeOf(i), {
+        type: "list",
+        allowBlank: true,
+        formulae: [`"${opts.join(",")}"`],
+        showErrorMessage: false,
+        showInputMessage: true,
+        promptTitle: head(i),
+        prompt: `Pilih dari dropdown (${opts.join(" / ")}), atau ketik / paste langsung.`
+      });
+    });
     Object.entries(sh.rules || {}).forEach(([k, r]) => {
       const i = Number(k);
       const c = `${colLetter(i)}2`;
@@ -198,7 +214,7 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: 
   [
     "Cara mengisi template",
     "",
-    "1. Template ini TANPA dropdown: silakan ketik atau paste data sebanyak apa pun langsung dari file lain.",
+    "1. Silakan ketik atau paste data sebanyak apa pun langsung dari file lain. Kolom Price Type punya dropdown, tapi boleh juga diketik / di-paste.",
     "2. Saat paste, sebaiknya pakai Paste Values (Ctrl+Shift+V, atau klik kanan > Paste Special > Values) supaya penanda warna tetap berfungsi.",
     "3. Sel berwarna MERAH = isinya tidak ada di Daftar Pilihan (kemungkinan typo) atau angka di luar rentang. Cek ejaannya di sheet Daftar Pilihan.",
     "4. Sel berwarna ORANYE = nilai dobel (mis. Serial Number yang sama muncul lebih dari sekali).",
