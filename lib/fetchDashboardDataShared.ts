@@ -296,8 +296,74 @@ async function fetchExcludedBranches(supabase: SupabaseClient): Promise<string[]
   return data.map((r: { business_area: string | null }) => String(r.business_area || "").trim().toUpperCase()).filter(Boolean);
 }
 
+/** Kunci Customer Group: huruf besar, spasi rapi, tanpa akhiran "GROUP" / "GRUP" / "GRP". */
+export function groupKey(g: string | null | undefined): string {
+  return String(g ?? "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\s,.\-]*\b(GROUP|GRUP|GRP)\.?$/, "")
+    .trim();
+}
+
+/**
+ * Customer Group yang sama tapi ditulis "X GROUP" / "X" (mis. "BGA GROUP" dan "BGA", "TOLAN TIGA GROUP" dan
+ * "TOLAN TIGA") digabung jadi satu group di semua data yang dimuat (UIO, Master Customer, Actual, Harga),
+ * supaya filter/Summary tidak memecahnya dan Actual-nya bisa dipasangkan dengan unitnya.
+ * Ejaan yang dipakai: ejaan di Actual Sales (web Sales) kalau ada, kalau tidak → yang paling sering di Data UIO.
+ * Hanya berlaku kalau KEDUA ejaan memang ada; "BUMA GROUP" yang tidak punya pasangan "BUMA" tidak diubah.
+ * Isi database tidak diubah.
+ */
+export function unifyCustomerGroups<
+  U extends { customer_group?: string | null },
+  C extends { customer_group?: string | null },
+  A extends { customer_group?: string | null },
+  Q extends { customer_group?: string | null },
+  P extends { customer_group?: string | null }
+>(d: { uio: U[]; customers: C[]; actualSalesYear: A[]; actualQtyYear: Q[]; priceList: P[] }) {
+  const seen = new Map<string, { actual: Map<string, number>; other: Map<string, number> }>();
+  const add = (rows: { customer_group?: string | null }[], actual: boolean) =>
+    rows.forEach((r) => {
+      const raw = String(r.customer_group ?? "").trim();
+      if (!raw) return;
+      const k = groupKey(raw);
+      if (!k) return;
+      let e = seen.get(k);
+      if (!e) seen.set(k, (e = { actual: new Map(), other: new Map() }));
+      const m = actual ? e.actual : e.other;
+      m.set(raw, (m.get(raw) || 0) + 1);
+    });
+  add(d.actualSalesYear, true);
+  add(d.uio, false);
+  add(d.customers, false);
+  add(d.actualQtyYear, false);
+  add(d.priceList, false);
+  const top = (m: Map<string, number>) => Array.from(m.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+  const pick = new Map<string, string>();
+  seen.forEach((e, k) => {
+    const all = new Set([...e.actual.keys(), ...e.other.keys()]);
+    if (all.size > 1) pick.set(k, top(e.actual) ?? top(e.other)!);
+  });
+  const fix = <T extends { customer_group?: string | null }>(rows: T[]): T[] =>
+    pick.size === 0
+      ? rows
+      : rows.map((r) => {
+          const raw = String(r.customer_group ?? "").trim();
+          const to = raw ? pick.get(groupKey(raw)) : undefined;
+          return to !== undefined && to !== r.customer_group ? { ...r, customer_group: to } : r;
+        });
+  return {
+    uio: fix(d.uio),
+    customers: fix(d.customers),
+    actualSalesYear: fix(d.actualSalesYear),
+    actualQtyYear: fix(d.actualQtyYear),
+    priceList: fix(d.priceList),
+    merged: Array.from(pick.entries())
+  };
+}
+
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [partsRaw, customers, actualSalesYear, uioUnitsRaw, priceList, metaRows, references, actualQtyYear, excludedBranches] = await Promise.all([
+  const [partsRaw, customersRaw, actualSalesYearRaw, uioUnitsRaw, priceListRaw, metaRows, references, actualQtyYearRaw, excludedBranches] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<Customer>(supabase, "customers"),
     fetchActualSalesYear(supabase),
@@ -309,7 +375,20 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchExcludedBranches(supabase)
   ]);
   // Nama model yang hanya beda format (spasi / - / _ / /) ditampilkan dengan SATU ejaan.
-  const { parts, uioUnitsAll } = unifyModelNames(partsRaw, uioUnitsRaw);
+  const { parts, uioUnitsAll: uioModelFixed } = unifyModelNames(partsRaw, uioUnitsRaw);
+  // Customer Group "X GROUP" dan "X" (mis. "BGA GROUP" = "BGA") dianggap satu group.
+  const groups = unifyCustomerGroups({
+    uio: uioModelFixed,
+    customers: customersRaw,
+    actualSalesYear: actualSalesYearRaw,
+    actualQtyYear: actualQtyYearRaw,
+    priceList: priceListRaw
+  });
+  const uioUnitsAll = groups.uio;
+  const customers = groups.customers;
+  const actualSalesYear = groups.actualSalesYear;
+  const actualQtyYear = groups.actualQtyYear;
+  const priceList = groups.priceList;
   // Cakupan website = cabang PAC. Unit di cabang yang Actual-nya tidak dihitung (MHB: JKT, SBY, SMG, BDG)
   // juga tidak dihitung di Market Size / UIO, supaya Market Size dan Actual Sales membandingkan cabang yang sama.
   const exSet = new Set(excludedBranches);
