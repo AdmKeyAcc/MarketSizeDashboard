@@ -87,12 +87,12 @@ const DUP_STYLE = { fill: { type: "pattern", pattern: "solid", bgColor: { argb: 
 
 /**
  * Tulis satu atau beberapa sheet (header berwarna, baris judul dibekukan) lalu unduh.
- * Penjaga typo dibuat ramah paste:
- *   - Dropdown tetap ada, tapi hanya PERINGATAN (tidak pernah memblokir), jadi data bisa di-paste sekaligus.
+ * Template bebas paste: TANPA dropdown dan tanpa validasi data (tidak ada pop-up / pembatasan isi sel),
+ * jadi ribuan baris bisa langsung di-paste. Penjaga typo:
  *   - Conditional formatting: sel yang isinya tidak ada di Daftar Pilihan / angka di luar rentang / dobel
- *     otomatis berwarna. Rumus memakai INDIRECT supaya juga jalan di Google Sheets.
+ *     otomatis berwarna (hanya penanda). Rumus memakai INDIRECT supaya juga jalan di Google Sheets.
  *   - Sheet "Daftar Pilihan" terlihat (contekan ejaan) dan sheet "Petunjuk".
- * Pengecekan utama tetap di website saat upload.
+ * Pengecekan utama di website saat upload (ejaan disamakan otomatis, typo diberi saran "mungkin maksudnya …").
  */
 export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: { help?: boolean; note?: string[] } = {}) {
   const ExcelJS = (await import("exceljs")).default;
@@ -126,8 +126,9 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: 
     });
     const last = Math.max(LIST_ROWS, sh.rows.length + 1000);
     const rangeOf = (i: number) => `${colLetter(i)}2:${colLetter(i)}${last}`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const addDv = (i: number, dv: any) => (ws as any).dataValidations.add(rangeOf(i), dv);
+    // Tanpa dropdown / validasi data — template harus bebas paste. Aturan hanya dipakai untuk penanda warna.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+    const addDv = (_i: number, _dv: any) => undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const addCf = (i: number, formula: string, style: any = BAD_STYLE) =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -197,9 +198,9 @@ export async function saveWorkbook(sheets: SheetSpec[], filename: string, opts: 
   [
     "Cara mengisi template",
     "",
-    "1. Boleh mengetik satu per satu (pakai dropdown) atau paste data sekaligus dari file lain.",
-    "2. Saat paste, gunakan Paste Values (Ctrl+Shift+V, atau klik kanan > Paste Special > Values) supaya penanda warna tetap berfungsi.",
-    "3. Sel berwarna MERAH = isinya tidak ada di daftar (kemungkinan typo) atau angka di luar rentang. Cek ejaannya di sheet Daftar Pilihan.",
+    "1. Template ini TANPA dropdown: silakan ketik atau paste data sebanyak apa pun langsung dari file lain.",
+    "2. Saat paste, sebaiknya pakai Paste Values (Ctrl+Shift+V, atau klik kanan > Paste Special > Values) supaya penanda warna tetap berfungsi.",
+    "3. Sel berwarna MERAH = isinya tidak ada di Daftar Pilihan (kemungkinan typo) atau angka di luar rentang. Cek ejaannya di sheet Daftar Pilihan.",
     "4. Sel berwarna ORANYE = nilai dobel (mis. Serial Number yang sama muncul lebih dari sekali).",
     "5. Kalau memang data baru (customer / model baru), sel merah boleh dibiarkan.",
     "6. Saat upload, website mengecek ulang seluruh isi file: ejaan yang hanya beda huruf besar/kecil, spasi atau titik disamakan otomatis,",
