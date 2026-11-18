@@ -1,7 +1,7 @@
 import * as XLSX from "@e965/xlsx";
 import { ParseError } from "./xlsxHelpers";
 import { PRICE_TYPE_LABEL, UIO_PRICE_TYPE_OPTIONS, normCode, normPriceType } from "@/lib/priceType";
-import { companyKey, loose, makeMatcher } from "@/lib/fuzzy";
+import { companyKey, loose, makeMatcher, plausibleCompanyTypo } from "@/lib/fuzzy";
 import { canonicalProduct } from "@/lib/calculations";
 import { uioSerialKey } from "@/lib/uioKey";
 
@@ -207,8 +207,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
   const mType = matcherOf(K?.custTypes);
   // Nama customer: "KAHATEX,PT" dan "PT. KAHATEX" dianggap sama (abaikan PT/CV/Tbk) → disamakan dengan ejaan di website.
   // Nama terpotong (≥ 30 huruf, mis. "…PANDU ENGINEERI" vs "…PANDU ENGINEERING") juga dianggap sama.
-  const mName = K?.names && K.names.length > 0 ? makeMatcher(K.names, companyKey, { truncated: true }) : null;
-  const mGroup = K?.groups && K.groups.length > 0 ? makeMatcher(K.groups, companyKey, { truncated: true }) : null;
+  const mName = K?.names && K.names.length > 0 ? makeMatcher(K.names, companyKey, { truncated: true, accept: plausibleCompanyTypo }) : null;
+  const mGroup = K?.groups && K.groups.length > 0 ? makeMatcher(K.groups, companyKey, { truncated: true, accept: plausibleCompanyTypo }) : null;
   const mPss = matcherOf(K?.pss);
   const mPrice = makeMatcher(UIO_PRICE_TYPE_OPTIONS);
   const mProduct = makeMatcher(Object.keys(K?.partModelsByProduct || {}));
@@ -292,7 +292,9 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const r = m(v);
     if (r.exact !== null) {
       // quietFix: beda hanya PT/CV di depan/belakang, tanda baca, spasi, atau nama terpotong → disamakan tanpa keterangan.
-      if (r.exact !== v && !o.quietFix) {
+      // Beda hanya spasi ganda / huruf besar-kecil → disamakan tanpa keterangan (pesannya membingungkan, mis. "A  B" → "A B").
+      const ws = (x: string) => x.replace(/\s+/g, " ").trim().toUpperCase();
+      if (r.exact !== v && !o.quietFix && ws(r.exact) !== ws(v)) {
         const k = `fixed:${field}`;
         if (!issueMap.has(k)) flag(k, field, "info", `Ejaan ${field} disamakan otomatis dengan data website (contoh: "${v}" → "${r.exact}")`, rowNo);
         else flag(k, field, "info", "", rowNo);

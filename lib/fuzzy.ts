@@ -4,8 +4,18 @@
  *   - saran: nilai terdaftar yang ejaannya paling mirip (jarak edit kecil), untuk pesan "mungkin maksudnya …".
  */
 
+/** Huruf Kirilik/Yunani yang bentuknya sama dengan huruf Latin (sering terbawa dari copy-paste) → huruf Latin. */
+const HOMO: Record<string, string> = { А: "A", В: "B", Е: "E", К: "K", М: "M", Н: "H", О: "O", Р: "P", С: "C", Т: "T", Х: "X", У: "Y", І: "I", Ј: "J", Ѕ: "S", Α: "A", Β: "B", Ε: "E", Ζ: "Z", Η: "H", Ι: "I", Κ: "K", Μ: "M", Ν: "N", Ο: "O", Ρ: "P", Τ: "T", Υ: "Y", Χ: "X" };
+/** Huruf besar + huruf Latin biasa (aksen & huruf kembar Kirilik dihilangkan). */
+export const plain = (v: unknown): string =>
+  String(v ?? "")
+    .toUpperCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u0370-\u04ff]/g, (c) => HOMO[c] ?? c);
+
 /** Kunci longgar: huruf besar, hanya huruf & angka. */
-export const loose = (v: unknown): string => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+export const loose = (v: unknown): string => plain(v).replace(/[^A-Z0-9]/g, "");
 
 /** Jarak edit (Levenshtein) dengan batas: berhenti lebih awal bila pasti > max. */
 export function editDistance(a: string, b: string, max: number): number {
@@ -46,7 +56,11 @@ export const TRUNC_MIN = 30;
  * adalah awal dari kunci ejaan lain ("…PANDU ENGINEERI" = "…PANDU ENGINEERING", "NIK : 620205231066000" =
  * "NIK : 6202052310660001"), hanya bila pasangannya satu.
  */
-export function makeMatcher(values: string[], keyOf: (v: unknown) => string = loose, opts: { truncated?: boolean } = {}): (v: unknown) => Match {
+export function makeMatcher(
+  values: string[],
+  keyOf: (v: unknown) => string = loose,
+  opts: { truncated?: boolean; /** Saran hanya dipakai kalau lolos cek ini (mis. plausibleCompanyTypo). */ accept?: (input: string, candidate: string) => boolean } = {}
+): (v: unknown) => Match {
   const byLoose = new Map<string, string>();
   values.forEach((x) => {
     const s = String(x ?? "").trim();
@@ -85,7 +99,9 @@ export function makeMatcher(values: string[], keyOf: (v: unknown) => string = lo
           } else if (d === bestD && d <= lim) ties++;
         }
       // Saran hanya kalau satu kandidat paling mirip (tidak ambigu).
-      res = { exact: null, suggest: best && bestD <= lim && ties === 1 ? byLoose.get(best)! : null };
+      let sug = best && bestD <= lim && ties === 1 ? byLoose.get(best)! : null;
+      if (sug && opts.accept && !opts.accept(String(v ?? ""), sug)) sug = null;
+      res = { exact: null, suggest: sug };
     }
     cache.set(k, res);
     return res;
@@ -93,20 +109,65 @@ export function makeMatcher(values: string[], keyOf: (v: unknown) => string = lo
 }
 
 /** Kata badan usaha yang diabaikan saat mencocokkan nama perusahaan. */
-const ENTITY_WORDS = new Set(["PT", "CV", "TBK", "PERSERO", "UD", "PD", "FA", "PERUM", "PERSEROAN", "TERBATAS"]);
+const ENTITY_WORDS = new Set(["PT", "CV", "TBK", "PERSERO", "UD", "PD", "FA", "PERUM", "PERSEROAN", "TERBATAS", "GROUP"]);
 
 /**
  * Kunci nama perusahaan: huruf besar, tanda baca dibuang, kata badan usaha (PT, CV, Tbk, Persero, …) diabaikan.
- * "PT. KAHATEX", "KAHATEX, PT" dan "Kahatex PT" → "KAHATEX".
+ * "PT. KAHATEX", "KAHATEX, PT" dan "Kahatex PT" → "KAHATEX"; "&" = "AND"; kata "GROUP" diabaikan;
+ * huruf Kirilik yang mirip huruf Latin (copy-paste) disamakan.
  */
 export function companyKey(v: unknown): string {
-  const words = String(v ?? "")
-    .toUpperCase()
+  const words = plain(v)
+    .replace(/&/g, " AND ")
     .replace(/[^A-Z0-9]+/g, " ")
     .trim()
     .split(" ")
     .filter((w) => w && !ENTITY_WORDS.has(w));
   return words.join("");
+}
+
+/** Kata-kata nama perusahaan (tanpa kata badan usaha), mis. "PT. SUMBER REZEKI" → ["SUMBER", "REZEKI"]. */
+export function companyWords(v: unknown): string[] {
+  return plain(v)
+    .replace(/&/g, " AND ")
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w && !ENTITY_WORDS.has(w));
+}
+
+/**
+ * Apakah "mungkin maksudnya …" masuk akal untuk nama perusahaan / group? Mencegah saran palsu yang hanya
+ * mirip karena kata umum (mis. "DENSO INDONESIA" → "DNP INDONESIA", "KINO INDONESIA" → "KAO INDONESIA").
+ * Diterima bila:
+ *   - sama kalau spasi diabaikan, atau beda spasi + 1 huruf ("MUSIMAS" ~ "MUSIM MAS");
+ *   - jumlah kata sama dan paling banyak 2 kata berbeda, masing-masing salah ketik kecil
+ *     (≤ 1 huruf untuk kata ≤ 7 huruf, ≤ 2 huruf untuk kata lebih panjang): "REZEKI" ~ "REJEKI", "PLANTATIONS" ~ "PLANTATION";
+ *   - salah satunya hanya punya tambahan kata pendek (≤ 3 huruf, mis. singkatan / sisa nama terpotong): "FR FIRST RESOURCES" ~ "FIRST RESOURCES".
+ */
+export function plausibleCompanyTypo(a: string, b: string): boolean {
+  const wa = companyWords(a), wb = companyWords(b);
+  if (wa.length === 0 || wb.length === 0) return false;
+  const ja = wa.join(""), jb = wb.join("");
+  if (ja === jb) return true;
+  // Beda spasi + 1 huruf ("MUSIMAS" ~ "MUSIM MAS")
+  if (wa.length !== wb.length && Math.min(ja.length, jb.length) >= 6 && editDistance(ja, jb, 1) <= 1) return true;
+  const small = (x: string, y: string) => {
+    const lim = Math.max(x.length, y.length) <= 7 ? 1 : 2;
+    return editDistance(x, y, lim) <= lim;
+  };
+  if (wa.length === wb.length) {
+    let diff = 0;
+    for (let i = 0; i < wa.length; i++) {
+      if (wa[i] === wb[i]) continue;
+      if (!small(wa[i], wb[i])) return false;
+      diff++;
+    }
+    return diff >= 1 && diff <= 2;
+  }
+  const [lo, hi] = wa.length < wb.length ? [wa, wb] : [wb, wa];
+  const extra = hi.filter((w) => !lo.includes(w));
+  return extra.length === hi.length - lo.length && extra.every((w) => w.length <= 3) && lo.every((w) => hi.includes(w));
 }
 
 /** Dua nama perusahaan dianggap sama: kunci perusahaan sama, atau salah satunya nama terpotong (≥ 30 huruf) dari yang lain. */
