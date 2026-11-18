@@ -296,6 +296,19 @@ async function fetchExcludedBranches(supabase: SupabaseClient): Promise<string[]
   return data.map((r: { business_area: string | null }) => String(r.business_area || "").trim().toUpperCase()).filter(Boolean);
 }
 
+/** Buang baris Master Part kembar: Product + Model (dinormalkan) + Part Number sama → baris pertama dipakai. */
+export function dedupeParts<P extends { product?: string | null; model?: string | null; part_number?: string | null }>(parts: P[]): P[] {
+  const seen = new Set<string>();
+  return parts.filter((p) => {
+    const pn = String(p.part_number ?? "").trim().toUpperCase();
+    if (!pn) return true;
+    const k = `${String(p.product ?? "").trim().toUpperCase()}|${normModel(p.model)}|${pn}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 /** Kunci Customer Group: huruf besar, spasi rapi, tanpa akhiran "GROUP" / "GRUP" / "GRP". */
 export function groupKey(g: string | null | undefined): string {
   return String(g ?? "")
@@ -375,7 +388,10 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchExcludedBranches(supabase)
   ]);
   // Nama model yang hanya beda format (spasi / - / _ / /) ditampilkan dengan SATU ejaan.
-  const { parts, uioUnitsAll: uioModelFixed } = unifyModelNames(partsRaw, uioUnitsRaw);
+  const { parts: partsUnified, uioUnitsAll: uioModelFixed } = unifyModelNames(partsRaw, uioUnitsRaw);
+  // Part Number yang sama untuk model yang sama cukup dihitung SEKALI. Dulu Master Part yang memuat model dengan
+  // dua ejaan ("8FBRE14S" dan "8FBRE14S-", "U50-5S" dan "U50 5S") membuat part-nya terhitung dua kali.
+  const parts = dedupeParts(partsUnified);
   // Customer Group "X GROUP" dan "X" (mis. "BGA GROUP" = "BGA") dianggap satu group.
   const groups = unifyCustomerGroups({
     uio: uioModelFixed,
