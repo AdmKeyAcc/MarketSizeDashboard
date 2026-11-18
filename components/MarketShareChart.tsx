@@ -86,7 +86,18 @@ export default function MarketShareChart({ state, theme }: { state: UseDashboard
                 tooltip: { callbacks: { label: (c) => `Market share: ${fmtPct((c.parsed.y as number) / 100)}` } }
               },
               scales: {
-                x: { ticks: { color: colors.ink }, grid: { display: false } },
+                x: {
+                  ticks: {
+                    color: colors.ink,
+                    maxRotation: 0,
+                    autoSkip: true,
+                    // "2026 · Jan–Okt" ditulis dua baris supaya tidak miring & menumpuk
+                    callback(v) {
+                      return String(this.getLabelForValue(Number(v))).split(" · ");
+                    }
+                  },
+                  grid: { display: false }
+                },
                 y: {
                   beginAtZero: true,
                   ticks: {

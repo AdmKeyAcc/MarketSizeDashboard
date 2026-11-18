@@ -152,7 +152,18 @@ export default function MarketSizeChart({ state, theme }: { state: UseDashboardS
                 tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y == null ? "tidak tersedia" : fmtVal(c.parsed.y as number)}` } }
               },
               scales: {
-                x: { ticks: { color: colors.ink }, grid: { display: false } },
+                x: {
+                  ticks: {
+                    color: colors.ink,
+                    maxRotation: 0,
+                    autoSkip: true,
+                    // "2026 · Jan–Okt" ditulis dua baris supaya tidak miring & menumpuk
+                    callback(v) {
+                      return String(this.getLabelForValue(Number(v))).split(" · ");
+                    }
+                  },
+                  grid: { display: false }
+                },
                 y: {
                   beginAtZero: true,
                   ticks: {

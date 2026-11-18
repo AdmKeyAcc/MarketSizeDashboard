@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { UseDashboardState } from "@/hooks/useDashboardState";
 import type { useCalculatorSummary } from "@/hooks/useCalculatorSummary";
-import { fmtIDRFull, fmtInt, uioYearsAvailable, uniq } from "@/lib/calculations";
+import { fmtIDRFull, fmtInt, normModel, uioYearsAvailable, uniq } from "@/lib/calculations";
 import { calcPart, scopeCustomers, type CalcOverrides, type CalcResult } from "@/lib/calcEngine";
 import { exportSummaryToExcel } from "@/lib/exportSummary";
 import { MONTH_ORDER, type CalcSummaryItem, type Part } from "@/lib/types";
@@ -70,18 +70,40 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
 
   // ---- part ----
   const products = useMemo(() => uniq(data.parts.map((p) => p.product)).sort(), [data.parts]);
-  const [product, setProduct] = useState(products[0] || "");
+  // Pilihan awal = model yang paling banyak unitnya di Data UIO (dulu: model pertama menurut abjad,
+  // yang sering 0 unit sehingga hasil pertama yang terlihat Rp 0).
+  const uioByModel = useMemo(() => {
+    const m = new Map<string, number>();
+    data.uioUnits.forEach((u) => {
+      const k = normModel(u.model);
+      if (k) m.set(k, (m.get(k) || 0) + 1);
+    });
+    return m;
+  }, [data.uioUnits]);
+  const unitsOf = (mdl: string) => uioByModel.get(normModel(mdl)) || 0;
+  const bestModel = (list: string[]) => list.reduce((b, x) => (unitsOf(x) > unitsOf(b) ? x : b), list[0] || "");
+  const firstProduct = useMemo(() => {
+    let best = products[0] || "";
+    let bestN = -1;
+    products.forEach((pr) => {
+      const n = uniq(data.parts.filter((p) => p.product === pr).map((p) => p.model)).reduce((s, x) => s + unitsOf(x), 0);
+      if (n > bestN) [best, bestN] = [pr, n];
+    });
+    return best;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, uioByModel]);
+  const [product, setProduct] = useState(firstProduct);
   const models = useMemo(() => uniq(data.parts.filter((p) => p.product === product).map((p) => p.model)).sort(), [data.parts, product]);
-  const [model, setModel] = useState(models[0] || "");
+  const [model, setModel] = useState(() => bestModel(models));
   const partOptions = useMemo(() => data.parts.filter((p) => p.product === product && p.model === model), [data.parts, product, model]);
   const [partKey, setPartKey] = useState("");
   const basePart = partOptions.find((p) => keyOf(p) === partKey);
 
   useEffect(() => {
-    if (!products.includes(product)) setProduct(products[0] || "");
+    if (!products.includes(product)) setProduct(firstProduct);
   }, [products, product]);
   useEffect(() => {
-    if (!models.includes(model)) setModel(models[0] || "");
+    if (!models.includes(model)) setModel(bestModel(models));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models]);
   useEffect(() => {
@@ -210,7 +232,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
           </select>
         </div>
         <div className="calc-field span-2">
-          <label>Part · {fmtInt(partOptions.length)} parts in this model</label>
+          <label>Part · {fmtInt(partOptions.length)} part di model ini</label>
           <select value={partKey} onChange={(e) => setPartKey(e.target.value)}>
             {partOptions.map((p, i) => (
               <option key={`${keyOf(p)}-${i}`} value={keyOf(p)}>

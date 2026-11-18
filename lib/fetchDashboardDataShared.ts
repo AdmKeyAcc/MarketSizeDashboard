@@ -12,6 +12,7 @@ import type {
   ActualQtyYear
 } from "@/lib/types";
 import { buildReferences, type References } from "@/lib/references";
+import { normModel } from "@/lib/calculations";
 
 const PAGE_SIZE = 1000;
 
@@ -103,12 +104,48 @@ export async function fetchAll<T>(
   return all;
 }
 
-/** Jumlah baris Actual per part (actual_sales_tx). Isinya sengaja TIDAK dimuat ke dashboard:
- * hasil sinkron dari web Sales bisa ratusan ribu baris (sejak 2018) dan belum ditampilkan di mana pun.
- * Kalau nanti tampilan Part butuh, ambil per tahun/customer sesuai filter, bukan semuanya. */
-async function countActualSalesTx(supabase: SupabaseClient): Promise<number> {
-  const head = await supabase.from("actual_sales_tx").select("id", { count: "exact", head: true });
-  return head.error ? 0 : head.count || 0;
+/**
+ * Model yang sama tapi beda penulisan ("MF 4708ST" / "MF4708ST", "S25A D4ER" / "S25A-D4ER")
+ * dihitung sebagai satu model (normModel), tapi dulu tetap tampil dua kali di filter, Summary,
+ * hierarchy dan Detail UIO. Di sini setiap model diberi satu ejaan tampilan:
+ *   1) ejaan yang paling sering dipakai di Master Part, kalau modelnya ada di Master Part;
+ *   2) kalau tidak ada, ejaan yang paling sering dipakai di Data UIO.
+ * Hanya mengubah data yang DIMUAT ke browser — isi database tidak diubah.
+ * (Hitungan actual_sales_tx dihapus: count exact di tabel besar itu kena timeout → error 500 setiap buka.)
+ */
+export function unifyModelNames<P extends { model?: string | null }, U extends { model?: string | null }>(
+  parts: P[],
+  uio: U[]
+): { parts: P[]; uioUnitsAll: U[] } {
+  const tally = (rows: { model?: string | null }[]) => {
+    const m = new Map<string, Map<string, number>>();
+    for (const r of rows) {
+      const raw = String(r.model ?? "").trim();
+      if (!raw) continue;
+      const k = normModel(raw);
+      let c = m.get(k);
+      if (!c) m.set(k, (c = new Map()));
+      c.set(raw, (c.get(raw) || 0) + 1);
+    }
+    return m;
+  };
+  const best = (c: Map<string, number>) =>
+    Array.from(c.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+  const fromParts = tally(parts);
+  const fromUio = tally(uio);
+  const pick = new Map<string, string>();
+  for (const k of new Set([...fromParts.keys(), ...fromUio.keys()])) {
+    const c = fromParts.get(k) || fromUio.get(k)!;
+    const spellings = new Set([...(fromParts.get(k)?.keys() || []), ...(fromUio.get(k)?.keys() || [])]);
+    if (spellings.size > 1) pick.set(k, best(c));
+  }
+  if (pick.size === 0) return { parts, uioUnitsAll: uio };
+  const fix = <T extends { model?: string | null }>(r: T): T => {
+    const raw = String(r.model ?? "").trim();
+    const to = raw ? pick.get(normModel(raw)) : undefined;
+    return to && to !== r.model ? { ...r, model: to } : r;
+  };
+  return { parts: parts.map(fix), uioUnitsAll: uio.map(fix) };
 }
 
 /**
@@ -260,10 +297,9 @@ async function fetchExcludedBranches(supabase: SupabaseClient): Promise<string[]
 }
 
 export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Promise<DashboardData> {
-  const [parts, customers, actualTxCount, actualSalesYear, uioUnitsAll, priceList, metaRows, references, actualQtyYear, excludedBranches] = await Promise.all([
+  const [partsRaw, customers, actualSalesYear, uioUnitsRaw, priceList, metaRows, references, actualQtyYear, excludedBranches] = await Promise.all([
     fetchAll<Part>(supabase, "parts"),
     fetchAll<Customer>(supabase, "customers"),
-    countActualSalesTx(supabase),
     fetchActualSalesYear(supabase),
     fetchAll<UioUnit>(supabase, "uio_units"),
     fetchAll<PriceListEntry>(supabase, "price_list"),
@@ -272,6 +308,8 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     fetchActualQtyYear(supabase),
     fetchExcludedBranches(supabase)
   ]);
+  // Nama model yang hanya beda format (spasi / - / _ / /) ditampilkan dengan SATU ejaan.
+  const { parts, uioUnitsAll } = unifyModelNames(partsRaw, uioUnitsRaw);
   // Cakupan website = cabang PAC. Unit di cabang yang Actual-nya tidak dihitung (MHB: JKT, SBY, SMG, BDG)
   // juga tidak dihitung di Market Size / UIO, supaya Market Size dan Actual Sales membandingkan cabang yang sama.
   const exSet = new Set(excludedBranches);
@@ -296,7 +334,6 @@ export async function fetchDashboardDataWithClient(supabase: SupabaseClient): Pr
     actual_year_ytd_month: ((findMeta("actual_sales_year") as { ytd_month?: string | null }).ytd_month) ?? null,
     actual_year_synced_at: ((findMeta("actual_sales_year") as { synced_at?: string | null }).synced_at) ?? null,
     actual_year_max_date: ((findMeta("actual_sales_year") as { max_date?: string | null }).max_date) ?? null,
-    actual_tx_count: actualTxCount,
     price_contract_filename: (findMeta("price_contract").filename as string) ?? null,
     price_contract_updated_at: updatedAt("price_contract"),
     price_non_contract_filename: (findMeta("price_non_contract").filename as string) ?? null,

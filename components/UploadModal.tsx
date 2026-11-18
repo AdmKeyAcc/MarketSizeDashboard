@@ -570,6 +570,14 @@ export default function UploadModal({
   const [tab, setTab] = useState<Tab>("uio");
   const [priceKind, setPriceKind] = useState<"contract" | "non_contract">("contract");
 
+  // Tombol Esc menutup modal (kecuali saat upload berjalan, sama seperti tombol ✕).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy, onClose]);
+
   if (!open) return null;
   const isAdm = auth?.role === "admin";
   const isBranch = auth?.role === "branch";

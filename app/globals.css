@@ -120,6 +120,9 @@ table { border-collapse: collapse; width: 100%; }
 .kpi.blue .kpi-value { color: var(--blue-600); }
 .kpi.red .kpi-value { color: var(--red-600); }
 .kpi.green .kpi-value { color: var(--green-600); }
+.kpi-num { white-space: nowrap; }
+.kpi-unit { font-size: 13px; font-weight: 500; white-space: nowrap; }
+@media (max-width: 420px) { .kpi-value { font-size: 16px; } .kpi-unit { font-size: 12px; } }
 .kpi-sub { font-size: 11.5px; color: var(--ink-mute); margin-top: 1px; }
 
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
@@ -379,7 +382,7 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
   .topbar .tabs { order: 3; width: 100%; }
   .topbar .tabs .tab { flex: 1; padding-left: 6px; padding-right: 6px; }
 }
-.pin-input { width: 130px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }
+.pin-input { width: 160px; padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }
 
 /* Tampilan saat data dashboard sedang dimuat */
 .loading-screen {
@@ -401,6 +404,7 @@ table.data td.editable-cell { background: color-mix(in srgb, var(--amber-100) 40
 .signin.on { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
 .signin-title { font-weight: 600; font-size: 13px; }
 .signin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.signin-row .pin-input { width: 170px; }
 .signin-row select { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 12.5px; background: var(--surface); color: inherit; }
 .upload-log { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 4px; }
 .upload-log th, .upload-log td { border-bottom: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top; }

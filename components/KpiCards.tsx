@@ -1,7 +1,22 @@
 "use client";
 
 import type { UseDashboardState } from "@/hooks/useDashboardState";
-import { fmtIDR, fmtPct } from "@/lib/calculations";
+import { fmtPct } from "@/lib/calculations";
+
+/** Rupiah untuk kartu KPI: satuan ditulis lengkap (Miliar / Juta) supaya "M" tidak terbaca "juta". */
+function Rp({ n }: { n: number }) {
+  if (!Number.isFinite(n)) return <>–</>;
+  const sign = n < 0 ? "-" : "";
+  const a = Math.abs(n);
+  const [v, unit] = a >= 1e12 ? [a / 1e12, "Triliun"] : a >= 1e9 ? [a / 1e9, "Miliar"] : a >= 1e6 ? [a / 1e6, "Juta"] : [a, ""];
+  const num = v.toLocaleString("id-ID", { maximumFractionDigits: unit ? 2 : 0 });
+  return (
+    <>
+      <span className="kpi-num">{`${sign}Rp ${num}`}</span>
+      {unit && <span className="kpi-unit"> {unit}</span>}
+    </>
+  );
+}
 
 export default function KpiCards({ state }: { state: UseDashboardState }) {
   const { marketSizeYearRows } = state;
@@ -43,11 +58,11 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
     <div className="kpis">
       <div className="kpi blue">
         <div className="kpi-label">Market Size</div>
-        <div className="kpi-value mono">{fmtIDR(ms)}</div>
+        <div className="kpi-value mono"><Rp n={ms} /></div>
       </div>
       <div className="kpi red">
         <div className="kpi-label">Actual Sales</div>
-        <div className="kpi-value mono">{comparable ? fmtIDR(act) : "–"}</div>
+        <div className="kpi-value mono">{comparable ? <Rp n={act} /> : "–"}</div>
         {!comparable && <div className="kpi-sub">{whyNot}</div>}
       </div>
       <div className="kpi green">
@@ -56,7 +71,7 @@ export default function KpiCards({ state }: { state: UseDashboardState }) {
       </div>
       <div className="kpi">
         <div className="kpi-label">Gap (Opportunity)</div>
-        <div className="kpi-value mono">{comparable ? fmtIDR(gap) : "–"}</div>
+        <div className="kpi-value mono">{comparable ? <Rp n={gap} /> : "–"}</div>
       </div>
     </div>
   );
