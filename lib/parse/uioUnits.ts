@@ -268,6 +268,8 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     .filter((f) => !OPTIONAL_COLS.has(f) && !COLS[f].some((c) => headerKeys.has(c)))
     .map((f) => COL_LABEL[f]);
   const issueMap = new Map<string, UioIssue>();
+  const missingModels = new Map<string, number>();
+  const missingProducts = new Map<string, number>();
   const flag = (key: string, field: string, level: UioIssue["level"], message: string, row: number) => {
     let it = issueMap.get(key);
     if (!it) issueMap.set(key, (it = { field, level, message, count: 0, rows: [] }));
@@ -410,8 +412,9 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const branchV = spell("Branch", mBranch, branch, rowNo, {
       level: "penting", key: "branch-unknown", none: "Branch belum pernah ada di data (cek ejaan / kode cabang)"
     });
-    if (K?.excludedBranches && K.excludedBranches.includes(String(branchV ?? branch ?? "").trim().toUpperCase()))
-      flag("branch-excluded", "Branch", "info", `Branch di luar cakupan (${K.excludedBranches.join(", ")}) — unit disimpan tapi tidak dihitung di Market Size`, rowNo);
+    const outOfScope = !!K?.excludedBranches && K.excludedBranches.includes(String(branchV ?? branch ?? "").trim().toUpperCase());
+    if (outOfScope)
+      flag("branch-excluded", "Branch", "info", `Branch di luar cakupan (${(K?.excludedBranches || []).join(", ")}) — unit disimpan tapi tidak dihitung di Market Size`, rowNo);
     const typeV = spell("Cust. Type", mType, custType, rowNo, {
       level: "penting", key: "type-unknown", none: `Cust. Type tidak dikenal — harus salah satu: ${(K?.custTypes || []).join(", ")}`
     });
@@ -419,16 +422,21 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     const groupV = spell("Cust. Group", mGroup, custGroup, rowNo, { level: "info", note: "cek typo; abaikan bila memang group baru", quietFix: true });
     const pssV = spell("Pss Name", mPss, pssName, rowNo, { level: "info", note: "cek typo; abaikan bila memang PSS baru" });
     let modelV = str(model);
-    if (pm) {
+    // Cocok tidaknya dengan Master Part hanya dicek untuk cabang yang dihitung (PAC). Model yang belum ada di Master Part
+    // dirangkum jadi SATU baris info (tanpa saran "mungkin maksudnya" — model mirip hampir selalu model lain, mis. 8FD70N ≠ 8FD50N).
+    if (pm && !outOfScope) {
       const pk = canonicalProduct(String(product));
       if (!partModels.has(pk)) {
         const s = mProduct(product).suggest;
-        if (s) flag(`product-typo:${loose(product)}`, "Product", "penting", `Product "${str(product)}" tidak ada di Master Part — mungkin maksudnya "${s}"?`, rowNo);
-        else flag("product-nomp", "Product", "info", "Product tidak ada di Master Part — unit tidak menyumbang Market Size", rowNo);
+        if (s && loose(s) !== loose(pk)) flag(`product-typo:${loose(product)}`, "Product", "penting", `Product "${str(product)}" tidak ada di Master Part — mungkin maksudnya "${s}"?`, rowNo);
+        else {
+          flag("product-nomp", "Product", "info", "Product belum ada di Master Part — unit disimpan, Market Size-nya 0", rowNo);
+          missingProducts.set(pk, (missingProducts.get(pk) || 0) + 1);
+        }
       } else if (modelV && !modelMatches(pk, modelV)) {
-        const s = modelMatcher(pk)(modelV).suggest;
-        if (s) flag(`model-typo:${pk}|${loose(modelV)}`, "Model", "penting", `Model "${modelV}" (${pk}) tidak cocok dengan Master Part — mungkin maksudnya "${s}"?`, rowNo);
-        else flag("model-nomp", "Model", "info", "Model tidak cocok dengan model di Master Part (cek ejaan) — unit tidak menyumbang Market Size", rowNo);
+        flag("model-nomp", "Model", "info", "Model belum ada di Master Part — unit disimpan, Market Size-nya 0", rowNo);
+        const mk = `${modelV} (${pk})`;
+        missingModels.set(mk, (missingModels.get(mk) || 0) + 1);
       }
     }
     const pt = normPriceType(priceTypeRaw);
@@ -536,6 +544,13 @@ export function parseUioUnitsWorkbook(wb: XLSX.WorkBook, opts: { minYear?: numbe
     );
   }
   const order = { penting: 0, info: 1 };
+  // Lengkapi pesan ringkas dengan model/product terbanyak supaya jelas apa yang perlu ditambahkan ke Master Part.
+  const top = (m: Map<string, number>, n: number) =>
+    Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, c]) => `${k}: ${c}`).join(", ");
+  const mm = issueMap.get("model-nomp");
+  if (mm && missingModels.size) mm.message = `${missingModels.size} model belum ada di Master Part (cabang yang dihitung) — unit disimpan, Market Size-nya 0. Terbanyak: ${top(missingModels, 8)}${missingModels.size > 8 ? ", …" : ""}`;
+  const mp2 = issueMap.get("product-nomp");
+  if (mp2 && missingProducts.size) mp2.message = `Product belum ada di Master Part (cabang yang dihitung) — unit disimpan, Market Size-nya 0: ${top(missingProducts, 10)}`;
   const issues = Array.from(issueMap.values()).sort((a, b) => order[a.level] - order[b.level] || b.count - a.count);
   return {
     rows: dropIdx.size ? parsed.filter((_, i) => !dropIdx.has(i)) : parsed,

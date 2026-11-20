@@ -249,8 +249,10 @@ export const CONTRACT_WIDTHS = [14, 28, 22, 18, 14, 20, 16, 16];
 export const CONTRACT_PRICE_COL = 4;
 export const NON_CONTRACT_HEADERS = ["Cust. Code", "Cust. Name", "Cust. Group", "Cust. Type", "Part Number", "Harga", "Tanggal Berlaku"];
 export const NON_CONTRACT_WIDTHS = [14, 28, 22, 18, 20, 16, 16];
-export const MASTER_PART_HEADERS = ["Product", "Model Unit", "Part Number", "Part Name", "Qty per Unit", "Frekuensi Ganti (HM)", "HM per Hari"];
-export const MASTER_PART_WIDTHS = [14, 18, 20, 28, 13, 20, 12];
+// Kolom "HM per Hari" dihapus (20 Nov): jam operasi cukup diisi sekali di Data UIO (HM/Day). Unit yang HM/Day-nya kosong
+// memakai angka default di pengaturan website. File Master Part lama yang masih punya kolom itu tetap bisa di-upload.
+export const MASTER_PART_HEADERS = ["Product", "Model Unit", "Part Number", "Part Name", "Qty per Unit", "Frekuensi Ganti (HM)"];
+export const MASTER_PART_WIDTHS = [14, 18, 20, 28, 13, 20];
 
 /** Daftar pilihan untuk dropdown template — diambil dari data yang sudah ada di website. */
 export type TemplateLists = {
@@ -320,8 +322,7 @@ export function masterPartRules(L: TemplateLists): Record<number, ColRule> {
     0: { kind: "list", values: L.products, strict: false, hint: "Pilih Product dari dropdown (ketik bila brand baru)." },
     1: { kind: "dependent", parentCol: 0, map: L.modelsByProduct, strict: false },
     4: { kind: "decimal", min: 0, max: 10000 },
-    5: { kind: "decimal", min: 1, max: 1000000 },
-    6: { kind: "decimal", min: 0, max: 24 }
+    5: { kind: "decimal", min: 1, max: 1000000 }
   };
 }
 

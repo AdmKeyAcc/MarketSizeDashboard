@@ -387,7 +387,10 @@ export function partAnnualHm(
   workdaysOf: WorkdaysOf
 ): { annualHm: number; hmDay: number } {
   const s = refs().settings;
-  const fallbackHm = inRange(partHmDay, 24) ?? s.default_hm_day;
+  // Jam operasi hanya dari Data UIO (HM/Day). Unit yang kosong memakai default di pengaturan;
+  // kolom "HM per Hari" di Master Part sudah tidak dipakai (parameter partHmDay dibiarkan agar pemanggil tidak berubah).
+  void partHmDay;
+  const fallbackHm = s.default_hm_day;
   if (!agg || agg.units <= 0) {
     return { annualHm: fallbackHm * workdaysOf(product) * s.default_months_year, hmDay: fallbackHm };
   }
@@ -403,7 +406,8 @@ export function partAnnualHm(
 export function partMonthlyQty(agg: UnitHm, partHmDay: number | null | undefined, freq: number, qtyPerUnit: number): Float64Array {
   const out = new Float64Array(12);
   if (!(freq > 0)) return out;
-  const fallbackHm = inRange(partHmDay, 24) ?? refs().settings.default_hm_day;
+  void partHmDay;
+  const fallbackHm = refs().settings.default_hm_day;
   for (let m = 0; m < 12; m++) out[m] = ((agg.knownM[m] + fallbackHm * agg.unknownBaseM[m]) / freq) * qtyPerUnit;
   return out;
 }

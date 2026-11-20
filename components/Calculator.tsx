@@ -247,7 +247,7 @@ function QuickCalculator({ state, summaryState }: { state: UseDashboardState; su
         <>
           <div className="calc-grid calc-grid-inputs">
             <AutoField label="UIO (unit)" auto={res.uioAuto} value={ov.uio ?? null} onChange={setO("uio")} decimals={0} autoNote={`Data UIO${year !== null ? ` s/d ${year}` : ""} · ${fmtInt(res.customers)} customer`} />
-            <AutoField label="HM / Day" auto={res.avg.hmDay} value={ov.hmDay ?? null} onChange={setO("hmDay")} step={0.5} autoNote={noUnits ? "Master Part / default" : "rata-rata Data UIO"} />
+            <AutoField label="HM / Day" auto={res.avg.hmDay} value={ov.hmDay ?? null} onChange={setO("hmDay")} step={0.5} autoNote={noUnits ? "default (pengaturan)" : "rata-rata Data UIO"} />
             <AutoField label="Day / Month" auto={res.avg.dayMonth} value={ov.dayMonth ?? null} onChange={setO("dayMonth")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
             <AutoField label="Month / Year" auto={res.avg.monthYear} value={ov.monthYear ?? null} onChange={setO("monthYear")} autoNote={noUnits ? "default" : "rata-rata Data UIO"} />
 

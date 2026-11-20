@@ -117,7 +117,8 @@ export function calcPart(
   let uioAuto = 0;
   let sumHm = 0, sumDm = 0, sumMy = 0;
   const aggAll: UnitHm = emptyUnitHm();
-  const partHm = positive(part.hm_day, 24) ?? s.default_hm_day;
+  // HM/Day cadangan = angka default di pengaturan (kolom HM per Hari Master Part tidak dipakai lagi).
+  const partHm = s.default_hm_day;
   const scoped = custs.map((c) => {
     const mu = matchedUnits(c, part.product, part.model, scope.year, pmList);
     mu.forEach((u) => {

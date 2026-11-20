@@ -117,8 +117,7 @@ export async function checkUploadFile(
       if (!product || !model || !pn) return flag("req", "Product / Model / Part Number", "penting", "Product, Model Unit atau Part Number kosong — baris dilewati", row);
       if (!Number.isFinite(qty) || qty < 0) return flag("qty", "Qty per Unit", "penting", "Qty per Unit kosong / bukan angka — baris dilewati", row);
       if (!Number.isFinite(freq) || freq <= 0) return flag("freq", "Frekuensi Ganti", "penting", "Frekuensi Ganti (HM) kosong / 0 — baris dilewati", row);
-      const hmRaw = txt(pick(n, COLS.hm));
-      if (hmRaw && !(Number(hmRaw) > 0 && Number(hmRaw) <= 24)) flag("hm", "HM per Hari", "info", "HM per Hari di luar 1–24 — dipakai nilai default", row);
+      if (txt(pick(n, COLS.hm))) flag("hm", "HM per Hari", "info", "Kolom HM per Hari tidak dipakai lagi — jam operasi diambil dari HM/Day di Data UIO. Kolom ini boleh dihapus.", row);
       if (mProduct) {
         const m = mProduct(canonicalProduct(product));
         if (m.exact === null && m.suggest) flag(`product-typo:${loose(product)}`, "Product", "penting", `Product "${product}" belum dikenal — mungkin maksudnya "${m.suggest}"? (abaikan bila memang brand baru)`, row);

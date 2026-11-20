@@ -97,7 +97,7 @@ export function buildSheet(kind: DownloadKind, input: Any[], nonContractDiscount
       headers: MASTER_PART_HEADERS,
       widths: MASTER_PART_WIDTHS,
       rules: masterPartRules(L),
-      rows: rows.map((r) => [v(r.product), v(r.model), v(r.part_number), v(r.part_name), num(r.qty_per_unit), num(r.freq_replacement_hm), num(r.hm_day)])
+      rows: rows.map((r) => [v(r.product), v(r.model), v(r.part_number), v(r.part_name), num(r.qty_per_unit), num(r.freq_replacement_hm)])
     };
   }
 
